@@ -1312,7 +1312,7 @@ Run: `pnpm add -D -w msw@^2.4.0`
 ```ts
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { LineClient } from '../../src/line/client.js'
 
 const server = setupServer()
@@ -1320,6 +1320,8 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 afterEach(() => server.resetHandlers())
 afterAll(() => server.close())
 
+// จงใจสร้างที่ module scope ไม่ใช่ใน beforeAll — ถ้า LineClient กลับไปจับ globalThis.fetch
+// ตอน constructor เมื่อไหร่ เทสต์ชุดนี้จะแดงทันที แทนที่จะหลุดไปยิง LINE ของจริงเงียบ ๆ
 const client = new LineClient({ accessToken: 'test-token' })
 
 const payload = {
@@ -1415,6 +1417,19 @@ describe('LineClient เส้นทางปกติ', () => {
     expect((await client.getBotInfo()).displayName).toBe('ร้านทดสอบ')
   })
 
+  it('ใช้ globalThis.fetch ตอนเรียก ไม่ใช่ตอนสร้าง — ไม่งั้น interceptor ที่ติดตั้งทีหลังจะถูกข้าม', async () => {
+    const original = globalThis.fetch
+    const stub = vi.fn(async () => HttpResponse.json({ richMenuId: 'rm-stub' }))
+    try {
+      globalThis.fetch = stub as unknown as typeof fetch
+      // client ตัวนี้ถูกสร้างไปตั้งแต่ module scope ก่อนที่ stub จะถูกติดตั้ง
+      expect(await client.createRichMenu(payload)).toBe('rm-stub')
+      expect(stub).toHaveBeenCalledOnce()
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
   it('ชี้ base URL ไป line-mock ได้', async () => {
     const local = new LineClient({ accessToken: 't', apiBaseUrl: 'http://127.0.0.1:4010' })
     server.use(http.post('http://127.0.0.1:4010/v2/bot/richmenu', () =>
@@ -1479,7 +1494,7 @@ export class LineClient {
   readonly #token: string
   readonly #base: string
   readonly #dataBase: string
-  readonly #fetch: typeof fetch
+  readonly #fetch: typeof fetch | undefined
   readonly #sleep: (ms: number) => Promise<void>
   readonly #maxAttempts: number
 
@@ -1487,7 +1502,8 @@ export class LineClient {
     this.#token = options.accessToken
     this.#base = options.apiBaseUrl ?? DEFAULT_API_BASE
     this.#dataBase = options.apiDataBaseUrl ?? DEFAULT_API_DATA_BASE
-    this.#fetch = options.fetchImpl ?? globalThis.fetch
+    // เก็บเฉพาะตัวที่ถูกฉีดเข้ามา — ห้ามจับ globalThis.fetch ตรงนี้ ดูเหตุผลใน #send
+    this.#fetch = options.fetchImpl
     this.#sleep = options.sleep ?? defaultSleep
     this.#maxAttempts = options.maxAttempts ?? 3
   }
@@ -1562,7 +1578,12 @@ export class LineClient {
       const headers: Record<string, string> = { authorization: `Bearer ${this.#token}` }
       if (spec.contentType) headers['content-type'] = spec.contentType
 
-      const res = await this.#fetch(spec.url, {
+      // หา fetch ตอนเรียก ไม่ใช่ตอนสร้าง object
+      // ถ้าจับไว้ตั้งแต่ constructor ตัว interceptor ที่ติดตั้งทีหลัง (msw, undici MockAgent,
+      // OpenTelemetry, proxy agent ที่ตั้งใน bootstrap ของ Strapi) จะถูกข้ามทั้งหมด
+      // ซึ่งแปลว่า client ที่ควรถูกดักไว้จะหลุดออกไปยิง LINE ของจริงเงียบ ๆ
+      const fetchImpl = this.#fetch ?? globalThis.fetch
+      const res = await fetchImpl(spec.url, {
         method: spec.method,
         headers,
         ...(spec.body === undefined ? {} : { body: spec.body }),
