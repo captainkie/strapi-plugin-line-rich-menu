@@ -293,14 +293,17 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
 
       <ui.Flex justifyContent="flex-end">{actions}</ui.Flex>
 
-      <TemplatePicker
-        open={picking}
-        currentKey={draft.templateKey}
-        hasConfiguredActions={draft.areas.some(hasAnyActionConfigured)}
-        hasImage={draft.image !== null}
-        onApply={applyTemplate}
-        onClose={() => setPicking(false)}
-      />
+      {/* mount ใหม่ทุกครั้งที่เปิด ไม่ใช่ mount ค้างแล้วสั่งซ่อน — state ภายในของ picker
+          (แบบที่เลือกไว้ / กล่องยืนยัน) จะได้เริ่มใหม่ทุกรอบ ดูเหตุผลเต็มที่หัว TemplatePicker.tsx */}
+      {picking ? (
+        <TemplatePicker
+          currentKey={draft.templateKey}
+          hasConfiguredActions={draft.areas.some(hasAnyActionConfigured)}
+          hasImage={draft.image !== null}
+          onApply={applyTemplate}
+          onClose={() => setPicking(false)}
+        />
+      ) : null}
     </ui.Flex>
   )
 }

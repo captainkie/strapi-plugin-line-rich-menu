@@ -61,6 +61,40 @@ describe('RichMenuEditor', () => {
     expect(screen.getByTestId('image-input')).not.toBeDisabled()
   })
 
+  // picker ไม่มีพร็อพ `open` อีกแล้ว — การไม่อยู่บนจอคือการไม่ได้ถูก mount การันตีนี้จึงย้ายมาอยู่ที่นี่
+  // แทนที่จะอยู่ในเทสต์ของ picker เอง
+  it('picker ไม่อยู่บนจอจนกว่าจะกดเปิด', () => {
+    setup()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('open-template-picker'))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  // picker เคยถูก mount ค้างไว้ตลอดอายุหน้า (open={picking}) — useState ข้างในจึงไม่เคยรีเซ็ต
+  // ทางเดินที่พัง: ผู้ใช้ที่ตั้ง action ไว้แล้วเปิด picker เลือกแบบอื่น กด Apply จนได้กล่องยืนยัน
+  // แล้ว "ปิด modal" แทนที่จะตอบ — `confirming` ค้างเป็น true พอเปิด picker ใหม่จะเจอกล่องยืนยัน
+  // ทันทีโดยไม่มีตารางให้เลือกเลย และมันพูดถึง template ที่เขาเดินจากไปแล้ว คลิกเดียวทิ้งงานทั้งหมด
+  it('ปิด modal ทิ้งกลางกล่องยืนยัน แล้วเปิดใหม่ ต้องได้ตารางสด ไม่ใช่กล่องยืนยันค้างจากรอบก่อน', () => {
+    setup()
+    chooseTemplate('RICH_MENU_TEMPLATE_205')
+    fireEvent.click(screen.getByTestId('area-header-0'))
+    fireEvent.change(screen.getByLabelText('action.field.label'), { target: { value: 'ปุ่ม' } })
+
+    fireEvent.click(screen.getByTestId('open-template-picker'))
+    fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_201'))
+    fireEvent.click(screen.getByTestId('template-apply'))
+    expect(screen.getByTestId('template-confirm')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('close'))
+    fireEvent.click(screen.getByTestId('open-template-picker'))
+
+    expect(screen.queryByTestId('template-confirm')).not.toBeInTheDocument()
+    expect(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_205'))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_201'))
+      .toHaveAttribute('aria-pressed', 'false')
+  })
+
   it('ปุ่มเปลี่ยน template เปลี่ยนคำจาก Select เป็น Change เมื่อเลือกแล้ว', () => {
     setup()
     expect(screen.getByTestId('open-template-picker').textContent).toContain('common.select')
