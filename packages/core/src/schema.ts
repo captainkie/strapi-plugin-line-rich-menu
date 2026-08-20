@@ -5,6 +5,26 @@ import type { RichMenuPayload } from './types.js'
 
 export const ALLOWED_URI_SCHEMES = ['https:', 'http:', 'tel:', 'line:'] as const
 
+/**
+ * รหัส validation ที่ schema นี้กำหนดเอง (ต่างจาก code มาตรฐานของ zod เช่น too_small, too_big,
+ * unrecognized_keys ที่ใช้ค่าของ zod เองได้เลย ไม่ต้องประกาศซ้ำที่นี่ — ดูคอมเมนต์ของ
+ * `toValidationIssue` ด้านล่าง)
+ *
+ * เป็นที่เดียวที่พิมพ์สตริงพวกนี้ — ทุกจุดที่ตั้ง `params: { code: ... }` ในไฟล์นี้อ้างกลับมาที่ค่า
+ * ใน `VALIDATION_CODE_DEF` แทนพิมพ์ literal ซ้ำเอง (แพทเทิร์นเดียวกับ `SIZE_LADDER_DEF` →
+ * `LINE_ALLOWED_SIZES` ใน templates.ts) เพื่อให้ `packages/ui/src/i18n/index.ts` (`validationKey`)
+ * และเทสต์ guard ของมัน (`packages/ui/tests/i18n.test.ts`) import `VALIDATION_CODES` ไปตรวจว่า
+ * คำแปลครบทุก code จริง แทนที่จะเทียบกับ list ที่ hand-copy มาจากที่นี่แล้วไม่มีทางรู้ว่าไฟล์นี้
+ * เพิ่ม code ใหม่เมื่อไหร่ (นี่คือช่องโหว่ที่พบใน carry-forward ของ Plan 02 Task 13)
+ */
+const VALIDATION_CODE_DEF = {
+  uriSchemeNotAllowed: 'uri_scheme_not_allowed',
+  canvasSizeNotAllowed: 'canvas_size_not_allowed',
+  areaOutOfBounds: 'area_out_of_bounds',
+} as const
+
+export const VALIDATION_CODES: readonly string[] = Object.freeze(Object.values(VALIDATION_CODE_DEF))
+
 const uriString = z.string().min(1).max(1000).refine((value) => {
   let parsed: URL
   try {
@@ -15,7 +35,7 @@ const uriString = z.string().min(1).max(1000).refine((value) => {
   return (ALLOWED_URI_SCHEMES as readonly string[]).includes(parsed.protocol)
 }, {
   message: 'uri must use one of the allowed schemes: https, http, tel, line',
-  params: { code: 'uri_scheme_not_allowed' },
+  params: { code: VALIDATION_CODE_DEF.uriSchemeNotAllowed },
 })
 
 const label = z.string().min(1).max(20).optional()
@@ -50,7 +70,7 @@ const sizeSchema = z.object({
   (s) => isAllowedCanvas(s),
   {
     message: 'size must be one of the canvas sizes LINE accepts',
-    params: { code: 'canvas_size_not_allowed' },
+    params: { code: VALIDATION_CODE_DEF.canvasSizeNotAllowed },
   },
 )
 
@@ -68,7 +88,7 @@ export const richMenuPayloadSchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ['areas', index, 'bounds'],
         message: 'area falls outside the canvas',
-        params: { code: 'area_out_of_bounds' },
+        params: { code: VALIDATION_CODE_DEF.areaOutOfBounds },
       })
     }
   })

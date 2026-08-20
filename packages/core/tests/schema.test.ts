@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ValidationError, type ValidationIssue } from '../src/errors.js'
-import { validateRichMenu } from '../src/schema.js'
+import { validateRichMenu, VALIDATION_CODES } from '../src/schema.js'
 
 /** เรียก validateRichMenu แล้วคืน issues ที่ได้ — ล้มเทสต์ถ้ามันดันผ่าน */
 function issuesOf(input: unknown): readonly ValidationIssue[] {
@@ -148,6 +148,39 @@ describe('validateRichMenu', () => {
     const found = issues.find((i) => i.code === 'unrecognized_keys')
     expect(found).toBeDefined()
     expect(found?.path).toBe('(root)')
+  })
+
+  // VALIDATION_CODES คือแหล่งเดียวที่ packages/ui/src/i18n (validationKey + เทสต์ guard ของมัน)
+  // ใช้ตรวจว่าคำแปลของ validation.* ครบ — เทสต์นี้ปักหมุดว่ามันมีครบไม่ขาดไม่เกิน ถ้าใครเผลอลบ
+  // code ออกจาก VALIDATION_CODE_DEF โดยที่ params: { code: ... } ยังอ้างถึงอยู่ ที่นี่จะพังก่อน
+  // ให้เห็นตอนคอมไพล์อยู่แล้ว (ตัวแปรอ้างไม่ถึง) แต่ถ้าใครลบ entry ที่ไม่มี refinement ไหนอ้างถึง
+  // เทสต์นี้จับ drift ของ "รายการ" ตรง ๆ แทนที่จะพึ่ง type error เพียงอย่างเดียว
+  it('VALIDATION_CODES มี code ที่ schema นี้ตั้งเองครบทั้ง 3 ตัว ไม่มากไม่น้อยกว่านี้', () => {
+    expect([...VALIDATION_CODES].sort()).toEqual(
+      ['area_out_of_bounds', 'canvas_size_not_allowed', 'uri_scheme_not_allowed'],
+    )
+  })
+
+  it('ทุก code ใน VALIDATION_CODES โผล่จริงเป็น issue.code เมื่อ payload ผิดแบบที่ code นั้นตรวจ', () => {
+    const uriIssues = issuesOf({
+      ...base,
+      areas: [{ ...base.areas[0], action: { type: 'uri', uri: 'javascript:alert(1)' } }],
+    })
+    expect(uriIssues.map((i) => i.code)).toContain('uri_scheme_not_allowed')
+
+    const sizeIssues = issuesOf({ ...base, size: { width: 999, height: 999 } })
+    expect(sizeIssues.map((i) => i.code)).toContain('canvas_size_not_allowed')
+
+    const boundsIssues = issuesOf({
+      ...base,
+      areas: [{ ...base.areas[0], bounds: { x: 2000, y: 0, width: 1000, height: 100 } }],
+    })
+    expect(boundsIssues.map((i) => i.code)).toContain('area_out_of_bounds')
+
+    for (const code of VALIDATION_CODES) {
+      const allEmitted = [...uriIssues, ...sizeIssues, ...boundsIssues].map((i) => i.code)
+      expect(allEmitted, `${code} ไม่เคยถูกโค้ดจริง emit เลยสักครั้ง`).toContain(code)
+    }
   })
 
   it('ยอมรับช่องที่อยู่ตำแหน่งบวกจริง ๆ ไม่ใช่แค่ที่มุม (0,0)', () => {
