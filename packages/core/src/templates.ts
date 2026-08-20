@@ -70,6 +70,23 @@ export function sizeNameFor(size: RichMenuSize): RichMenuSizeName | undefined {
   return undefined
 }
 
+/**
+ * "ผืนผ้าใบเปลี่ยนขนาดไหม" — คำถามที่ต้องมีคำตอบเดียวในโปรแกรมทั้งตัว
+ *
+ * เดิมมีสองคำตอบที่คนละที่: `TemplatePicker` ตัดสินว่าจะเตือนผู้ใช้ก่อนไหมโดยเทียบ `sizeName`
+ * ส่วน `RichMenuEditor` ตัดสินว่าจะทิ้งรูปที่อัปไว้ไหมโดยเทียบพิกเซลจริง ทั้งสองให้คำตอบตรงกัน
+ * เพียงเพราะทุก template ที่มีอยู่ตอนนี้บังเอิญใช้ขนาดขั้นแรกของกลุ่มตัวเองพอดี — เพิ่ม template
+ * ที่ `sizeName: 'large'` แต่ `size` เป็น 1200×810 (ซึ่งเป็นขั้นที่ถูกต้องของ `SIZE_LADDER.large`)
+ * เมื่อไหร่ ผู้ใช้จะไม่ได้รับคำเตือนเลยขณะที่รูปของเขาถูกทิ้งเงียบ ๆ
+ *
+ * คำตอบที่ถูกคือพิกเซลจริง เพราะสิ่งที่ตัดสินว่ารูปเดิมยังพอดีไหมคือพิกัด ไม่ใช่ชื่อกลุ่ม
+ *
+ * `from === null` (ยังไม่เคยเลือก template) นับเป็น "เปลี่ยน" — ไม่มีผืนผ้าใบเดิมให้รูปพอดีอยู่แล้ว
+ */
+export function canvasSizeChanged(from: RichMenuSize | null, to: RichMenuSize): boolean {
+  return from === null || from.width !== to.width || from.height !== to.height
+}
+
 const b = (x: number, y: number, width: number, height: number): Bounds => ({ x, y, width, height })
 
 const defs: TemplateDef[] = [

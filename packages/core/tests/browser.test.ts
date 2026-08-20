@@ -15,6 +15,9 @@ describe('subpath "./browser" — โค้ดที่ปลอดภัยจ�
     expect(browserEntry.LINE_ALLOWED_SIZES).toBeDefined()
     expect(browserEntry.isAllowedCanvas).toBeTypeOf('function')
     expect(browserEntry.sizeNameFor).toBeTypeOf('function')
+    // ฝั่ง admin (packages/ui) เรียกตัวนี้ทั้งใน TemplatePicker และ RichMenuEditor — ถ้ามันหลุด
+    // ออกจาก subpath นี้ ทั้งสองที่จะกลับไปตัดสิน "ผืนผ้าใบเปลี่ยนขนาดไหม" กันเองคนละแบบอีก
+    expect(browserEntry.canvasSizeChanged).toBeTypeOf('function')
     expect(browserEntry.validateRichMenu).toBeTypeOf('function')
     expect(browserEntry.renderTemplateSvg).toBeTypeOf('function')
     expect(browserEntry.areaLabel).toBeTypeOf('function')

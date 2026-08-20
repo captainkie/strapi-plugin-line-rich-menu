@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
-  SIZE_LADDER, TEMPLATES, renderTemplateSvg, type RichMenuSizeName, type TemplateDef,
+  SIZE_LADDER, TEMPLATES, canvasSizeChanged, renderTemplateSvg,
+  type RichMenuSizeName, type TemplateDef,
 } from '@fosivo/line-rich-menu-core/browser'
 import { usePort } from '../port.js'
 import { OUTLINE_COLOR } from '../styles.js'
@@ -38,11 +39,14 @@ export function TemplatePicker({
   const [selected, setSelected] = useState<string | null>(currentKey)
   const [confirming, setConfirming] = useState(false)
 
-  // เปลี่ยนขนาดผืนผ้าใบ (large ↔ compact) = พิกัดเปลี่ยนทั้งชุด รูปเดิมจึงไม่พอดีกับผืนผ้าใบใหม่อีกต่อไป
-  // (สเปก §5.6.3) ต่างจาก action ตรงที่ถ้าขนาดเท่าเดิม รูปยังใช้ต่อได้ ไม่ต้องเสียของเดิม
-  const sizeChanged = selected !== null && currentKey !== null
-    && TEMPLATES[currentKey]?.sizeName !== TEMPLATES[selected]?.sizeName
-  const willDropImage = hasImage && sizeChanged
+  // เปลี่ยนขนาดผืนผ้าใบ = พิกัดเปลี่ยนทั้งชุด รูปเดิมจึงไม่พอดีกับผืนผ้าใบใหม่อีกต่อไป (สเปก §5.6.3)
+  // ต่างจาก action ตรงที่ถ้าขนาดเท่าเดิม รูปยังใช้ต่อได้ ไม่ต้องเสียของเดิม
+  //
+  // ต้องถามผ่าน canvasSizeChanged ของ core เท่านั้น — ที่นี่กับ RichMenuEditor ต้องตอบคำถามนี้
+  // ตรงกันเสมอ ไม่งั้นจะเตือนโดยไม่ทิ้ง หรือ (แย่กว่า) ทิ้งโดยไม่เตือน
+  const nextSize = selected === null ? null : TEMPLATES[selected]?.size ?? null
+  const currentSize = currentKey === null ? null : TEMPLATES[currentKey]?.size ?? null
+  const willDropImage = hasImage && nextSize !== null && canvasSizeChanged(currentSize, nextSize)
 
   const apply = () => {
     if (selected === null) return
