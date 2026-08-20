@@ -61,6 +61,15 @@ export function ImageField({ value, size, disabled, onChange }: ImageFieldProps)
       return
     }
 
+    // measure() คืนขนาดที่ไม่วัดได้จริง (0 หรือไม่จำกัด) ได้เมื่อ decode ล้มเหลวแบบเงียบ ๆ
+    // ถ้าปล่อยให้หารกันตรง ๆ actual จะกลาย NaN และ `NaN > 0.01` เป็น false เสมอ — guard ด้านล่าง
+    // จะปล่อยไฟล์ผ่านราวกับสัดส่วนตรง ทั้งที่วัดไม่ได้เลย ต้องกันไว้ก่อนถึงจุดหาร
+    if (!Number.isFinite(measured.width) || measured.width <= 0
+      || !Number.isFinite(measured.height) || measured.height <= 0) {
+      setError(t('image.error.ratio', { expected: `${size.width}×${size.height}` }))
+      return
+    }
+
     const wanted = size.width / size.height
     const actual = measured.width / measured.height
     if (Math.abs(wanted - actual) > 0.01) {
