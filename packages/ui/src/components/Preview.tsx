@@ -14,6 +14,11 @@ export interface PreviewProps {
 export function Preview({ size, bounds, imageUrl, chatBarText, expanded }: PreviewProps) {
   const { t } = usePort()
 
+  // จงใจไม่ผ่าน ui.* เลยทั้ง markup นี้ (สเปก §5.2, ข้อยกเว้นที่สอง) — สีอย่าง #8ba7d0 เป็นสีวอลเปเปอร์
+  // แชทของ LINE เอง ไม่ใช่ token ของ design system ถ้าเปลี่ยนไปวาดด้วย ui.Typography/ui.Flex
+  // พรีวิวจะสืบทอด type scale กับ spacing ของ Strapi admin เข้ามาแทน ซึ่งขัดกับหน้าที่ของ component
+  // นี้ตรงๆ เพราะมันต้องจำลองว่าเมนูหน้าตาเป็นยังไง **ในแอป LINE** ไม่ใช่ในหน้า Strapi — subtree นี้
+  // ฝัง CanvasEditor ซึ่งเป็นข้อยกเว้นอยู่แล้วด้วย จึงยกเว้นทั้งก้อนไปพร้อมกัน
   return (
     <div style={{ width: 320, border: '1px solid #dcdce4', borderRadius: 8, overflow: 'hidden' }}>
       <div style={{ background: '#8ba7d0', height: 180, padding: '.75rem' }}>
