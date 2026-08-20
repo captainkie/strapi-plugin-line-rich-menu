@@ -7,11 +7,11 @@ import type { UIPort, UIPrimitives } from './port.js'
  * ถ้าเทสต์ทุกตัวรันผ่านชุดนี้ได้ แปลว่า component ไม่ได้แอบพึ่ง DS จริงอยู่
  */
 const primitives: UIPrimitives = {
-  Button: ({ onClick, disabled, variant = 'default', type = 'button', children }) => (
-    <button type={type} onClick={onClick} disabled={disabled} data-variant={variant}>{children}</button>
+  Button: ({ onClick, disabled, variant = 'default', type = 'button', children, testId }) => (
+    <button type={type} onClick={onClick} disabled={disabled} data-variant={variant} data-testid={testId}>{children}</button>
   ),
-  IconButton: ({ onClick, label, disabled, children }) => (
-    <button type="button" onClick={onClick} disabled={disabled} aria-label={label}>{children}</button>
+  IconButton: ({ onClick, label, disabled, children, testId }) => (
+    <button type="button" onClick={onClick} disabled={disabled} aria-label={label} data-testid={testId}>{children}</button>
   ),
   TextInput: ({ name, value, onChange, label, hint, error, maxLength, disabled, placeholder }) => (
     <label>
@@ -86,6 +86,18 @@ const primitives: UIPrimitives = {
   Tooltip: ({ label, children }) => <span title={label}>{children}</span>,
 }
 
+/**
+ * stub ของ `t` — ไม่ใช่ library แปลภาษา แค่ replace `{name}` ด้วยค่าจาก `values` ทีละคู่
+ * ไม่มี `values` หรือไม่มีคู่ไหนตรงกับ key เลยก็คืน key เดิมไม่เปลี่ยนแปลง
+ */
+function defaultT(key: string, values?: Record<string, string | number>): string {
+  if (values === undefined) return key
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(`{${name}}`, String(value)),
+    key,
+  )
+}
+
 export function createStubPort(overrides: Partial<UIPort> = {}): UIPort {
   return {
     ui: primitives,
@@ -97,7 +109,7 @@ export function createStubPort(overrides: Partial<UIPort> = {}): UIPort {
     },
     toast: () => {},
     nav: { push: () => {}, Link: ({ to, children }) => <a href={to}>{children}</a> },
-    t: (key) => key,
+    t: defaultT,
     ...overrides,
   }
 }

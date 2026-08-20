@@ -39,4 +39,37 @@ describe('UIPort', () => {
     expect(toast).toHaveBeenCalledOnce()
     expect(typeof port.t).toBe('function')
   })
+
+  it('t() ค่าเริ่มต้นแทน {name} ด้วยค่าจาก values', () => {
+    const port = createStubPort()
+    expect(port.t('hello {name}', { name: 'World' })).toBe('hello World')
+  })
+
+  it('t() ค่าเริ่มต้นคืน key เดิมเมื่อไม่มี values', () => {
+    const port = createStubPort()
+    expect(port.t('hello {name}')).toBe('hello {name}')
+  })
+
+  it('t() ค่าเริ่มต้นคืน key เดิมเมื่อ values ไม่มีอะไรตรงกับ placeholder ใน key', () => {
+    const port = createStubPort()
+    expect(port.t('template.picker.areaCount', { count: 6 })).toBe('template.picker.areaCount')
+  })
+
+  it('ui.Button ใส่ testId แล้วออกมาเป็น data-testid บน <button> จริง', () => {
+    const port = createStubPort()
+    render(<port.ui.Button testId="my-button">click</port.ui.Button>)
+    expect(screen.getByTestId('my-button').tagName).toBe('BUTTON')
+  })
+
+  it('ui.Button ที่มี testId ยัง disabled ได้จริงบน element เดียวกัน', () => {
+    const port = createStubPort()
+    render(<port.ui.Button testId="my-button" disabled>click</port.ui.Button>)
+    expect(screen.getByTestId('my-button')).toBeDisabled()
+  })
+
+  it('ui.IconButton ใส่ testId แล้วออกมาเป็น data-testid บน <button> จริง', () => {
+    const port = createStubPort()
+    render(<port.ui.IconButton label="icon" testId="my-icon-button">✕</port.ui.IconButton>)
+    expect(screen.getByTestId('my-icon-button').tagName).toBe('BUTTON')
+  })
 })

@@ -42,9 +42,20 @@ describe('TemplatePicker', () => {
     expect(container.querySelectorAll('svg').length).toBe(12)
   })
 
-  it('บอกจำนวนช่องของแต่ละแบบ', () => {
-    setup()
-    expect(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_201').textContent).toContain('6')
+  // จำนวนช่องเป็นข้อมูล ไม่ใช่คำแปล — key คงที่เสมอ ค่านับ (ตัวเลข) ต้องไปทาง values ของ t()
+  // ไม่ใช่ hardcode ต่อท้าย ตรวจผ่าน mock ของ t() แทนการมองหาตัวเลขใน textContent เพราะ
+  // stub ของแพ็กเกจนี้คืน key ดิบเสมอ (ดู stub-port.tsx) — เนื้อความจริงมาจาก catalog ของ adapter
+  it('บอกจำนวนช่องของแต่ละแบบผ่าน t() ด้วย count ที่ถูกต้อง', () => {
+    const t = vi.fn((key: string) => key)
+    render(
+      <PortProvider value={createStubPort({ t })}>
+        <TemplatePicker
+          open currentKey={null} hasConfiguredActions={false}
+          onApply={vi.fn()} onClose={vi.fn()}
+        />
+      </PortProvider>,
+    )
+    expect(t).toHaveBeenCalledWith('template.picker.areaCount', { count: 6 })
   })
 
   it('ทำเครื่องหมายแบบที่ใช้อยู่', () => {
