@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import type { UIPort, UIPrimitives } from './port.js'
+import type { HttpClient, UIPort, UIPrimitives } from './port.js'
 
 /**
  * ทางที่ `RadioGroup` ส่ง name/ค่าที่เลือกอยู่/ตัวรับค่ากลับ ลงไปถึง `Radio` แต่ละตัว
@@ -139,6 +139,19 @@ function defaultT(key: string, values?: Record<string, string | number>): string
     (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
     key,
   )
+}
+
+/**
+ * client ที่ reject ทุกเมธอด — คือรูปที่ adapter ต้องทำให้ได้เมื่อเซิร์ฟเวอร์ตอบ non-2xx
+ * (ดูข้อกำหนดบน `HttpClient` ใน port.ts)
+ *
+ * มีไว้ให้เทสต์ยืนยันทางเดินของความล้มเหลวได้จริง ไม่ใช่ปล่อยให้ข้อกำหนดนั้นเป็นแค่คอมเมนต์:
+ * stub ปกติ resolve ทุกอย่างเป็น `{}` ซึ่งหน้าจอแยกไม่ออกจาก "โหลดสำเร็จแต่ไม่มีข้อมูล"
+ * เทสต์ที่ใช้ตัวนี้จึงเป็นหลักฐานเดียวที่บอกว่าหน้าจอมี error state จริงเมื่อ request ล้ม
+ */
+export function createRejectingHttpClient(reason: unknown = new Error('stub_http_rejected')): HttpClient {
+  const reject = async (): Promise<never> => { throw reason }
+  return { get: reject, post: reject, put: reject, del: reject }
 }
 
 export function createStubPort(overrides: Partial<UIPort> = {}): UIPort {
