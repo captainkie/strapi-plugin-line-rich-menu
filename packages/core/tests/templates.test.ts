@@ -68,6 +68,25 @@ describe('แคตตาล็อก template', () => {
     const keys = new Set(LINE_ALLOWED_SIZES.map((s) => `${s.width}x${s.height}`))
     expect(keys.size).toBe(6)
   })
+
+  // ค่าตายตัว (independent oracle) ห้ามลบทิ้งหรือเปลี่ยนไป derive จาก SIZE_LADDER/LINE_ALLOWED_SIZES —
+  // ถ้า assertion ด้านล่างเทียบ ladder กับค่าที่ derive มาจาก ladder เอง มันจะพังไม่ได้เลยไม่ว่า
+  // ตัวเลขจริงจะผิดแค่ไหน (ดู PR ที่ลบ literal นี้ไปครั้งก่อน — ทำให้ 1200x405 กับ 800x270
+  // ไม่มี assertion ใดพินไว้เลยทั้งไฟล์) ตัวเลข 6 ค่านี้มาจากสเปก LINE 4.1 ตรง ๆ พิมพ์ซ้ำในเทสต์
+  // เป็นความตั้งใจ ไม่ใช่ duplication ที่ต้อง dedupe
+  const LINE_SPEC_SIZES = new Set([
+    '2500x1686', '2500x843', '1200x810', '1200x405', '800x540', '800x270',
+  ])
+
+  it('LINE_ALLOWED_SIZES ตรงกับสเปก LINE 4.1 เป๊ะทั้ง 6 ขนาด (independent oracle ไม่ derive จาก source)', () => {
+    const actual = new Set(LINE_ALLOWED_SIZES.map((s) => `${s.width}x${s.height}`))
+    for (const key of actual) {
+      expect(LINE_SPEC_SIZES.has(key), `${key} ไม่อยู่ใน spec ที่ตรึงไว้ในเทสต์`).toBe(true)
+    }
+    for (const key of LINE_SPEC_SIZES) {
+      expect(actual.has(key), `${key} หายไปจาก LINE_ALLOWED_SIZES`).toBe(true)
+    }
+  })
 })
 
 describe('isAllowedCanvas', () => {
