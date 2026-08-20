@@ -162,6 +162,10 @@ export function CanvasEditor({
                 className="frm-handle"
                 data-testid={`resize-handle-${index}`}
                 onPointerDown={beginDrag(index, 'resize')}
+                // pointerdown's stopPropagation() only stops the pointer sequence — a real browser still
+                // synthesises a click after a quick tap on the handle, and that click bubbles to the
+                // area's role="button" and fires onSelect. Stop it here too.
+                onClick={(event) => event.stopPropagation()}
                 style={{
                   position: 'absolute',
                   right: 0,

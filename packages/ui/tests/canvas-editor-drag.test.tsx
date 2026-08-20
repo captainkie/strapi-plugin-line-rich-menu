@@ -100,6 +100,23 @@ describe('CanvasEditor — ลากและปรับขนาด', () => {
     expect(next.height).toBeGreaterThanOrEqual(10)
   })
 
+  // jsdom's fireEvent.pointerDown/pointerUp never synthesise the follow-up `click` a real browser
+  // fires after a quick tap, so this test cannot reproduce the actual bug (tap-without-drag on the
+  // handle selecting the area). It only pins that *if* a click reaches the handle, it must not bubble
+  // to the area's onSelect. The real-browser sequence has to be checked by hand in the playground.
+  it('คลิกที่มือจับปรับขนาดเฉยๆ (ไม่ผ่าน onPointerDown) ต้องไม่เลือกช่อง — click ต้องไม่บับเบิลขึ้นไปที่ role="button"', () => {
+    const onSelect = vi.fn()
+    render(
+      <CanvasEditor
+        size={SIZE} bounds={BOUNDS} showOutlines activeIndex={null}
+        onSelect={onSelect} onBoundsChange={vi.fn()}
+      />,
+    )
+    const handle = screen.getAllByTestId(/resize-handle/)[0]!
+    fireEvent.click(handle)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
   it('การกด Enter เพื่อเลือกช่องยังทำงานเหมือนเดิมแม้จะแก้ไขได้', () => {
     const onSelect = vi.fn()
     render(
