@@ -16,8 +16,8 @@ export interface UIPrimitives {
   Radio: ComponentType<{ name: string; value: string; checked: boolean; onChange: (value: string) => void; children?: ReactNode }>
   Toggle: ComponentType<{ name: string; checked: boolean; onChange: (checked: boolean) => void; label?: string }>
   Modal: ComponentType<{ open: boolean; onClose: () => void; title: string; footer?: ReactNode; children?: ReactNode }>
-  Typography: ComponentType<{ variant?: 'alpha' | 'beta' | 'delta' | 'omega' | 'pi'; textColor?: 'neutral600' | 'neutral800' | 'danger600'; children?: ReactNode }>
-  Flex: ComponentType<{ direction?: 'row' | 'column'; gap?: number; alignItems?: string; justifyContent?: string; wrap?: string; children?: ReactNode }>
+  Typography: ComponentType<{ variant?: 'alpha' | 'beta' | 'delta' | 'omega' | 'pi'; textColor?: 'neutral600' | 'neutral800' | 'danger600' | 'success600' | 'warning600'; children?: ReactNode }>
+  Flex: ComponentType<{ direction?: 'row' | 'column'; gap?: number; alignItems?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | 'baseline'; justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | 'baseline'; wrap?: 'wrap' | 'nowrap'; children?: ReactNode }>
   Divider: ComponentType<Record<string, never>>
   Alert: ComponentType<{ variant: 'success' | 'warning' | 'danger'; title?: string; onClose?: () => void; children?: ReactNode }>
   Loader: ComponentType<{ children?: ReactNode }>
