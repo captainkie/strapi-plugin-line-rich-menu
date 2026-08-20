@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  TEMPLATES, ValidationError, validateRichMenu,
+  TEMPLATES, ValidationError, canvasSizeChanged, validateRichMenu,
   type Bounds, type RichMenuSizeName,
 } from '@fosivo/line-rich-menu-core/browser'
 import { emptyActionForm, toAction, type ActionFormState } from '../action-form.js'
@@ -87,10 +87,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
   const applyTemplate = (key: string) => {
     const next = TEMPLATES[key]!
     setDraft((prev) => {
-      const prevTemplate = prev.templateKey === null ? null : TEMPLATES[prev.templateKey] ?? null
-      const sizeChanged = prevTemplate === null
-        || prevTemplate.size.width !== next.size.width
-        || prevTemplate.size.height !== next.size.height
+      const prevSize = prev.templateKey === null ? null : TEMPLATES[prev.templateKey]?.size ?? null
       return {
         ...prev,
         templateKey: key,
@@ -98,9 +95,12 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
         bounds: [...next.bounds],
         // เปลี่ยน template = ช่องเปลี่ยนทั้งชุด action เดิมจึงผูกกับช่องเดิมไม่ได้อีก
         areas: next.bounds.map(() => emptyActionForm()),
-        // เปลี่ยนขนาดผืนผ้าใบ (large ↔ compact) = พิกัดเปลี่ยนทั้งชุด รูปเดิมจึงไม่พอดีกับผืนผ้าใบใหม่
-        // อีกต่อไป (สเปก §5.6.3) — ต่างจาก action ตรงที่ถ้าขนาดเท่าเดิม รูปยังใช้ต่อได้ ไม่ต้องเสียของเดิม
-        image: sizeChanged ? null : prev.image,
+        // เปลี่ยนขนาดผืนผ้าใบ = พิกัดเปลี่ยนทั้งชุด รูปเดิมจึงไม่พอดีกับผืนผ้าใบใหม่อีกต่อไป (สเปก §5.6.3)
+        // ต่างจาก action ตรงที่ถ้าขนาดเท่าเดิม รูปยังใช้ต่อได้ ไม่ต้องเสียของเดิม
+        //
+        // ต้องเป็น predicate ตัวเดียวกับที่ TemplatePicker ใช้ตัดสินว่าจะเตือนไหม — สองที่นี้ตอบ
+        // ไม่ตรงกันเมื่อไหร่ ผู้ใช้จะโดนทิ้งรูปโดยไม่มีใครถามเขาก่อน
+        image: canvasSizeChanged(prevSize, next.size) ? null : prev.image,
       }
     })
     setActive(null)

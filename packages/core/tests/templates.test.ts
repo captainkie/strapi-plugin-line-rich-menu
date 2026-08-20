@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  isAllowedCanvas, LINE_ALLOWED_SIZES, sizeNameFor, SIZE_LADDER, TEMPLATES, type TemplateDef,
+  canvasSizeChanged, isAllowedCanvas, LINE_ALLOWED_SIZES, sizeNameFor, SIZE_LADDER, TEMPLATES,
+  type TemplateDef,
 } from '../src/templates.js'
 
 const all = Object.values(TEMPLATES)
@@ -51,6 +52,17 @@ describe('แคตตาล็อก template', () => {
       const sum = t.bounds.reduce((acc, b) => acc + b.width * b.height, 0)
       expect(sum, `${t.key} พื้นที่รวมไม่เท่าผืนผ้าใบ`).toBe(t.size.width * t.size.height)
       expect(hasOverlap(t), `${t.key} มีช่องทับกัน`).toBe(false)
+    }
+  })
+
+  // สมมติฐานที่โค้ดฝั่ง UI เคยพึ่งอยู่เงียบ ๆ: "เทียบ sizeName ก็เท่ากับเทียบพิกเซล" ซึ่งจริงเพียง
+  // เพราะทุก template ที่มีอยู่ตอนนี้ใช้ขั้นแรกของกลุ่มตัวเองพอดี เทสต์นี้ทำให้สมมติฐานนั้นถูก "ตรวจ"
+  // ไม่ใช่ถูก "พึ่ง" — เพิ่ม template ที่ sizeName: 'large' แต่ size เป็น 1200×810 (ขั้นที่ถูกต้อง
+  // ของ SIZE_LADDER.large) เมื่อไหร่ ตรงนี้จะแดงทันทีแทนที่จะไปโผล่เป็นรูปที่หายไปเงียบ ๆ บนจอผู้ใช้
+  it('ทุกแบบใช้ขนาดขั้นแรกของกลุ่มตัวเอง — sizeName กับพิกเซลจริงจึงยังบอกเรื่องเดียวกันอยู่', () => {
+    for (const t of all) {
+      expect(t.size, `${t.key} ใช้ขนาดที่ไม่ใช่ขั้นแรกของกลุ่ม ${t.sizeName}`)
+        .toEqual(SIZE_LADDER[t.sizeName][0])
     }
   })
 
@@ -145,6 +157,31 @@ describe('SIZE_LADDER แช่แข็ง runtime — mutate ไม่ได�
     }
     expect(isAllowedCanvas({ width: 2500, height: 1686 })).toBe(true)
     expect(isAllowedCanvas({ width: 1, height: 1686 })).toBe(false)
+  })
+})
+
+// คำถาม "ผืนผ้าใบเปลี่ยนขนาดไหม" ต้องมีคำตอบเดียว — ก่อนหน้านี้มีสองที่ตอบคนละแบบ
+// (TemplatePicker เทียบ sizeName เพื่อตัดสินใจว่าจะเตือน, RichMenuEditor เทียบพิกเซลเพื่อตัดสินใจ
+// ว่าจะทิ้งรูป) เทสต์ชุดนี้ตรึงว่าคำตอบเดียวนั้นตัดสินจากพิกเซล ไม่ใช่ชื่อกลุ่ม
+describe('canvasSizeChanged', () => {
+  it('ขนาดเดิมเป๊ะ = ไม่เปลี่ยน', () => {
+    expect(canvasSizeChanged({ width: 2500, height: 1686 }, { width: 2500, height: 1686 })).toBe(false)
+  })
+
+  it('กว้างเท่าเดิมแต่สูงต่าง = เปลี่ยน', () => {
+    expect(canvasSizeChanged({ width: 2500, height: 1686 }, { width: 2500, height: 843 })).toBe(true)
+  })
+
+  it('ยังไม่มีผืนผ้าใบเดิม (null) = เปลี่ยน — ไม่มีอะไรให้รูปเดิมพอดีอยู่แล้ว', () => {
+    expect(canvasSizeChanged(null, { width: 2500, height: 1686 })).toBe(true)
+  })
+
+  // จุดตายของการเทียบด้วย sizeName: สองขนาดนี้อยู่ในกลุ่ม 'large' ทั้งคู่ ถ้าตัดสินด้วยชื่อกลุ่ม
+  // จะได้ "ไม่เปลี่ยน" ทั้งที่พิกัดต่างกันคนละเรื่อง และรูปที่อัปไว้ใช้กับผืนใหม่ไม่ได้เลย
+  it('สองขั้นในกลุ่มเดียวกัน (large 2500×1686 → large 1200×810) = เปลี่ยน ไม่ใช่ "กลุ่มเดิมเลยไม่เปลี่ยน"', () => {
+    const [first, second] = SIZE_LADDER.large
+    expect(sizeNameFor(first!)).toBe(sizeNameFor(second!))
+    expect(canvasSizeChanged(first!, second!)).toBe(true)
   })
 })
 
