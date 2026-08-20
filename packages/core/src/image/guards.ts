@@ -1,4 +1,4 @@
-import sharp from 'sharp'
+import sharp, { type Metadata } from 'sharp'
 import { ImageBombError, UnsupportedImageError } from '../errors.js'
 
 /** ~100 ล้านพิกเซล ประมาณ 400 MB ถ้า decode เป็น RGBA — เกินนี้ถือว่าจงใจโจมตี */
@@ -17,7 +17,7 @@ export interface ImageFacts {
  * ทำให้ปฏิเสธ decompression bomb ได้ก่อนที่หน่วยความจำจะถูกจอง
  */
 export async function inspectImage(input: Buffer): Promise<ImageFacts> {
-  let metadata: sharp.Metadata
+  let metadata: Metadata
   try {
     metadata = await sharp(input, { limitInputPixels: false }).metadata()
   } catch {
