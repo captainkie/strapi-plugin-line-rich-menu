@@ -30,6 +30,14 @@ describe('TemplatePicker', () => {
     expect(screen.getAllByTestId(/^template-option-RICH_MENU_TEMPLATE_1/)).toHaveLength(5)
   })
 
+  // หัวข้อกลุ่มเคยเป็น <h3> ดิบ ทั้งที่ทุกหัวข้ออื่นในแพ็กเกจวาดผ่าน port — adapter จึงจัดสไตล์
+  // ให้มันไม่ได้ ตอนนี้ผ่าน port แล้วต้องยังเป็นหัวข้อระดับ 3 อยู่ใต้ชื่อ modal (ระดับ 2) เหมือนเดิม
+  it('หัวข้อกลุ่มเป็นหัวข้อระดับ 3 จริง แม้จะย้ายไปวาดผ่าน port แล้ว', () => {
+    setup()
+    expect(screen.getByRole('heading', { level: 3, name: 'template.picker.group.large' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: 'template.picker.group.compact' })).toBeInTheDocument()
+  })
+
   it('หัวข้อกลุ่มระบุขนาดพิกเซลทั้งสามของกลุ่มนั้น', () => {
     setup()
     expect(screen.getByText(/2500×1686.*1200×810.*800×540/)).toBeInTheDocument()

@@ -23,7 +23,7 @@ export function ChatBarSettings({ value, onChange, error }: ChatBarSettingsProps
 
   return (
     <ui.Flex direction="column" gap={3}>
-      <ui.Typography variant="delta">{t('chatBar.title')}</ui.Typography>
+      <ui.Typography as="h2" variant="delta">{t('chatBar.title')}</ui.Typography>
 
       <ui.Flex direction="column" gap={1}>
         {/* ช่องข้อความอยู่นอก RadioGroup โดยตั้งใจ — มันไม่ใช่ตัวเลือกของกลุ่มนี้ ถ้าเอาไปไว้ข้างใน

@@ -31,7 +31,13 @@ export interface UIPrimitives {
   Radio: ComponentType<{ value: string; children?: ReactNode }>
   Toggle: ComponentType<{ name: string; checked: boolean; onChange: (checked: boolean) => void; label?: string }>
   Modal: ComponentType<{ open: boolean; onClose: () => void; title: string; footer?: ReactNode; children?: ReactNode }>
-  Typography: ComponentType<{ variant?: 'alpha' | 'beta' | 'delta' | 'omega' | 'pi'; textColor?: 'neutral600' | 'neutral800' | 'danger600' | 'success600' | 'warning600'; children?: ReactNode }>
+  /**
+   * `variant` คุมแค่ขนาด/น้ำหนักตัวอักษร ส่วน `as` คือ element ที่ออกมาจริง — ต้องแยกกัน เพราะ
+   * ไม่มี `as` แปลว่าไม่มีอะไรในแพ็กเกจนี้เป็นหัวข้อได้เลย หน้า editor จึงเคยไม่มี `<h1>`/`<h2>`
+   * สักตัว คนใช้ screen reader ที่ไล่หน้าด้วยรายการหัวข้อ (วิธีปกติที่สุด) ได้หน้าเปล่า
+   * ทั้งที่ตาเห็นหัวข้ออยู่หลายอัน — Typography ของ DS ทั้งสองเวอร์ชันรับ `as`/`tag` อยู่แล้ว
+   */
+  Typography: ComponentType<{ variant?: 'alpha' | 'beta' | 'delta' | 'omega' | 'pi'; textColor?: 'neutral600' | 'neutral800' | 'danger600' | 'success600' | 'warning600'; as?: 'h1' | 'h2' | 'h3' | 'h4' | 'p' | 'span'; children?: ReactNode }>
   /**
    * `alignItems` กับ `justifyContent` ใช้ union คนละชุด เพราะ CSS สองตัวนี้รับค่าไม่เหมือนกัน —
    * เดิมใช้ชุดเดียวกันทั้งคู่ ทำให้เขียน `alignItems="space-between"` (ไม่ใช่ค่าของ align-items)

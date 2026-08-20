@@ -202,7 +202,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
   return (
     <ui.Flex direction="column" gap={4}>
       <ui.Flex justifyContent="space-between" alignItems="center">
-        <ui.Typography variant="alpha">{t('editor.heading')}</ui.Typography>
+        <ui.Typography as="h1" variant="alpha">{t('editor.heading')}</ui.Typography>
         {actions}
       </ui.Flex>
 

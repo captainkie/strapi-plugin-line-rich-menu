@@ -61,7 +61,7 @@ export function ChannelSettings() {
 
   return (
     <ui.Flex direction="column" gap={3}>
-      <ui.Typography variant="alpha">{t('channel.heading')}</ui.Typography>
+      <ui.Typography as="h1" variant="alpha">{t('channel.heading')}</ui.Typography>
       {error === null ? null : <ui.Alert variant="danger">{error}</ui.Alert>}
       {tested === null ? null : <ui.Alert variant="success">{tested}</ui.Alert>}
 

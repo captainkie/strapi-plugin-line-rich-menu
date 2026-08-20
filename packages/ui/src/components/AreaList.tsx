@@ -30,7 +30,7 @@ export function AreaList({
   return (
     <ui.Flex direction="column" gap={2}>
       <ui.Flex justifyContent="space-between" alignItems="center">
-        <ui.Typography variant="delta">{t('editor.actions')}</ui.Typography>
+        <ui.Typography as="h2" variant="delta">{t('editor.actions')}</ui.Typography>
         <ui.Flex gap={1}>
           <ui.IconButton label={t('editor.view.list')} onClick={() => onViewChange('list')} testId="view-list">
             ☰

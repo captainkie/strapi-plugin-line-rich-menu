@@ -51,7 +51,7 @@ export function TemplatePicker({
 
   const renderGroup = (name: RichMenuSizeName) => (
     <section key={name}>
-      <h3>{t(`template.picker.group.${name}`)}</h3>
+      <ui.Typography as="h3" variant="delta">{t(`template.picker.group.${name}`)}</ui.Typography>
       <p>{sizesLabel(name)}</p>
       <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
         {group(name).map((tpl) => (
