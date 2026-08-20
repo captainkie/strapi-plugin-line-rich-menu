@@ -43,6 +43,11 @@ export function emptyDraft(): RichMenuDraft {
 }
 
 export interface RichMenuEditorProps {
+  /**
+   * ถูกอ่านแค่ตอน mount เท่านั้น (`useState(initial ?? emptyDraft())`) — ถ้ามาถึงก่อน fetch
+   * ของ record จริงเสร็จ (เช่นหน้า edit ของ Plan 03 ที่ยังไม่มีในตอนนี้) หน้านั้นต้อง render หลัง
+   * fetch เสร็จ หรือใช้ `key={id}` บังคับ remount ไม่งั้นฟอร์มจะโชว์ค่าว่างค้างทับของเดิมที่เพิ่งโหลดมา
+   */
   initial?: RichMenuDraft
   aliasOptions: readonly string[]
   onSave(draft: RichMenuDraft, publish: boolean): Promise<void>
