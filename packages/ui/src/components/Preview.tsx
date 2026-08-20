@@ -8,10 +8,21 @@ export interface PreviewProps {
   imageUrl?: string
   chatBarText: string
   expanded: boolean
+  /** ช่องที่เลือกอยู่ ส่งมาเมื่อ canvas ในนี้ถูกใช้เป็นตัวควบคุมจริง (ดูคอมเมนต์ที่ตัว CanvasEditor) */
+  activeIndex?: number | null
+  onSelect?: (index: number) => void
+  /** ไม่ส่งมา = เดาจากว่ามีรูปไหม ซึ่งเป็นพฤติกรรมที่ถูกสำหรับพรีวิวเฉยๆ ที่ไม่มีสวิตช์ให้กด */
+  showOutlines?: boolean
+  errors?: Readonly<Record<number, string>>
+  /** กว้างเท่ากรอบมือถือโดยดีฟอลต์ ผู้เรียกที่ต้องการพื้นที่ทำงานมากกว่านี้ส่งค่ามาเองได้ */
+  width?: number
 }
 
 /** กรอบโทรศัพท์จำลอง — เมนูอยู่ครึ่งล่างและแถบแชทสะท้อน label ที่พิมพ์ทันที (สเปก §5.7) */
-export function Preview({ size, bounds, imageUrl, chatBarText, expanded }: PreviewProps) {
+export function Preview({
+  size, bounds, imageUrl, chatBarText, expanded,
+  activeIndex, onSelect, showOutlines, errors, width = 320,
+}: PreviewProps) {
   const { t } = usePort()
 
   // จงใจไม่ผ่าน ui.* เลยทั้ง markup นี้ (สเปก §5.2, ข้อยกเว้นที่สอง) — สีอย่าง #8ba7d0 เป็นสีวอลเปเปอร์
@@ -20,24 +31,26 @@ export function Preview({ size, bounds, imageUrl, chatBarText, expanded }: Previ
   // นี้ตรงๆ เพราะมันต้องจำลองว่าเมนูหน้าตาเป็นยังไง **ในแอป LINE** ไม่ใช่ในหน้า Strapi — subtree นี้
   // ฝัง CanvasEditor ซึ่งเป็นข้อยกเว้นอยู่แล้วด้วย จึงยกเว้นทั้งก้อนไปพร้อมกัน
   return (
-    <div style={{ width: 320, border: '1px solid #dcdce4', borderRadius: 8, overflow: 'hidden' }}>
+    <div style={{ width, border: '1px solid #dcdce4', borderRadius: 8, overflow: 'hidden' }}>
       <div style={{ background: '#8ba7d0', height: 180, padding: '.75rem' }}>
         <span style={{ background: '#fff', borderRadius: 12, padding: '.3rem .6rem', fontSize: '.8rem' }}>
           {t('preview.greeting')}
         </span>
       </div>
       {expanded ? (
-        // aria-hidden: CanvasEditor วาดทุกช่องเป็น role="button" (CanvasEditor.tsx) แต่ตัวที่ฝังอยู่ตรงนี้
-        // เป็นแค่ภาพจำลองเฉยๆ ไม่ใช่ตัวควบคุมจริง — canvas หลักที่แก้ไขได้ต่างหากคือของจริง ถ้าไม่ซ่อน
-        // ชุดนี้จาก accessibility tree ทุกช่องจะมีอยู่สองชุดพร้อมกัน คน tab ด้วยคีย์บอร์ดจะเจอโซนที่กดแล้ว
-        // ไม่ทำอะไร และ screen reader จะพูดชื่อช่องซ้ำสองรอบโดยไม่มีทางบอกได้ว่าอันไหนคือของจริง
-        <div data-testid="preview-menu" aria-hidden="true">
+        // canvas ตัวนี้คือ **ตัวควบคุมจริง** ไม่ใช่ภาพประกอบ — ผัง §5.7 วาดช่อง A/B/C ไว้ในกรอบโทรศัพท์
+        // นี้ช่องเดียว พร้อมสวิตช์ "Show template outlines" อยู่ใต้กรอบ ไม่ได้มี canvas แยกอีกตัวข้างๆ
+        // เคยมีสองตัวอยู่ช่วงหนึ่ง (ตัวแก้ไขได้ตัวหนึ่ง กับตัวในนี้อีกตัว) ซึ่งทำให้ทุกช่องโผล่ซ้ำสองชุด
+        // ใน accessibility tree จึงเคยต้องปิดชุดนี้ด้วย aria-hidden — ห้ามใส่กลับ ตอนนี้มีชุดเดียวและ
+        // เป็นของจริง ถ้าซ่อนจะเท่ากับเอา editor ออกจากมือคนใช้ screen reader ทั้งหมด
+        <div data-testid="preview-menu">
           <CanvasEditor
             size={size}
             bounds={bounds}
-            showOutlines={imageUrl === undefined}
-            activeIndex={null}
-            onSelect={() => {}}
+            showOutlines={showOutlines ?? imageUrl === undefined}
+            activeIndex={activeIndex ?? null}
+            onSelect={onSelect ?? (() => {})}
+            {...(errors === undefined ? {} : { errors })}
             {...(imageUrl === undefined ? {} : { imageUrl })}
           />
         </div>

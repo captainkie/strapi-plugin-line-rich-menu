@@ -120,11 +120,26 @@ describe('Preview', () => {
     expect(text).not.toContain('chatBar.defaultLabel')
   })
 
-  // canvas ใน preview เป็นแค่ภาพจำลอง ไม่ใช่ตัวควบคุมจริง — ต้องไม่โผล่เป็น role="button" ให้คีย์บอร์ด
-  // หรือ screen reader หลงไปเจอ ไม่งั้นทุกช่องจะมีอยู่สองชุดในหน้าเดียวกัน (Preview.tsx)
-  it('ช่องในเมนูของ preview ไม่ถูกเปิดเป็น button ให้กดหรือแทบด้วยคีย์บอร์ด', () => {
-    wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
+  // canvas ในกรอบโทรศัพท์นี้คือตัวควบคุมจริงตามผัง §5.7 (ช่องเดียว ไม่ใช่พรีวิวคู่กับ canvas แยก)
+  // ช่องทุกช่องจึงต้องกดได้และ tab เข้าถึงได้ เคยมีช่วงที่มันถูก aria-hidden ตอนยังเป็นภาพประกอบ
+  // เทสต์นี้อยู่ตรงนี้เพื่อกันไม่ให้ใครใส่กลับ ซึ่งจะเท่ากับเอา editor ออกจากมือคนใช้ screen reader
+  it('ช่องในกรอบโทรศัพท์กดเลือกได้ เพราะเป็น canvas ตัวจริงไม่ใช่ภาพประกอบ', () => {
+    const onSelect = vi.fn()
+    wrap(
+      <Preview
+        size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded
+        activeIndex={null} onSelect={onSelect}
+      />,
+    )
     const menu = screen.getByTestId('preview-menu')
-    expect(within(menu).queryAllByRole('button')).toHaveLength(0)
+    expect(within(menu).getAllByRole('button')).toHaveLength(template.bounds.length)
+    fireEvent.click(within(menu).getAllByRole('button')[0]!)
+    expect(onSelect).toHaveBeenCalledWith(0)
+  })
+
+  // ผู้เรียกที่ต้องการแค่ภาพ (ไม่ส่ง onSelect) ต้องยังได้ภาพเหมือนเดิม ไม่ใช่ canvas ที่กดแล้วพัง
+  it('ไม่ส่ง onSelect มา ก็ยังวาดได้ตามปกติ', () => {
+    wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
+    expect(screen.getByTestId('preview-menu')).toBeInTheDocument()
   })
 })

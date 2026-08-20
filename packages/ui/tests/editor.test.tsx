@@ -60,19 +60,42 @@ describe('RichMenuEditor', () => {
   it('เลือกช่องบน canvas แล้ว accordion ของช่องนั้นกางออก', () => {
     setup()
     chooseTemplate()
-    // ต้อง scope เข้า canvas ที่แก้ไขได้จริงก่อน ไม่งั้นชนกับสำเนาที่วาดซ้ำใน Preview ซึ่งใช้ aria-label
-    // เดียวกัน — getByRole (ไม่ใช่ getAllByRole()[0]) พิสูจน์ว่าใน scope นี้มีปุ่มช่อง B แค่ตัวเดียวจริง
-    const canvas = within(screen.getByTestId('editable-canvas'))
+    // ต้อง scope เข้า canvas ก่อน เพราะหัว accordion ของ AreaList ก็ match /^B/ เหมือนกัน และการกดมัน
+    // ก็เรียก onSelect(1) ด้วย — ถ้า query ทั้งหน้า เทสต์นี้จะเขียวต่อไปแม้ลบ canvas ทิ้งทั้งอัน
+    // getByRole (ไม่ใช่ getAllByRole()[0]) พิสูจน์ว่าใน scope นี้มีปุ่มช่อง B แค่ตัวเดียวจริง
+    const canvas = within(screen.getByTestId('preview-menu'))
     fireEvent.click(canvas.getByRole('button', { name: /^B/ }))
     expect(screen.getByTestId('area-body-1')).toBeInTheDocument()
   })
 
-  it('สลับ outline ได้', () => {
+  // ผัง §5.7 มี canvas ช่องเดียว วาดอยู่ในกรอบโทรศัพท์ ตอนหนึ่งหน้านี้เคยวาดสองตัว (ตัวแก้ไขได้
+  // ตัวหนึ่ง กับตัวที่ Preview ฝังอีกตัว) ซึ่งเป็นต้นเหตุของทั้ง outline ที่สลับไม่ครบ, query ที่ชนกัน,
+  // และช่องที่โผล่ซ้ำสองชุดใน accessibility tree — เทสต์นี้กันไม่ให้ตัวที่สองกลับมาเงียบ ๆ
+  it('วาด canvas ตัวเดียว ไม่ใช่พรีวิวคู่กับ canvas แยก', () => {
     setup()
     chooseTemplate()
-    expect(screen.getAllByText(/×/).length).toBeGreaterThan(0)
+    expect(screen.getAllByTestId('rich-menu-canvas')).toHaveLength(1)
+    // และตัวเดียวนั้นต้องอยู่ในกรอบโทรศัพท์ ไม่ใช่ลอยอยู่ข้าง ๆ
+    expect(within(screen.getByTestId('preview-menu')).getByTestId('rich-menu-canvas'))
+      .toBeInTheDocument()
+  })
+
+  // สวิตช์นี้ต้องคุม canvas ตัวเดียวกับที่ผู้ใช้กดเลือกช่อง — ตอนที่หน้านี้ยังวาด canvas สองตัว
+  // (ตัวแก้ไขได้ กับตัวใน Preview) สวิตช์คุมได้แค่ตัวเดียว ป้ายขนาดของอีกตัวจึงค้างอยู่เสมอ
+  // เทสต์นี้จับตรงนั้นได้เพราะเช็คทั้งขาปิดและขาเปิดกลับ ไม่ใช่แค่ว่ากดแล้วมีอะไรหายไปบ้าง
+  it('สลับ outline ได้ทั้งขาปิดและขาเปิดกลับ', () => {
+    setup()
+    chooseTemplate()
+    // ป้ายขนาดมีหนึ่งอันต่อหนึ่งช่อง จึงต้องนับเป็นชุด ไม่ใช่คาดว่าจะเจอชิ้นเดียว
+    const labels = () => within(screen.getByTestId('preview-menu')).queryAllByText('2500×843')
+    const shown = labels().length
+    expect(shown).toBeGreaterThan(0)
+
     fireEvent.click(screen.getByLabelText('editor.showOutlines'))
-    expect(screen.queryByText('2500×843')).not.toBeInTheDocument()
+    expect(labels()).toHaveLength(0)
+
+    fireEvent.click(screen.getByLabelText('editor.showOutlines'))
+    expect(labels()).toHaveLength(shown)
   })
 
   it('แถบแชทใน preview อัปเดตตามที่พิมพ์ทันที', () => {

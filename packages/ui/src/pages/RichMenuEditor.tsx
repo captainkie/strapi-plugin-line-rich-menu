@@ -7,7 +7,6 @@ import { emptyActionForm, toAction, type ActionFormState } from '../action-form.
 import { usePort } from '../port.js'
 import { AreaList } from '../components/AreaList.js'
 import { ChatBarSettings, type ChatBarValue } from '../components/ChatBarSettings.js'
-import { CanvasEditor } from '../components/CanvasEditor.js'
 import { ImageField, type UploadedImage } from '../components/ImageField.js'
 import { MainSettings, type MainSettingsValue } from '../components/MainSettings.js'
 import { Preview } from '../components/Preview.js'
@@ -35,8 +34,8 @@ export function emptyDraft(): RichMenuDraft {
     bounds: [],
     sizeName: 'large',
     // เมนูใหม่แสดงแถบไว้ (shown) โดย default ตามที่ LINE OA Manager เองทำ — สเปก §5.7
-    // "Default behavior (•) Shown". Preview จะวาด CanvasEditor ซ้อนอีกชุดตอนกางแถบก็จริง แต่ชุดนั้น
-    // ถูกซ่อนจาก accessibility tree แล้ว (aria-hidden ที่ Preview.tsx) จึงไม่ชนกับ canvas หลักอีก
+    // "Default behavior (•) Shown" ค่านี้เป็นข้อมูลล้วน บอกว่าผู้ใช้ปลายทางเปิดแชทแล้วเห็นเมนูกางไหม
+    // ไม่ได้คุมว่าหน้า editor จะวาด canvas หรือเปล่า (ดูตรงที่ส่ง expanded ให้ Preview)
     chatBar: { mode: 'default', text: '', selected: true },
     image: null,
   }
@@ -217,17 +216,27 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
       <ui.Divider />
 
       <ui.Flex gap={4} alignItems="flex-start">
-        {/* Preview มาก่อนคอลัมน์ template/image/actions ตามผัง §5.7 (ซ้ายคือ Preview ขวาคือ
-            Template/Image/Actions) — เดิมสลับไว้เพราะ canvas ที่ฝังใน Preview วาดช่อง A/B ด้วย
-            aria-label เดียวกับ canvas หลักที่แก้ไขได้จริง ทำให้ query ด้วย role="button" ชนกัน
-            ตอนนี้ preview-menu ถูก aria-hidden แล้ว (ดู Preview.tsx) จึงไม่หลงเหลือใน accessibility
-            tree อีก ลำดับ DOM จึงกลับไปตามภาพหน้าจอได้โดยไม่กระทบการเลือกช่องด้วยคีย์บอร์ด/screen reader */}
+        {/* ผัง §5.7 วาด canvas ไว้ใน "กรอบโทรศัพท์" ช่องเดียว พร้อมสวิตช์ outline อยู่ใต้กรอบ
+            ไม่ใช่พรีวิวหนึ่งตัวกับ canvas ที่แก้ไขได้อีกตัวข้างๆ — Preview จึงเป็นตัวควบคุมจริง
+            ที่รับ activeIndex/onSelect/showOutlines/errors มาจากหน้านี้ */}
         <ui.Flex direction="column" gap={2}>
           <Preview
             size={size}
             bounds={draft.bounds}
             chatBarText={draft.chatBar.mode === 'custom' ? draft.chatBar.text : ''}
-            expanded={draft.chatBar.selected}
+            // ไม่ผูกกับ draft.chatBar.selected: นั่นคือค่าที่บอกว่า "ผู้ใช้ปลายทางเปิดแชทแล้วเห็นเมนู
+            // กางอยู่ไหม" ถ้าเอามาคุมการวาด canvas ตรงนี้ด้วย คนที่เลือก Collapsed จะเสีย canvas
+            // ที่กำลังแก้อยู่ไปทั้งอัน แก้ต่อไม่ได้เลย ในหน้า editor จึงกางเสมอเมื่อเลือก template แล้ว
+            expanded={template !== null}
+            activeIndex={active}
+            onSelect={setActive}
+            showOutlines={outlines}
+            errors={areaErrors}
+            // 320 (ดีฟอลต์ของ Preview) พอสำหรับภาพนิ่ง แต่ตรงนี้ canvas กดเลือกช่องได้จริงและเมนูมีได้
+            // ถึง 20 ช่อง — ที่ 320px ผืนผ้าใบขนาด large (2500×1686) ย่อเหลือ ~320×216 ทำให้ hit target
+            // ของแต่ละช่องเล็กเกินไป ทั้งเรื่องใช้งานจริงและ WCAG 2.5.8 (ขนาดเป้าหมายขั้นต่ำ) กว้างขึ้นเป็น
+            // 480 ให้พื้นที่กดพอสมควรโดยยังเหลือที่ให้คอลัมน์ Template/Image/Actions ทางขวา
+            width={480}
             {...(draft.image === null ? {} : { imageUrl: draft.image.url })}
           />
           <ui.Toggle
@@ -255,23 +264,6 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
               onChange={(next) => setDraft((prev) => ({ ...prev, image: next }))}
             />
           </ui.Flex>
-
-          {template === null ? null : (
-            // testid ของตัวเอง เพราะ CanvasEditor ทุกตัวใช้ data-testid="rich-menu-canvas" เหมือนกันหมด
-            // (รวมถึงชุดที่ฝังอยู่ใน Preview) — ต้องมี wrapper แยกให้ทดสอบ query เจาะจงมาที่ canvas
-            // ที่แก้ไขได้จริงตัวนี้ได้ ไม่ใช่ตัวไหนก็ได้ที่ query เจอก่อน
-            <div data-testid="editable-canvas">
-              <CanvasEditor
-                size={size}
-                bounds={draft.bounds}
-                showOutlines={outlines}
-                activeIndex={active}
-                onSelect={setActive}
-                errors={areaErrors}
-                {...(draft.image === null ? {} : { imageUrl: draft.image.url })}
-              />
-            </div>
-          )}
 
           <AreaList
             areas={draft.areas}
