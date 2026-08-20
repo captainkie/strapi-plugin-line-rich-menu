@@ -1,5 +1,6 @@
 import { useState, type ChangeEvent } from 'react'
 import type { RichMenuSize } from '@fosivo/line-rich-menu-core/browser'
+import { ENDPOINTS } from '../api.js'
 import { usePort } from '../port.js'
 
 export interface UploadedImage {
@@ -81,8 +82,9 @@ export function ImageField({ value, size, disabled, onChange }: ImageFieldProps)
     body.append('files', file)
     setBusy(true)
     try {
-      // `/upload` เป็น endpoint เดียวกันทั้ง Strapi 4 และ 5 — จงใจไม่แตะ Media Library UI
-      const uploaded = await http.post<UploadedImage[]>('/upload', body)
+      // ENDPOINTS.upload คือ endpoint เดียวกันทั้ง Strapi 4 และ 5 — จงใจไม่แตะ Media Library UI
+      // ประกาศ path ไว้ที่ api.ts จุดเดียว (สัญญาที่ adapter ของ Plan 03/04 อ่าน) ไม่ hardcode ซ้ำที่นี่
+      const uploaded = await http.post<UploadedImage[]>(ENDPOINTS.upload, body)
       const first = uploaded[0]
       if (first === undefined) throw new Error('empty_response')
       onChange(first)

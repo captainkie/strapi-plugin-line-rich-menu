@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { ENDPOINTS } from '../src/api.js'
 import { PortProvider, type HttpClient } from '../src/port.js'
 import { createStubPort } from '../src/stub-port.js'
 import { ImageField } from '../src/components/ImageField.js'
@@ -95,7 +96,9 @@ describe('ImageField', () => {
     const { onChange } = setup(createStubPort({ t: (k) => k, http: { ...createStubPort().http, post: post as unknown as HttpClient['post'] } }))
     fireEvent.change(screen.getByTestId('image-input'), { target: { files: [file()] } })
     await waitFor(() => expect(onChange).toHaveBeenCalled())
-    expect(post).toHaveBeenCalledWith('/upload', expect.any(FormData))
+    // ยืนยันกับค่าคงที่ใน api.ts แทนการ hardcode '/upload' ซ้ำ — ไม่งั้น test นี้เลิก track contract
+    // ที่มันมีไว้ป้องกันตั้งแต่ตอนที่มันหลุดไปจาก ENDPOINTS
+    expect(post).toHaveBeenCalledWith(ENDPOINTS.upload, expect.any(FormData))
     expect(onChange).toHaveBeenCalledWith({ id: 7, url: '/uploads/menu.png', width: 2500, height: 1686 })
   })
 
