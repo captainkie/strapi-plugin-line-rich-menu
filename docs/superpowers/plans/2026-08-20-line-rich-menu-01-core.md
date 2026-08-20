@@ -986,7 +986,7 @@ export function validateRichMenu(input: unknown): RichMenuPayload {
 - [ ] **Step 4: รัน test ให้ผ่าน**
 
 Run: `pnpm vitest run packages/core/tests/schema.test.ts`
-Expected: PASS ทุกเคส (รวม `describe.each` = 20 tests)
+Expected: PASS ทุกเคส รวมทั้ง block ที่กระจายด้วย `describe.each` (อย่ายึดตัวเลขจำนวนเทสต์ ให้ดูว่าไม่มีตัวไหนแดง)
 
 - [ ] **Step 5: เพิ่ม property test กันเคสที่คิดไม่ถึง**
 
