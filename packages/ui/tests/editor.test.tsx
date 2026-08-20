@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { PortProvider } from '../src/port.js'
 import { createStubPort } from '../src/stub-port.js'
@@ -58,7 +58,10 @@ describe('RichMenuEditor', () => {
   it('เลือกช่องบน canvas แล้ว accordion ของช่องนั้นกางออก', () => {
     setup()
     chooseTemplate()
-    fireEvent.click(screen.getAllByRole('button', { name: /^B/ })[0]!)
+    // ต้อง scope เข้า canvas ที่แก้ไขได้จริงก่อน ไม่งั้นชนกับสำเนาที่วาดซ้ำใน Preview ซึ่งใช้ aria-label
+    // เดียวกัน — getByRole (ไม่ใช่ getAllByRole()[0]) พิสูจน์ว่าใน scope นี้มีปุ่มช่อง B แค่ตัวเดียวจริง
+    const canvas = within(screen.getByTestId('editable-canvas'))
+    fireEvent.click(canvas.getByRole('button', { name: /^B/ }))
     expect(screen.getByTestId('area-body-1')).toBeInTheDocument()
   })
 
@@ -77,18 +80,28 @@ describe('RichMenuEditor', () => {
     expect(screen.getByTestId('preview-chat-bar').textContent).toContain('ทดสอบ')
   })
 
-  it('บันทึกร่างได้แม้ยังกรอกไม่ครบ — ร่างคือร่าง', async () => {
+  // ปุ่ม Save draft มีสองชุด (หัว/ท้ายฟอร์ม) จาก testid เดียวกัน — ไล่ทั้งคู่เพื่อพิสูจน์ว่าทั้งสองชุด
+  // บันทึกร่างเหมือนกันจริง ไม่ใช่แค่ชุดที่ทดสอบไว้
+  it('บันทึกร่างได้แม้ยังกรอกไม่ครบ — ร่างคือร่าง ไม่ว่าจะกดปุ่มหัวหรือท้ายฟอร์ม', async () => {
     const { onSave } = setup()
-    fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.anything(), false))
+    for (const button of screen.getAllByTestId('save-draft')) {
+      onSave.mockClear()
+      fireEvent.click(button)
+      await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.anything(), false))
+    }
   })
 
   // S1 (STANDING-CORRECTIONS.md) — stub-port's Alert renders role="status", not role="alert".
   // Assert the translation key the code actually passes to t() instead.
-  it('publish โดยยังไม่มี template ไม่ได้ และบอกว่าติดตรงไหน', async () => {
+  //
+  // ปุ่ม "Save" หัวฟอร์มกับท้ายฟอร์มใช้ testid "save-publish" เดียวกัน แต่ไม่เคยมีอะไรพิสูจน์ว่าทั้งคู่
+  // publish จริง (ไม่ใช่แค่บันทึกร่าง) — ไล่ทั้งสองปุ่มเพื่อยืนยันว่าพฤติกรรมเหมือนกัน
+  it('publish โดยยังไม่มี template ไม่ได้ และบอกว่าติดตรงไหน ไม่ว่าจะกดปุ่มหัวหรือท้ายฟอร์ม', async () => {
     const { onSave } = setup()
-    fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
-    await waitFor(() => expect(screen.getByText('editor.error.noTemplate')).toBeInTheDocument())
+    for (const button of screen.getAllByTestId('save-publish')) {
+      fireEvent.click(button)
+      await waitFor(() => expect(screen.getByText('editor.error.noTemplate')).toBeInTheDocument())
+    }
     expect(onSave).not.toHaveBeenCalled()
   })
 
