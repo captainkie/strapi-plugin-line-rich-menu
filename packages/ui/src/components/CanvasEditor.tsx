@@ -128,6 +128,9 @@ export function CanvasEditor({
           justifyContent: 'center',
           cursor: 'pointer',
           userSelect: 'none',
+          // ช่องทับกันได้ (LINE อนุญาตและ schema ก็ยอมรับ) — ช่อง active ต้องอยู่บนสุดเสมอ
+          // ไม่งั้นช่องที่วาดทีหลังใน DOM จะทับมือจับของช่องก่อนหน้าจนกดไม่ได้
+          zIndex: isActive ? 1 : 0,
           ...(showOutlines
             ? { border: `2px solid ${error === undefined ? OUTLINE_COLOR : INVALID_COLOR}` }
             : {}),
@@ -137,7 +140,11 @@ export function CanvasEditor({
 
         return (
           <div
-            key={`${b.x}-${b.y}-${b.width}-${b.height}`}
+            // ใช้ index เป็น key ไม่ใช่ bounds — bounds ชนกันได้ (ช่องทับกันที่ LINE อนุญาต) ทำให้
+            // key ซ้ำ และ bounds เปลี่ยนทุกพิกเซลตอนลาก ทำให้ subtree remount ทุกครั้งถ้า parent
+            // ควบคุม bounds แบบ controlled — ลิสต์นี้เป็นลำดับตำแหน่งตายตัว ช่อง A คือช่อง A เสมอ
+            // ไม่ว่าพิกัดจะเปลี่ยนไปแค่ไหน identity จึงเท่ากับตำแหน่ง ใช้ index ถูกแล้ว
+            key={index}
             className="frm-area"
             role="button"
             tabIndex={0}
@@ -165,6 +172,12 @@ export function CanvasEditor({
                 // pointerdown's stopPropagation() only stops the pointer sequence — a real browser still
                 // synthesises a click after a quick tap on the handle, and that click bubbles to the
                 // area's role="button" and fires onSelect. Stop it here too.
+                //
+                // This guard only works because the handle is a DOM descendant of the area's
+                // role="button" — stopPropagation() blocks bubbling up through *this* subtree only.
+                // Lifting handles out into a sibling or a separate overlay layer (e.g. to dodge the
+                // z-index/overlap issue above) breaks this silently, with no test failing to say so.
+                // If handles ever need to live outside the area, this guard has to move with them.
                 onClick={(event) => event.stopPropagation()}
                 style={{
                   position: 'absolute',

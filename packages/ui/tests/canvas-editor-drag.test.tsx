@@ -63,7 +63,7 @@ describe('CanvasEditor — ลากและปรับขนาด', () => {
     fireEvent.pointerMove(area, { clientX: 107, clientY: 100, pointerId: 1 })
     fireEvent.pointerUp(area, { pointerId: 1 })
     const [, next] = onBoundsChange.mock.calls.at(-1)!
-    expect(next.x % 10).toBe(0)
+    expect(next.x).toBe(20)
   })
 
   it('ลากออกนอกผืนผ้าใบไม่ได้ — ค่าถูกหนีบไว้ที่ขอบ', () => {
