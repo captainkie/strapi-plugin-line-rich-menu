@@ -1,0 +1,103 @@
+import type { UIPort, UIPrimitives } from './port.js'
+
+/**
+ * implementation ครบชุดที่ไม่พึ่ง Strapi เลย ใช้สองที่:
+ * เทสต์ของแพ็กเกจนี้ทั้งหมด และ playground ที่เปิดดูในเบราว์เซอร์
+ *
+ * ถ้าเทสต์ทุกตัวรันผ่านชุดนี้ได้ แปลว่า component ไม่ได้แอบพึ่ง DS จริงอยู่
+ */
+const primitives: UIPrimitives = {
+  Button: ({ onClick, disabled, variant = 'default', type = 'button', children }) => (
+    <button type={type} onClick={onClick} disabled={disabled} data-variant={variant}>{children}</button>
+  ),
+  IconButton: ({ onClick, label, disabled, children }) => (
+    <button type="button" onClick={onClick} disabled={disabled} aria-label={label}>{children}</button>
+  ),
+  TextInput: ({ name, value, onChange, label, hint, error, maxLength, disabled, placeholder }) => (
+    <label>
+      {label}
+      <input
+        name={name}
+        value={value}
+        maxLength={maxLength}
+        disabled={disabled}
+        placeholder={placeholder}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${name}-error` : undefined}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {hint ? <small>{hint}</small> : null}
+      {error ? <span id={`${name}-error`} role="alert">{error}</span> : null}
+    </label>
+  ),
+  Textarea: ({ name, value, onChange, label, error, rows = 3 }) => (
+    <label>
+      {label}
+      <textarea name={name} value={value} rows={rows} onChange={(e) => onChange(e.target.value)} />
+      {error ? <span role="alert">{error}</span> : null}
+    </label>
+  ),
+  Select: ({ name, value, onChange, label, error, disabled, children }) => (
+    <label>
+      {label}
+      <select name={name} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+        {children}
+      </select>
+      {error ? <span role="alert">{error}</span> : null}
+    </label>
+  ),
+  Option: ({ value, children }) => <option value={value}>{children}</option>,
+  Checkbox: ({ name, checked, onChange, children }) => (
+    <label>
+      <input type="checkbox" name={name} checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      {children}
+    </label>
+  ),
+  Radio: ({ name, value, checked, onChange, children }) => (
+    <label>
+      <input type="radio" name={name} value={value} checked={checked} onChange={() => onChange(value)} />
+      {children}
+    </label>
+  ),
+  Toggle: ({ name, checked, onChange, label }) => (
+    <label>
+      {label}
+      <input type="checkbox" role="switch" name={name} checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    </label>
+  ),
+  Modal: ({ open, onClose, title, footer, children }) =>
+    open ? (
+      <div role="dialog" aria-label={title}>
+        <h2>{title}</h2>
+        {children}
+        {footer}
+        <button type="button" onClick={onClose}>close</button>
+      </div>
+    ) : null,
+  Typography: ({ children }) => <span>{children}</span>,
+  Flex: ({ direction = 'row', gap = 0, children }) => (
+    <div style={{ display: 'flex', flexDirection: direction, gap }}>{children}</div>
+  ),
+  Divider: () => <hr />,
+  Alert: ({ variant, title, children }) => (
+    <div role="status" data-variant={variant}>{title}{children}</div>
+  ),
+  Loader: ({ children }) => <div role="progressbar">{children}</div>,
+  Tooltip: ({ label, children }) => <span title={label}>{children}</span>,
+}
+
+export function createStubPort(overrides: Partial<UIPort> = {}): UIPort {
+  return {
+    ui: primitives,
+    http: {
+      get: async () => ({}) as never,
+      post: async () => ({}) as never,
+      put: async () => ({}) as never,
+      del: async () => ({}) as never,
+    },
+    toast: () => {},
+    nav: { push: () => {}, Link: ({ to, children }) => <a href={to}>{children}</a> },
+    t: (key) => key,
+    ...overrides,
+  }
+}
