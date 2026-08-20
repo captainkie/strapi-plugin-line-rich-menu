@@ -1,4 +1,5 @@
 import fc from 'fast-check'
+import { ValidationError, validateRichMenu } from '@fosivo/line-rich-menu-core/browser'
 import { describe, expect, it } from 'vitest'
 import { emptyActionForm, fromAction, toAction } from '../src/action-form.js'
 
@@ -44,6 +45,43 @@ describe('toAction', () => {
   })
 })
 
+// สัญญาจริงของ toAction: มันแมป "รูปทรง" เท่านั้น ไม่ validate — ฟิลด์ที่นิยามชนิด action
+// ผ่านไปตามที่ผู้ใช้กรอกมาเสมอแม้ว่างเปล่า ผิดกับฟิลด์เสริม (optional) ที่ withOptional กรองทิ้งเมื่อว่าง
+// การกันค่าว่างไม่ให้หลุดถึง LINE เป็นหน้าที่ของ validateRichMenu เท่านั้น ดู describe ถัดไป
+describe('toAction ไม่ validate — ฟิลด์ที่นิยามชนิดผ่านไปตามที่ให้มาแม้ว่างเปล่า', () => {
+  it('type: uri ที่ไม่กรอก uri เลย คืน { type: "uri", uri: "" } ไม่ใช่การทิ้งฟิลด์', () => {
+    expect(toAction({ ...emptyActionForm(), type: 'uri' })).toEqual({ type: 'uri', uri: '' })
+  })
+
+  it('type: message ที่ไม่กรอก text เลย คืน { type: "message", text: "" } ไม่ใช่การทิ้งฟิลด์', () => {
+    expect(toAction({ ...emptyActionForm(), type: 'message' })).toEqual({ type: 'message', text: '' })
+  })
+})
+
+describe('validateRichMenu คือประตูที่แท้จริง — toAction เองไม่กัน', () => {
+  it('payload ที่ areas[0].action มาจาก toAction ของฟอร์มว่างต้องถูกปฏิเสธ พร้อมชี้ตำแหน่งฟิลด์ที่ผิด', () => {
+    const action = toAction({ ...emptyActionForm(), type: 'uri' })
+    const payload = {
+      size: { width: 2500, height: 1686 },
+      selected: true,
+      name: 'เมนูทดสอบ',
+      chatBarText: 'เมนู',
+      areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 1686 }, action }],
+    }
+
+    expect(() => validateRichMenu(payload)).toThrow(ValidationError)
+
+    try {
+      validateRichMenu(payload)
+      expect.unreachable('validateRichMenu ต้อง throw')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError)
+      const issues = (error as ValidationError).issues
+      expect(issues.some((issue) => issue.path === 'areas.0.action.uri')).toBe(true)
+    }
+  })
+})
+
 describe('fromAction', () => {
   it('เติมฟิลด์ที่ขาดเป็นสตริงว่าง เพื่อให้ฟอร์มผูกค่าได้ทุกช่อง', () => {
     const state = fromAction({ type: 'message', text: 'hi' })
@@ -63,12 +101,17 @@ describe('round trip', () => {
     fc.assert(
       fc.property(
         fc.record({
-          type: fc.constantFrom('message', 'uri', 'postback', 'clipboard'),
+          type: fc.constantFrom(
+            'message', 'uri', 'postback', 'clipboard',
+            'datetimepicker', 'richmenuswitch', 'camera', 'cameraRoll', 'location',
+          ),
           label: fc.string({ minLength: 1, maxLength: 20 }),
           text: fc.string({ minLength: 1, maxLength: 300 }),
           uri: fc.constantFrom('https://a.test', 'http://b.test', 'tel:0812345678'),
           data: fc.string({ minLength: 1, maxLength: 300 }),
           clipboardText: fc.string({ minLength: 1, maxLength: 100 }),
+          mode: fc.constantFrom('date', 'time', 'datetime'),
+          richMenuAliasId: fc.string({ minLength: 1, maxLength: 32 }),
         }),
         (partial) => {
           const state = { ...emptyActionForm(), ...partial }
@@ -78,6 +121,15 @@ describe('round trip', () => {
           if (state.type === 'uri') expect(round.uri).toBe(state.uri)
           if (state.type === 'postback') expect(round.data).toBe(state.data)
           if (state.type === 'clipboard') expect(round.clipboardText).toBe(state.clipboardText)
+          if (state.type === 'datetimepicker') {
+            expect(round.data).toBe(state.data)
+            expect(round.mode).toBe(state.mode)
+          }
+          if (state.type === 'richmenuswitch') {
+            expect(round.richMenuAliasId).toBe(state.richMenuAliasId)
+            expect(round.data).toBe(state.data)
+          }
+          // camera / cameraRoll / location ไม่มีฟิลด์เฉพาะชนิดอื่นนอกจาก label ซึ่งเช็คไว้ด้านล่างแล้ว
           expect(round.label).toBe(state.label)
         },
       ),

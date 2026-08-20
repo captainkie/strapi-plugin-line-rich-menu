@@ -34,7 +34,10 @@ export function emptyActionForm(): ActionFormState {
   }
 }
 
-/** ใส่คู่ key/value ก็ต่อเมื่อมีค่าจริง — สตริงว่างที่หลุดไปถึง LINE จะถูกปฏิเสธ */
+/**
+ * ใส่คู่ key/value ของ `extra` (ฟิลด์เสริมที่ LINE ระบุเป็น optional เช่น label, displayText, altUri)
+ * ก็ต่อเมื่อมีค่าจริง — ฟิลด์ใน `base` ที่นิยามชนิดของ action ไม่ผ่านฟังก์ชันนี้ จึงไม่ถูกกรองไม่ว่าจะว่างแค่ไหน
+ */
 function withOptional<T extends object>(base: T, extra: Record<string, unknown>): T {
   const out: Record<string, unknown> = { ...base } as Record<string, unknown>
   for (const [key, value] of Object.entries(extra)) {
@@ -43,6 +46,19 @@ function withOptional<T extends object>(base: T, extra: Record<string, unknown>)
   return out as T
 }
 
+/**
+ * แมป `ActionFormState` แบนเป็น `Action` union ตามชนิดที่เลือก — งานของฟังก์ชันนี้คือ "รูปทรง" เท่านั้น
+ *
+ * ฟิลด์เสริมตามสเปกของ LINE (label, displayText, altUri) ถูกตัดทิ้งเมื่อว่างเปล่าผ่าน `withOptional`
+ * แต่ฟิลด์ที่นิยามชนิดของ action เอง (เช่น `uri` ของ 'uri', `text` ของ 'message') ผ่านไปตามที่ผู้ใช้กรอกมา
+ * เสมอ แม้จะว่างเปล่า — `toAction({ ...emptyActionForm(), type: 'uri' })` คืน `{ type: 'uri', uri: '' }`
+ * ได้จริงและถือเป็นพฤติกรรมที่ถูกต้อง ไม่ใช่บั๊ก จะตัดฟิลด์เหล่านี้ทิ้งเมื่อว่างไม่ได้ เพราะผลลัพธ์จะไม่ใช่
+ * `Action` ที่ถูกต้องตามชนิดของมันอีกต่อไป (`{ type: 'uri' }` ไม่ใช่ `UriAction`) ต้อง cast ปลอม ๆ ถึงจะผ่าน
+ * type checker และมันจะกลบข้อผิดพลาดของผู้ใช้ไว้ผิดชั้น
+ *
+ * ฟังก์ชันนี้**ไม่ validate**ค่าที่ได้ ตัวกันจริงคือ `validateRichMenu` จาก core ซึ่ง editor
+ * เรียกก่อน publish เท่านั้น — draft ข้ามการ validate โดยเจตนาและไม่เคยหลุดออกจากฐานข้อมูลไปหา LINE
+ */
 export function toAction(state: ActionFormState): Action {
   const { label } = state
   switch (state.type) {
