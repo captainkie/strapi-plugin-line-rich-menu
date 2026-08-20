@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { areaLabel, type Bounds, type RichMenuSize } from '@fosivo/line-rich-menu-core/browser'
 import { ACTIVE_FILL, INVALID_COLOR, OUTLINE_COLOR, injectStylesOnce } from '../styles.js'
 
@@ -11,6 +11,8 @@ export interface CanvasEditorProps {
   onSelect(index: number): void
   onBoundsChange?(index: number, next: Bounds): void
   errors?: Readonly<Record<number, string>>
+  /** ขนาดช่องกริดในหน่วยพิกเซลของผืนผ้าใบ ไม่ใช่พิกเซลบนจอ */
+  snap?: number
 }
 
 /** แปลงพิกเซลจริงเป็นเปอร์เซ็นต์ เพื่อให้ overlay ตรงกับรูปไม่ว่าจะย่อขยายแค่ไหน */
@@ -18,10 +20,68 @@ function pct(value: number, total: number): string {
   return `${Math.round((value / total) * 10000) / 100}%`
 }
 
+type DragMode = 'move' | 'resize'
+
+interface DragState {
+  index: number
+  mode: DragMode
+  startX: number
+  startY: number
+  origin: Bounds
+}
+
+function clampToCanvas(next: Bounds, size: RichMenuSize, min: number): Bounds {
+  const width = Math.max(min, Math.min(next.width, size.width))
+  const height = Math.max(min, Math.min(next.height, size.height))
+  return {
+    width,
+    height,
+    x: Math.max(0, Math.min(next.x, size.width - width)),
+    y: Math.max(0, Math.min(next.y, size.height - height)),
+  }
+}
+
+function snapTo(value: number, grid: number): number {
+  return grid <= 1 ? Math.round(value) : Math.round(value / grid) * grid
+}
+
 export function CanvasEditor({
-  size, bounds, imageUrl, showOutlines, activeIndex, onSelect, errors,
+  size, bounds, imageUrl, showOutlines, activeIndex, onSelect, onBoundsChange, errors, snap,
 }: CanvasEditorProps) {
   useEffect(injectStylesOnce, [])
+
+  const [drag, setDrag] = useState<DragState | null>(null)
+  const canvasRef = useRef<HTMLDivElement | null>(null)
+  const grid = snap ?? 10
+  const editable = onBoundsChange !== undefined
+
+  /** สัดส่วนระหว่างหน่วยของผืนผ้าใบกับพิกเซลบนจอ — ต้องอ่านตอนลากจริง เพราะกล่องยืดตามหน้าจอ */
+  const unitsPerPixel = (): number => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (rect === undefined || rect.width === 0) return 1
+    return size.width / rect.width
+  }
+
+  const beginDrag = (index: number, mode: DragMode) => (event: ReactPointerEvent<HTMLElement>) => {
+    if (!editable) return
+    event.stopPropagation()
+    ;(event.target as HTMLElement).setPointerCapture?.(event.pointerId)
+    setDrag({ index, mode, startX: event.clientX, startY: event.clientY, origin: bounds[index]! })
+  }
+
+  const continueDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (drag === null || onBoundsChange === undefined) return
+    const scale = unitsPerPixel()
+    const dx = (event.clientX - drag.startX) * scale
+    const dy = (event.clientY - drag.startY) * scale
+    const o = drag.origin
+    const raw: Bounds = drag.mode === 'move'
+      ? { ...o, x: snapTo(o.x + dx, grid), y: snapTo(o.y + dy, grid) }
+      : { ...o, width: snapTo(o.width + dx, grid), height: snapTo(o.height + dy, grid) }
+    onBoundsChange(drag.index, clampToCanvas(raw, size, grid))
+  }
+
+  const endDrag = () => setDrag(null)
 
   const canvasStyle: CSSProperties = {
     position: 'relative',
@@ -43,7 +103,14 @@ export function CanvasEditor({
   }
 
   return (
-    <div data-testid="rich-menu-canvas" style={canvasStyle}>
+    <div
+      ref={canvasRef}
+      data-testid="rich-menu-canvas"
+      style={canvasStyle}
+      onPointerMove={continueDrag}
+      onPointerUp={endDrag}
+      onPointerLeave={endDrag}
+    >
       {bounds.map((b, index) => {
         const error = errors?.[index]
         const label = areaLabel(index)
@@ -65,6 +132,7 @@ export function CanvasEditor({
             ? { border: `2px solid ${error === undefined ? OUTLINE_COLOR : INVALID_COLOR}` }
             : {}),
           ...(isActive ? { background: ACTIVE_FILL } : {}),
+          ...(editable ? { touchAction: 'none' as const } : {}),
         }
 
         return (
@@ -79,6 +147,7 @@ export function CanvasEditor({
             style={style}
             onClick={() => onSelect(index)}
             onKeyDown={handleKeyDown(index)}
+            onPointerDown={beginDrag(index, 'move')}
           >
             {showOutlines ? (
               <>
@@ -87,6 +156,23 @@ export function CanvasEditor({
                   {b.width}×{b.height}
                 </span>
               </>
+            ) : null}
+            {editable ? (
+              <span
+                className="frm-handle"
+                data-testid={`resize-handle-${index}`}
+                onPointerDown={beginDrag(index, 'resize')}
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  bottom: 0,
+                  width: 14,
+                  height: 14,
+                  background: OUTLINE_COLOR,
+                  cursor: 'nwse-resize',
+                  touchAction: 'none',
+                }}
+              />
             ) : null}
           </div>
         )
