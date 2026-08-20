@@ -72,6 +72,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
   const [view, setView] = useState<'list' | 'expanded'>('list')
   const [areaErrors, setAreaErrors] = useState<Record<number, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
+  const [chatBarError, setChatBarError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const template = draft.templateKey === null ? null : TEMPLATES[draft.templateKey] ?? null
@@ -104,10 +105,18 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
   const save = async (publish: boolean) => {
     setFormError(null)
     setAreaErrors({})
+    setChatBarError(null)
 
     if (publish) {
       if (draft.templateKey === null) {
         setFormError(t('editor.error.noTemplate'))
+        return
+      }
+      // โหมด custom แต่พิมพ์ว่างไว้ — เดิมจุดนี้เติม default label ให้เงียบ ๆ ตอน publish ทั้งที่ draft
+      // ยังบันทึกโหมด custom อยู่ พอเปิดร่างนี้กลับมาแก้จะแยกไม่ออกว่าใครเป็นคนพิมพ์ label ที่เห็น
+      // (สเปก §5.5 คือเหตุผลที่เก็บ mode แยกจาก text) ต้องกันไว้เป็น validation error ที่ช่องนั้นแทน
+      if (draft.chatBar.mode === 'custom' && draft.chatBar.text === '') {
+        setChatBarError(t('editor.error.emptyChatBarText'))
         return
       }
       // ตรวจ payload กับ schema ก่อนเช็ครูป — error รายช่อง (เช่น action ไม่ครบ) ต้อง
@@ -118,9 +127,9 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
           size,
           selected: draft.chatBar.selected,
           name: draft.title === '' ? t('editor.untitled') : draft.title,
-          chatBarText: draft.chatBar.mode === 'custom' && draft.chatBar.text !== ''
-            ? draft.chatBar.text
-            : t('chatBar.defaultLabel'),
+          // ข้อความว่างของโหมด custom ถูกกันไว้เป็น chatBarError ข้างบนแล้ว ตรงนี้จึงเหลือแค่กรณี
+          // mode === 'default' ที่ต้องเติม label กลางให้เสมอ ไม่มีการเติมแทนความว่างอีกต่อไป
+          chatBarText: draft.chatBar.mode === 'custom' ? draft.chatBar.text : t('chatBar.defaultLabel'),
           areas: draft.bounds.map((bounds, index) => ({
             bounds,
             action: toAction(draft.areas[index] ?? emptyActionForm()),
@@ -266,6 +275,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
       <ChatBarSettings
         value={draft.chatBar}
         onChange={(next) => setDraft((prev) => ({ ...prev, chatBar: next }))}
+        {...(chatBarError === null ? {} : { error: chatBarError })}
       />
 
       <ui.Flex justifyContent="flex-end">{actions}</ui.Flex>

@@ -107,6 +107,18 @@ describe('RichMenuEditor', () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
+  // A2 — สเปก §5.5: mode ต้องแยกจาก text เสมอ เพื่อไม่ให้สับสนว่าใครเป็นคนพิมพ์ label ที่เห็น
+  // เดิม publish จะเติม default label แทนข้อความว่างให้เงียบ ๆ ทั้งที่ mode ยังเป็น custom อยู่
+  it('publish โดยเลือกโหมด custom แต่ไม่พิมพ์ข้อความไม่ได้ — ต้องบอกที่ช่องนั้น ไม่ใช่เติมให้เงียบๆ', async () => {
+    const { onSave } = setup()
+    chooseTemplate()
+    fireEvent.click(screen.getByLabelText('chatBar.mode.custom'))
+    fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+    await waitFor(() => expect(document.getElementById('chatBarText-error')).not.toBeNull())
+    expect(document.getElementById('chatBarText-error')?.textContent).toBe('editor.error.emptyChatBarText')
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
   // สเปก §5.6 ข้อ 4 — error ต้องโผล่ที่ช่องที่ผิด
   it('publish ที่ล้มเพราะ action ไม่ครบ แสดง error ที่ช่องนั้น ไม่ใช่รวมบนหัวฟอร์ม', async () => {
     setup()
