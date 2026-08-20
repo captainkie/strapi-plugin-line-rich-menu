@@ -72,6 +72,27 @@ describe('UIPort', () => {
     expect(screen.getByTestId('my-button')).toBeDisabled()
   })
 
+  // สมาชิกไม่ได้ประกาศ `name` เอง — กลุ่มเป็นคนแจกให้ ถ้า adapter ตัวไหนลืมส่งต่อ radio จะกลาย
+  // เป็นสี่ตัวที่ไม่ได้อยู่กลุ่มเดียวกันในสายตาเบราว์เซอร์ ติ๊กพร้อมกันได้หมดโดยไม่มี error ใดฟ้อง
+  it('ui.RadioGroup แจก name ของกลุ่มลงไปถึงสมาชิกทุกตัว', () => {
+    const port = createStubPort()
+    render(
+      <port.ui.RadioGroup name="g" value="a" onChange={() => {}} label="กลุ่ม">
+        <port.ui.Radio value="a">A</port.ui.Radio>
+        <port.ui.Radio value="b">B</port.ui.Radio>
+      </port.ui.RadioGroup>,
+    )
+    expect(screen.getByLabelText('A')).toHaveAttribute('name', 'g')
+    expect(screen.getByLabelText('B')).toHaveAttribute('name', 'g')
+  })
+
+  it('ui.Radio ที่วางไว้นอก ui.RadioGroup พังทันที ไม่ใช่กลายเป็น radio ที่กดแล้วไม่มีอะไรเกิดขึ้น', () => {
+    const port = createStubPort()
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(() => render(<port.ui.Radio value="a">A</port.ui.Radio>)).toThrow(/RadioGroup/)
+    spy.mockRestore()
+  })
+
   it('ui.IconButton ใส่ testId แล้วออกมาเป็น data-testid บน <button> จริง', () => {
     const port = createStubPort()
     render(<port.ui.IconButton label="icon" testId="my-icon-button">✕</port.ui.IconButton>)

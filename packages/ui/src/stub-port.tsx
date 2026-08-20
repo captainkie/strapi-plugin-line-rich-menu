@@ -1,4 +1,16 @@
+import { createContext, useContext } from 'react'
 import type { UIPort, UIPrimitives } from './port.js'
+
+/**
+ * ทางที่ `RadioGroup` ส่ง name/ค่าที่เลือกอยู่/ตัวรับค่ากลับ ลงไปถึง `Radio` แต่ละตัว
+ *
+ * ใช้ context แทน cloneElement เพราะ cloneElement เห็นแค่ลูกชั้นเดียว — พอผู้เรียกห่อสมาชิก
+ * ไว้ใน wrapper (เช่น `<ui.Flex>` หรือ fragment ที่ map ออกมา) สมาชิกจะหลุดจากกลุ่มเงียบ ๆ
+ * กลายเป็น radio ที่กดแล้วไม่มีอะไรเกิดขึ้น โดยไม่มี type error ใดเตือน
+ */
+const RadioGroupContext = createContext<
+  { name: string; value: string; onChange: (value: string) => void } | null
+>(null)
 
 /**
  * implementation ครบชุดที่ไม่พึ่ง Strapi เลย ใช้สองที่:
@@ -59,12 +71,34 @@ const primitives: UIPrimitives = {
       {children}
     </label>
   ),
-  Radio: ({ name, value, checked, onChange, children }) => (
-    <label>
-      <input type="radio" name={name} value={value} checked={checked} onChange={() => onChange(value)} />
-      {children}
-    </label>
+  RadioGroup: ({ name, value, onChange, label, children }) => (
+    // <fieldset> + <legend> คือรูปเดียวที่ตั้งชื่อให้ "กลุ่ม" ได้จริงโดยไม่ต้องผูก id เอง
+    // ระบุ role="radiogroup" ตรง ๆ เพราะ role โดยกำเนิดของ fieldset คือ "group" เฉย ๆ
+    <fieldset role="radiogroup" style={{ border: 'none', margin: 0, padding: 0 }}>
+      {label === undefined ? null : <legend>{label}</legend>}
+      <RadioGroupContext.Provider value={{ name, value, onChange }}>
+        {children}
+      </RadioGroupContext.Provider>
+    </fieldset>
   ),
+  Radio: ({ value, children }) => {
+    const group = useContext(RadioGroupContext)
+    if (group === null) {
+      throw new Error('ui.Radio ถูกวางไว้นอก ui.RadioGroup — สมาชิกต้องอยู่ในกลุ่มที่ถือค่าให้เสมอ')
+    }
+    return (
+      <label>
+        <input
+          type="radio"
+          name={group.name}
+          value={value}
+          checked={group.value === value}
+          onChange={() => group.onChange(value)}
+        />
+        {children}
+      </label>
+    )
+  },
   Toggle: ({ name, checked, onChange, label }) => (
     <label>
       {label}

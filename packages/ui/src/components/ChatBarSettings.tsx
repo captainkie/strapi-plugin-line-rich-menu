@@ -26,15 +26,19 @@ export function ChatBarSettings({ value, onChange, error }: ChatBarSettingsProps
       <ui.Typography variant="delta">{t('chatBar.title')}</ui.Typography>
 
       <ui.Flex direction="column" gap={1}>
-        <ui.Typography variant="pi">{t('chatBar.mode')}</ui.Typography>
-        <ui.Radio name="chatBarMode" value="default" checked={value.mode === 'default'}
-          onChange={() => onChange({ ...value, mode: 'default' })}>
-          {t('chatBar.mode.default')}
-        </ui.Radio>
-        <ui.Radio name="chatBarMode" value="custom" checked={value.mode === 'custom'}
-          onChange={() => onChange({ ...value, mode: 'custom' })}>
-          {t('chatBar.mode.custom')}
-        </ui.Radio>
+        {/* ช่องข้อความอยู่นอก RadioGroup โดยตั้งใจ — มันไม่ใช่ตัวเลือกของกลุ่มนี้ ถ้าเอาไปไว้ข้างใน
+            ผู้ใช้ screen reader จะได้ยินว่ากลุ่ม "โหมด" มีสามตัวเลือก ทั้งที่มีจริงแค่สอง */}
+        <ui.RadioGroup
+          name="chatBarMode"
+          label={t('chatBar.mode')}
+          value={value.mode}
+          // ค่าที่กลับมาเป็น string ตามสัญญาของ port (adapter ไม่รู้จัก union ของเรา) — เทียบกับ
+          // 'custom' ตรง ๆ แทนการ cast เพื่อให้ค่าแปลกปลอมตกไปที่ 'default' แทนที่จะเล็ดลอดเข้า state
+          onChange={(next) => onChange({ ...value, mode: next === 'custom' ? 'custom' : 'default' })}
+        >
+          <ui.Radio value="default">{t('chatBar.mode.default')}</ui.Radio>
+          <ui.Radio value="custom">{t('chatBar.mode.custom')}</ui.Radio>
+        </ui.RadioGroup>
         <ui.TextInput
           name="chatBarText"
           label={t('chatBar.text')}
@@ -48,15 +52,15 @@ export function ChatBarSettings({ value, onChange, error }: ChatBarSettingsProps
       </ui.Flex>
 
       <ui.Flex direction="column" gap={1}>
-        <ui.Typography variant="pi">{t('chatBar.behavior')}</ui.Typography>
-        <ui.Radio name="chatBarBehavior" value="shown" checked={value.selected}
-          onChange={() => onChange({ ...value, selected: true })}>
-          {t('chatBar.behavior.shown')}
-        </ui.Radio>
-        <ui.Radio name="chatBarBehavior" value="collapsed" checked={!value.selected}
-          onChange={() => onChange({ ...value, selected: false })}>
-          {t('chatBar.behavior.collapsed')}
-        </ui.Radio>
+        <ui.RadioGroup
+          name="chatBarBehavior"
+          label={t('chatBar.behavior')}
+          value={value.selected ? 'shown' : 'collapsed'}
+          onChange={(next) => onChange({ ...value, selected: next === 'shown' })}
+        >
+          <ui.Radio value="shown">{t('chatBar.behavior.shown')}</ui.Radio>
+          <ui.Radio value="collapsed">{t('chatBar.behavior.collapsed')}</ui.Radio>
+        </ui.RadioGroup>
       </ui.Flex>
     </ui.Flex>
   )
