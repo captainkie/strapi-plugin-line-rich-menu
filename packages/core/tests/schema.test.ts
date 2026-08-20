@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { ValidationError } from '../src/errors.js'
+import { ValidationError, type ValidationIssue } from '../src/errors.js'
 import { validateRichMenu } from '../src/schema.js'
+
+/** เรียก validateRichMenu แล้วคืน issues ที่ได้ — ล้มเทสต์ถ้ามันดันผ่าน */
+function issuesOf(input: unknown): readonly ValidationIssue[] {
+  try {
+    validateRichMenu(input)
+  } catch (e) {
+    expect(e).toBeInstanceOf(ValidationError)
+    return (e as ValidationError).issues
+  }
+  expect.unreachable('validateRichMenu ควรโยน ValidationError')
+}
 
 const base = {
   size: { width: 2500, height: 1686 },
@@ -82,13 +93,29 @@ describe('validateRichMenu', () => {
     expect(() => validateRichMenu({ ...base, sneaky: true })).toThrow(ValidationError)
   })
 
-  it('ใส่รายละเอียดข้อผิดพลาดมาใน issues ให้ UI เอาไปแสดงได้', () => {
-    try {
-      validateRichMenu({ ...base, chatBarText: '' })
-      expect.unreachable('ควรโยน error')
-    } catch (e) {
-      expect(e).toBeInstanceOf(ValidationError)
-      expect((e as ValidationError).issues.length).toBeGreaterThan(0)
+  it('ใส่รายละเอียดข้อผิดพลาดมาใน issues ให้ UI เอาไปแปลได้', () => {
+    const issues = issuesOf({ ...base, chatBarText: '' })
+    expect(issues.length).toBeGreaterThan(0)
+    // สเปก 11.7 กับ 12: core ปล่อย code ออกมา ไม่ใช่ข้อความสำเร็จรูปภาษาใดภาษาหนึ่ง
+    // ('en' เป็นค่าเริ่มต้น การฝังไทยไว้ตรงนี้แปลว่า admin ที่ใช้อังกฤษจะเห็นไทย)
+    expect(issues.every((i) => typeof i.code === 'string' && i.code.length > 0)).toBe(true)
+    expect(issues.every((i) => typeof i.path === 'string' && i.path.length > 0)).toBe(true)
+    // เป็น code ของ zod เองที่นำกลับมาใช้ได้เลย ไม่ต้องประดิษฐ์ใหม่
+    expect(issues.map((i) => i.code)).toContain('too_small')
+  })
+
+  it('message ของ issue เป็นอังกฤษล้วน ไม่มีอักษรไทยหลงมาให้ UI ต้องเดา', () => {
+    const samples = [
+      { ...base, chatBarText: '' },
+      { ...base, size: { width: 999, height: 999 } },
+      { ...base, areas: [{ ...base.areas[0], action: { type: 'uri', uri: 'javascript:alert(1)' } }] },
+      { ...base, areas: [{ ...base.areas[0], bounds: { x: 2000, y: 0, width: 1000, height: 100 } }] },
+      { ...base, sneaky: true },
+    ]
+    for (const sample of samples) {
+      for (const issue of issuesOf(sample)) {
+        expect(issue.message, `${issue.code} มีอักษรไทยอยู่ใน message`).not.toMatch(/[\u0E00-\u0E7F]/)
+      }
     }
   })
 
@@ -97,35 +124,30 @@ describe('validateRichMenu', () => {
     expect(() => validateRichMenu({ ...base, areas })).toThrow(ValidationError)
   })
 
-  it('บอกข้อความเตือน scheme ที่ถูกต้องจริงเมื่อ URI ใช้ scheme ต้องห้าม', () => {
+  it('URI ที่ใช้ scheme ต้องห้ามได้ code ที่แปลได้ ไม่ใช่ประโยคสำเร็จรูป', () => {
     const areas = [{ ...base.areas[0], action: { type: 'uri', uri: 'javascript:alert(1)' } }]
-    try {
-      validateRichMenu({ ...base, areas })
-      expect.unreachable('ควรโยน error')
-    } catch (e) {
-      expect((e as ValidationError).issues.some((i) => i.includes('uri ต้องขึ้นต้นด้วย https, http, tel หรือ line เท่านั้น'))).toBe(true)
-    }
+    expect(issuesOf({ ...base, areas }).map((i) => i.code)).toContain('uri_scheme_not_allowed')
   })
 
-  it('บอกข้อความเตือนขนาดผืนผ้าใบที่ถูกต้องจริงเมื่อขนาดไม่อยู่ใน allowlist', () => {
-    try {
-      validateRichMenu({ ...base, size: { width: 999, height: 999 } })
-      expect.unreachable('ควรโยน error')
-    } catch (e) {
-      expect((e as ValidationError).issues.some((i) => i.includes('ขนาดผืนผ้าใบต้องเป็นขนาดที่ LINE รับเท่านั้น'))).toBe(true)
-    }
+  it('ขนาดผืนผ้าใบที่ไม่อยู่ใน allowlist ได้ code canvas_size_not_allowed', () => {
+    const issues = issuesOf({ ...base, size: { width: 999, height: 999 } })
+    expect(issues.map((i) => i.code)).toContain('canvas_size_not_allowed')
+    expect(issues.find((i) => i.code === 'canvas_size_not_allowed')?.path).toBe('size')
   })
 
-  it('บอกข้อความเตือนช่องล้นกรอบที่ถูกต้องจริง พร้อม path ไปที่ช่องนั้น', () => {
+  it('ช่องที่ล้นกรอบได้ code area_out_of_bounds พร้อม path ชี้ไปที่ช่องนั้น', () => {
     const areas = [{ ...base.areas[0], bounds: { x: 2000, y: 0, width: 1000, height: 100 } }]
-    try {
-      validateRichMenu({ ...base, areas })
-      expect.unreachable('ควรโยน error')
-    } catch (e) {
-      const issues = (e as ValidationError).issues
-      expect(issues.some((i) => i.includes('ช่องนี้ล้นออกนอกผืนผ้าใบ'))).toBe(true)
-      expect(issues.some((i) => i.startsWith('areas.0.bounds'))).toBe(true)
-    }
+    const issues = issuesOf({ ...base, areas })
+    const found = issues.find((i) => i.code === 'area_out_of_bounds')
+    expect(found).toBeDefined()
+    expect(found?.path).toBe('areas.0.bounds')
+  })
+
+  it('ฟิลด์แปลกปลอมที่ระดับบนสุดได้ path เป็น (root) ไม่ใช่สตริงว่าง', () => {
+    const issues = issuesOf({ ...base, sneaky: true })
+    const found = issues.find((i) => i.code === 'unrecognized_keys')
+    expect(found).toBeDefined()
+    expect(found?.path).toBe('(root)')
   })
 
   it('ยอมรับช่องที่อยู่ตำแหน่งบวกจริง ๆ ไม่ใช่แค่ที่มุม (0,0)', () => {

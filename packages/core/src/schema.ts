@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ValidationError } from './errors.js'
+import { ValidationError, type ValidationIssue } from './errors.js'
 import type { RichMenuPayload } from './types.js'
 
 export const ALLOWED_URI_SCHEMES = ['https:', 'http:', 'tel:', 'line:'] as const
@@ -16,7 +16,10 @@ const uriString = z.string().min(1).max(1000).refine((value) => {
     return false
   }
   return (ALLOWED_URI_SCHEMES as readonly string[]).includes(parsed.protocol)
-}, { message: 'uri ต้องขึ้นต้นด้วย https, http, tel หรือ line เท่านั้น' })
+}, {
+  message: 'uri must use one of the allowed schemes: https, http, tel, line',
+  params: { code: 'uri_scheme_not_allowed' },
+})
 
 const label = z.string().min(1).max(20).optional()
 
@@ -48,7 +51,10 @@ const sizeSchema = z.object({
   height: z.number().int().positive(),
 }).strict().refine(
   (s) => (ALLOWED_CANVAS as readonly string[]).includes(`${s.width}x${s.height}`),
-  { message: 'ขนาดผืนผ้าใบต้องเป็นขนาดที่ LINE รับเท่านั้น' },
+  {
+    message: 'size must be one of the canvas sizes LINE accepts',
+    params: { code: 'canvas_size_not_allowed' },
+  },
 )
 
 export const richMenuPayloadSchema = z.object({
@@ -64,17 +70,49 @@ export const richMenuPayloadSchema = z.object({
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['areas', index, 'bounds'],
-        message: 'ช่องนี้ล้นออกนอกผืนผ้าใบ',
+        message: 'area falls outside the canvas',
+        params: { code: 'area_out_of_bounds' },
       })
     }
   })
 })
 
+/**
+ * zod ตั้ง code ของ issue ที่มาจาก refinement ของเราเองเป็น 'custom' ทุกตัวเหมือนกันหมด
+ * จึงแนบคีย์จริงมาทาง params เพื่อให้ UI แยกออกว่าเป็นข้อไหน ส่วน issue ในตัวของ zod
+ * (`too_small`, `too_big`, `unrecognized_keys`, ...) ใช้ code ของมันเองได้เลย
+ */
+function toValidationIssue(issue: z.ZodIssue): ValidationIssue {
+  const params = issue.code === z.ZodIssueCode.custom
+    ? (issue.params as { code?: string } | undefined)
+    : undefined
+  return {
+    path: issue.path.join('.') || '(root)',
+    code: params?.code ?? issue.code,
+    message: issue.message,
+  }
+}
+
 export function validateRichMenu(input: unknown): RichMenuPayload {
   const result = richMenuPayloadSchema.safeParse(input)
   if (!result.success) {
-    const issues = result.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
-    throw new ValidationError('rich menu payload ไม่ผ่านการตรวจสอบ', issues)
+    throw new ValidationError(
+      'rich menu payload failed validation',
+      result.error.issues.map(toValidationIssue),
+    )
   }
   return result.data as RichMenuPayload
 }
+
+/**
+ * ประตูกัน drift ระหว่าง schema กับ type
+ *
+ * `validateRichMenu` ปิดท้ายด้วย `as RichMenuPayload` ซึ่งเป็นจุดเชื่อมเดียวระหว่างสองอย่างนี้
+ * ที่เขียนกันคนละวันและต่างฝ่ายต่างตาม API ของ LINE เอง ถ้าวันไหนไม่ตรงกัน บรรทัดล่างจะพัง
+ * ตอนคอมไพล์ทันที เพราะ `false` ไม่ผ่าน constraint `extends true`
+ * (เขียนเป็น `? true : never` ไม่ได้ เพราะ `never extends true` เป็นจริงเสมอ — จะเงียบสนิท)
+ */
+type Assert<T extends true> = T
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _SchemaMatchesRichMenuPayload =
+  Assert<z.infer<typeof richMenuPayloadSchema> extends RichMenuPayload ? true : false>
