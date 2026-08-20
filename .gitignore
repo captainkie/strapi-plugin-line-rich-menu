@@ -12,6 +12,7 @@ build/
 .cache/
 coverage/
 .stryker-tmp/
+reports/
 *.tsbuildinfo
 
 # env & secrets

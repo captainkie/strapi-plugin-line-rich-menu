@@ -91,6 +91,120 @@ describe('validateRichMenu', () => {
       expect((e as ValidationError).issues.length).toBeGreaterThan(0)
     }
   })
+
+  it('ปฏิเสธ URI ที่ไม่ใช่รูปแบบ URL เลย (parse ไม่ผ่านตั้งแต่ new URL())', () => {
+    const areas = [{ ...base.areas[0], action: { type: 'uri', uri: 'not a url at all' } }]
+    expect(() => validateRichMenu({ ...base, areas })).toThrow(ValidationError)
+  })
+
+  it('บอกข้อความเตือน scheme ที่ถูกต้องจริงเมื่อ URI ใช้ scheme ต้องห้าม', () => {
+    const areas = [{ ...base.areas[0], action: { type: 'uri', uri: 'javascript:alert(1)' } }]
+    try {
+      validateRichMenu({ ...base, areas })
+      expect.unreachable('ควรโยน error')
+    } catch (e) {
+      expect((e as ValidationError).issues.some((i) => i.includes('uri ต้องขึ้นต้นด้วย https, http, tel หรือ line เท่านั้น'))).toBe(true)
+    }
+  })
+
+  it('บอกข้อความเตือนขนาดผืนผ้าใบที่ถูกต้องจริงเมื่อขนาดไม่อยู่ใน allowlist', () => {
+    try {
+      validateRichMenu({ ...base, size: { width: 999, height: 999 } })
+      expect.unreachable('ควรโยน error')
+    } catch (e) {
+      expect((e as ValidationError).issues.some((i) => i.includes('ขนาดผืนผ้าใบต้องเป็นขนาดที่ LINE รับเท่านั้น'))).toBe(true)
+    }
+  })
+
+  it('บอกข้อความเตือนช่องล้นกรอบที่ถูกต้องจริง พร้อม path ไปที่ช่องนั้น', () => {
+    const areas = [{ ...base.areas[0], bounds: { x: 2000, y: 0, width: 1000, height: 100 } }]
+    try {
+      validateRichMenu({ ...base, areas })
+      expect.unreachable('ควรโยน error')
+    } catch (e) {
+      const issues = (e as ValidationError).issues
+      expect(issues.some((i) => i.includes('ช่องนี้ล้นออกนอกผืนผ้าใบ'))).toBe(true)
+      expect(issues.some((i) => i.startsWith('areas.0.bounds'))).toBe(true)
+    }
+  })
+
+  it('ยอมรับช่องที่อยู่ตำแหน่งบวกจริง ๆ ไม่ใช่แค่ที่มุม (0,0)', () => {
+    const areas = [{ bounds: { x: 100, y: 100, width: 500, height: 500 }, action: { type: 'message', text: 'hi' } }]
+    expect(() => validateRichMenu({ ...base, areas })).not.toThrow()
+  })
+
+  describe('action type ที่เหลือทั้งหมด — ต้องมีเทสต์คลุมทุกแบบ ไม่ใช่แค่ message กับ uri', () => {
+    const validByType: Record<string, unknown> = {
+      camera: { type: 'camera', label: 'กล้อง' },
+      cameraRoll: { type: 'cameraRoll', label: 'อัลบั้ม' },
+      location: { type: 'location', label: 'ตำแหน่ง' },
+      datetimepicker: { type: 'datetimepicker', data: 'pick', mode: 'date' },
+      richmenuswitch: { type: 'richmenuswitch', richMenuAliasId: 'tab-a1_2', data: 'switch' },
+      clipboard: { type: 'clipboard', clipboardText: 'copy me' },
+      postback: { type: 'postback', data: 'go' },
+    }
+
+    for (const [type, action] of Object.entries(validByType)) {
+      it(`ผ่านสำหรับ action แบบ ${type} ที่ถูกต้อง`, () => {
+        const areas = [{ ...base.areas[0], action }]
+        expect(() => validateRichMenu({ ...base, areas })).not.toThrow()
+      })
+    }
+
+    it('camera/cameraRoll/location ต้องมี label เสมอ (ไม่ optional เหมือนแบบอื่น)', () => {
+      for (const type of ['camera', 'cameraRoll', 'location']) {
+        const areas = [{ ...base.areas[0], action: { type } }]
+        expect(() => validateRichMenu({ ...base, areas }), `${type} ควรถูกปฏิเสธถ้าไม่มี label`).toThrow(ValidationError)
+      }
+    })
+
+    it('datetimepicker ปฏิเสธ mode ที่ไม่รู้จัก', () => {
+      const areas = [{ ...base.areas[0], action: { type: 'datetimepicker', data: 'pick', mode: 'century' } }]
+      expect(() => validateRichMenu({ ...base, areas })).toThrow(ValidationError)
+    })
+
+    it('datetimepicker รับ mode ได้ครบทั้งสามแบบ', () => {
+      for (const mode of ['date', 'time', 'datetime']) {
+        const areas = [{ ...base.areas[0], action: { type: 'datetimepicker', data: 'pick', mode } }]
+        expect(() => validateRichMenu({ ...base, areas }), `mode ${mode} ควรผ่าน`).not.toThrow()
+      }
+    })
+
+    it('clipboard ปฏิเสธ clipboardText ว่าง และที่ยาวเกิน 1000 ตัว', () => {
+      const empty = [{ ...base.areas[0], action: { type: 'clipboard', clipboardText: '' } }]
+      expect(() => validateRichMenu({ ...base, areas: empty })).toThrow(ValidationError)
+      const tooLong = [{ ...base.areas[0], action: { type: 'clipboard', clipboardText: 'x'.repeat(1001) } }]
+      expect(() => validateRichMenu({ ...base, areas: tooLong })).toThrow(ValidationError)
+      const atLimit = [{ ...base.areas[0], action: { type: 'clipboard', clipboardText: 'x'.repeat(1000) } }]
+      expect(() => validateRichMenu({ ...base, areas: atLimit })).not.toThrow()
+    })
+
+    it('ปฏิเสธฟิลด์แปลกปลอมในตัว action เอง เพราะ .strict() ระดับ action', () => {
+      const areas = [{ ...base.areas[0], action: { type: 'camera', label: 'กล้อง', sneaky: 'x' } }]
+      expect(() => validateRichMenu({ ...base, areas })).toThrow(ValidationError)
+    })
+
+    it('label ของ action ยาวได้ถึง 20 ตัว แต่ 21 ตัวต้องปฏิเสธ', () => {
+      const at20 = [{ ...base.areas[0], action: { type: 'message', label: 'x'.repeat(20), text: 'hi' } }]
+      expect(() => validateRichMenu({ ...base, areas: at20 })).not.toThrow()
+      const at21 = [{ ...base.areas[0], action: { type: 'message', label: 'x'.repeat(21), text: 'hi' } }]
+      expect(() => validateRichMenu({ ...base, areas: at21 })).toThrow(ValidationError)
+    })
+
+    it('richMenuAliasId ยอมรับตัวอักษรผสมตัวเลข _ - ได้ และปฏิเสธความยาวเกิน 32', () => {
+      const valid = [{ ...base.areas[0], action: { type: 'richmenuswitch', richMenuAliasId: 'tab-a1_2', data: 'x' } }]
+      expect(() => validateRichMenu({ ...base, areas: valid })).not.toThrow()
+      const tooLong = [{ ...base.areas[0], action: { type: 'richmenuswitch', richMenuAliasId: 'a'.repeat(33), data: 'x' } }]
+      expect(() => validateRichMenu({ ...base, areas: tooLong })).toThrow(ValidationError)
+    })
+
+    it('richMenuAliasId ปฏิเสธตัวพิมพ์ใหญ่นำหน้าหรือสัญลักษณ์ต่อท้ายที่ไม่อนุญาต', () => {
+      const leadingUpper = [{ ...base.areas[0], action: { type: 'richmenuswitch', richMenuAliasId: 'Xtab-a', data: 'x' } }]
+      expect(() => validateRichMenu({ ...base, areas: leadingUpper })).toThrow(ValidationError)
+      const trailingBang = [{ ...base.areas[0], action: { type: 'richmenuswitch', richMenuAliasId: 'tab-a!', data: 'x' } }]
+      expect(() => validateRichMenu({ ...base, areas: trailingBang })).toThrow(ValidationError)
+    })
+  })
 })
 
 import fc from 'fast-check'

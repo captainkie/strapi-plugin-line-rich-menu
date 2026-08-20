@@ -7,6 +7,16 @@ describe('plan', () => {
     expect(plan({ setAsDefault: false })[0]).toEqual({ kind: 'validate' })
   })
 
+  it('กรณีพื้นฐานไม่มี alias, default, เมนูเก่า — ได้ทั้งสามขั้นตรงเป๊ะ ไม่ขาดไม่เกิน', () => {
+    expect(plan({ setAsDefault: false })).toEqual([
+      { kind: 'validate' }, { kind: 'create' }, { kind: 'uploadImage' },
+    ])
+  })
+
+  it('ไม่ใส่ขั้น upsertAlias เมื่อไม่ได้ระบุ aliasId', () => {
+    expect(plan({ setAsDefault: false }).some((s) => s.kind === 'upsertAlias')).toBe(false)
+  })
+
   it('สร้างก่อนอัปรูปเสมอ เพราะต้องมี richMenuId ก่อน', () => {
     const steps = plan({ setAsDefault: false }).map((s) => s.kind)
     expect(steps.indexOf('create')).toBeLessThan(steps.indexOf('uploadImage'))

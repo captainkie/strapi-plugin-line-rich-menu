@@ -9,11 +9,15 @@
     "build": "pnpm -r build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:mutation": "pnpm --filter @fosivo/line-rich-menu-core exec stryker run",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint ."
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^20.14.0",
     "@vitest/coverage-v8": "^2.1.0",
     "eslint": "^9.12.0",

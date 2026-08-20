@@ -54,4 +54,28 @@ describe('renderTemplateSvg', () => {
     const svg = renderTemplateSvg(t.bounds, t.size)
     expect(svg).not.toMatch(/<script|onload=|onclick=/i)
   })
+
+  it('cell แต่ละอันต่อกันตรง ๆ ไม่มีตัวคั่นแปลกปลอมเล็ดลอดออกมา', () => {
+    const svg = renderTemplateSvg(t.bounds, t.size)
+    expect(svg).not.toContain('Stryker was here!')
+    // .join('') ต้องแปะ rect ต่อ text ต่อกันตรง ๆ ไม่มีอะไรคั่นระหว่าง /> กับ <text
+    expect(svg).toMatch(/\/><text/)
+  })
+
+  it('fontSize คำนวณจากด้านที่สั้นกว่าเสมอ (ไม่ใช่ด้านยาว) คูณ 0.18 พอดี', () => {
+    // ผืนผ้าใบไม่เป็นสี่เหลี่ยมจัตุรัส เพื่อแยกแยะ min จาก max ได้จริง
+    const svg = renderTemplateSvg([{ x: 0, y: 0, width: 2500, height: 843 }], { width: 2500, height: 843 })
+    expect(svg).toContain('font-size="152"')
+  })
+
+  it('ตำแหน่งกึ่งกลางช่องคำนวณถูกต้องเป๊ะจากพิกัดและขนาดจริง', () => {
+    const svg = renderTemplateSvg(
+      [{ x: 100, y: 50, width: 200, height: 80 }],
+      { width: 2500, height: 843 },
+    )
+    const match = svg.match(/<text x="(-?\d+)" y="(-?\d+)"/)
+    expect(match).not.toBeNull()
+    expect(Number(match![1])).toBe(200)
+    expect(Number(match![2])).toBe(90)
+  })
 })

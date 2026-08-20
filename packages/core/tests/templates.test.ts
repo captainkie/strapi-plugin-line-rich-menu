@@ -10,6 +10,19 @@ describe('แคตตาล็อก template', () => {
     expect(all.filter((t) => t.sizeName === 'large')).toHaveLength(7)
   })
 
+  it('คีย์ตรงกับ template code ของ LINE เป๊ะทุกตัว — เผื่อผู้ใช้ lookup ด้วยคีย์ตรง ๆ', () => {
+    expect(Object.keys(TEMPLATES).sort()).toEqual([
+      'RICH_MENU_TEMPLATE_101', 'RICH_MENU_TEMPLATE_102', 'RICH_MENU_TEMPLATE_103',
+      'RICH_MENU_TEMPLATE_104', 'RICH_MENU_TEMPLATE_105',
+      'RICH_MENU_TEMPLATE_201', 'RICH_MENU_TEMPLATE_202', 'RICH_MENU_TEMPLATE_203',
+      'RICH_MENU_TEMPLATE_204', 'RICH_MENU_TEMPLATE_205', 'RICH_MENU_TEMPLATE_206',
+      'RICH_MENU_TEMPLATE_207',
+    ].sort())
+    for (const key of Object.keys(TEMPLATES)) {
+      expect(TEMPLATES[key]!.key).toBe(key)
+    }
+  })
+
   it('ทุกแบบมีช่อง 1–20 ช่องตามที่ LINE จำกัด', () => {
     for (const t of all) {
       expect(t.bounds.length).toBeGreaterThanOrEqual(1)
