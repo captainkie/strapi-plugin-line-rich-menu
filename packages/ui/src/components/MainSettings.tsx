@@ -35,9 +35,11 @@ export function MainSettings({ value, onChange, errors }: MainSettingsProps) {
       </ui.Flex>
       <ui.Flex gap={2} alignItems="flex-end">
         <ui.TextInput name="startAt" label={t('editor.displayPeriod.start')} value={value.startAt}
-          placeholder="YYYY-MM-DD HH:mm" onChange={(next) => set('startAt', next)} />
+          placeholder="YYYY-MM-DD HH:mm" onChange={(next) => set('startAt', next)}
+          {...(errors?.startAt === undefined ? {} : { error: errors.startAt })} />
         <ui.TextInput name="endAt" label={t('editor.displayPeriod.end')} value={value.endAt}
-          placeholder="YYYY-MM-DD HH:mm" onChange={(next) => set('endAt', next)} />
+          placeholder="YYYY-MM-DD HH:mm" onChange={(next) => set('endAt', next)}
+          {...(errors?.endAt === undefined ? {} : { error: errors.endAt })} />
         <ui.Button variant="secondary" testId="clear-period" onClick={() => onChange({ ...value, startAt: '', endAt: '' })}>
           {t('common.clear')}
         </ui.Button>
