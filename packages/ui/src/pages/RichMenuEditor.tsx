@@ -4,6 +4,7 @@ import {
   type Bounds, type RichMenuSizeName,
 } from '@fosivo/line-rich-menu-core/browser'
 import { emptyActionForm, toAction, type ActionFormState } from '../action-form.js'
+import { validationKey } from '../i18n/index.js'
 import { usePort } from '../port.js'
 import { AreaList } from '../components/AreaList.js'
 import { ChatBarSettings, type ChatBarValue } from '../components/ChatBarSettings.js'
@@ -152,7 +153,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
           const nextMainErrors: Partial<Record<keyof MainSettingsValue, string>> = {}
           for (const issue of error.issues) {
             const index = areaIndexOf(issue.path)
-            const message = t(`validation.${issue.code}`)
+            const message = t(validationKey(issue.code))
             if (index !== null) { nextAreaErrors[index] = message; continue }
             if (issue.path === 'name') { nextMainErrors.title = message; continue }
             if (issue.path === 'chatBarText') { setChatBarError(message); continue }

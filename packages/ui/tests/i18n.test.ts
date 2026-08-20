@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { VALIDATION_CODES } from '@fosivo/line-rich-menu-core/browser'
 import { describe, expect, it } from 'vitest'
-import { MESSAGES, TRANSLATION_KEYS } from '../src/i18n/index.js'
+import { MESSAGES, TRANSLATION_KEYS, validationKey } from '../src/i18n/index.js'
 
 const srcRoot = fileURLToPath(new URL('../src', import.meta.url))
 const translationsRoot = fileURLToPath(new URL('../src/translations', import.meta.url))
@@ -105,6 +105,29 @@ describe('i18n', () => {
     ]
     const missing = dynamic.filter((key) => MESSAGES.en[key] === undefined || MESSAGES.th[key] === undefined)
     expect(missing).toEqual([])
+  })
+
+  describe('validationKey', () => {
+    it('code กำหนดเอง (อยู่ใน VALIDATION_CODES) map ไปคีย์ของตัวเอง', () => {
+      for (const code of VALIDATION_CODES) {
+        expect(validationKey(code)).toBe(`validation.${code}`)
+      }
+    })
+
+    it('code ของ zod ที่ schema.ts ใช้จริงก็ map ไปคีย์ของตัวเองเช่นกัน', () => {
+      expect(validationKey('too_small')).toBe('validation.too_small')
+    })
+
+    // 'invalid_type' เป็น code รูปทรงแบบ zod แต่ไม่ได้อยู่ในแคตตาล็อกคำแปลของเราโดยตั้งใจ —
+    // จำลองกรณี zod อัปเกรดแล้วเปลี่ยน/เพิ่ม internal code ที่เราไม่เคยเห็นมาก่อน
+    it('code แปลกหน้าที่ไม่มีคำแปล ตกไปที่ validation.unknown แทนที่จะหลุดเป็น validation.invalid_type ดิบ ๆ', () => {
+      expect(validationKey('invalid_type')).toBe('validation.unknown')
+    })
+
+    it('validation.unknown มีคำแปลจริงทั้งสองภาษา', () => {
+      expect(MESSAGES.en['validation.unknown']).toBeDefined()
+      expect(MESSAGES.th['validation.unknown']).toBeDefined()
+    })
   })
 
   describe('translations/{en,th}.json เรียงตามคีย์ (spec §12 — source of truth ที่ adapter จะ copy ไป)', () => {
