@@ -58,7 +58,7 @@ export class LineClient {
     this.#dataBase = options.apiDataBaseUrl ?? DEFAULT_API_DATA_BASE
     this.#fetch = options.fetchImpl
     this.#sleep = options.sleep ?? defaultSleep
-    this.#maxAttempts = options.maxAttempts ?? 3
+    this.#maxAttempts = Math.max(1, options.maxAttempts ?? 3)
   }
 
   async validateRichMenu(payload: RichMenuPayload): Promise<void> {

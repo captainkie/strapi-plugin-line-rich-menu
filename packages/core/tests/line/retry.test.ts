@@ -97,4 +97,11 @@ describe('retry และ backoff', () => {
       }
     }
   })
+
+  it('maxAttempts ที่ต่ำกว่า 1 ต้องถูกยกเป็น 1 ไม่ใช่โยน undefined ออกมา', async () => {
+    server.use(http.post('https://api.line.me/v2/bot/richmenu', () =>
+      new HttpResponse(null, { status: 500 })))
+    const client = new LineClient({ accessToken: 'secret-token-value', maxAttempts: 0, sleep: vi.fn(async () => {}) })
+    await expect(client.createRichMenu(payload)).rejects.toBeInstanceOf(LineServerError)
+  })
 })
