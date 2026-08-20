@@ -9,6 +9,7 @@
     "declaration": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true
   }
 }
