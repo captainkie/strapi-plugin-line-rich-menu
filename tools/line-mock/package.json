@@ -10,6 +10,7 @@
   "dependencies": { "fastify": "^5.0.0" },
   "devDependencies": {
     "@fosivo/line-rich-menu-core": "workspace:*",
+    "sharp": "^0.35.3",
     "tsx": "^4.19.0"
   }
 }
