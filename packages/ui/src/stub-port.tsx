@@ -98,7 +98,10 @@ const primitives: UIPrimitives = {
 function defaultT(key: string, values?: Record<string, string | number>): string {
   if (values === undefined) return key
   return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(`{${name}}`, String(value)),
+    // ข้อความบางอันใช้ placeholder เดิมซ้ำมากกว่าหนึ่งจุด (เช่น "{name} ของ {name}")
+    // .replace() แบบ non-global แทนแค่จุดแรก จุดที่เหลือหลุดออกไปเป็น literal `{name}`
+    // ในข้อความที่ผู้ใช้เห็นจริง — ต้องแทนทุกจุดที่ตรงกัน
+    (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
     key,
   )
 }

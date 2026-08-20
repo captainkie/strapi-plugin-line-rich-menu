@@ -55,6 +55,11 @@ describe('UIPort', () => {
     expect(port.t('template.picker.areaCount', { count: 6 })).toBe('template.picker.areaCount')
   })
 
+  it('t() ค่าเริ่มต้นแทน {name} ทุกจุดที่ซ้ำกันในข้อความเดียว ไม่ใช่แค่จุดแรก', () => {
+    const port = createStubPort()
+    expect(port.t('{name} ของ {name}', { name: 'เมนู' })).toBe('เมนู ของ เมนู')
+  })
+
   it('ui.Button ใส่ testId แล้วออกมาเป็น data-testid บน <button> จริง', () => {
     const port = createStubPort()
     render(<port.ui.Button testId="my-button">click</port.ui.Button>)
