@@ -78,6 +78,17 @@ describe('LineClient เส้นทางปกติ', () => {
     expect(await client.listRichMenus()).toHaveLength(2)
   })
 
+  // LINE ตอบ {} เมื่อยังไม่มีเมนูหรือ alias เลย — ไม่ใช่ { richmenus: [] }
+  it('listRichMenus คืนอาเรย์ว่างเมื่อ LINE ไม่ส่งฟิลด์ richmenus มาเลย', async () => {
+    server.use(http.get('https://api.line.me/v2/bot/richmenu/list', () => HttpResponse.json({})))
+    expect(await client.listRichMenus()).toEqual([])
+  })
+
+  it('listAliases คืนอาเรย์ว่างเมื่อ LINE ไม่ส่งฟิลด์ aliases มาเลย', async () => {
+    server.use(http.get('https://api.line.me/v2/bot/richmenu/alias/list', () => HttpResponse.json({})))
+    expect(await client.listAliases()).toEqual([])
+  })
+
   it('alias สร้าง อัปเดต ลบ และ list ได้', async () => {
     const calls: string[] = []
     server.use(
