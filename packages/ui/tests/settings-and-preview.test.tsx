@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { TEMPLATES } from '@fosivo/line-rich-menu-core/browser'
 import { describe, expect, it, vi } from 'vitest'
 import { PortProvider } from '../src/port.js'
@@ -118,5 +118,13 @@ describe('Preview', () => {
     const text = screen.getByTestId('preview-chat-bar').textContent
     expect(text).toContain('เมนู')
     expect(text).not.toContain('chatBar.defaultLabel')
+  })
+
+  // canvas ใน preview เป็นแค่ภาพจำลอง ไม่ใช่ตัวควบคุมจริง — ต้องไม่โผล่เป็น role="button" ให้คีย์บอร์ด
+  // หรือ screen reader หลงไปเจอ ไม่งั้นทุกช่องจะมีอยู่สองชุดในหน้าเดียวกัน (Preview.tsx)
+  it('ช่องในเมนูของ preview ไม่ถูกเปิดเป็น button ให้กดหรือแทบด้วยคีย์บอร์ด', () => {
+    wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
+    const menu = screen.getByTestId('preview-menu')
+    expect(within(menu).queryAllByRole('button')).toHaveLength(0)
   })
 })

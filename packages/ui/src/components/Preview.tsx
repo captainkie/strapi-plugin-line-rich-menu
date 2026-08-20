@@ -27,7 +27,11 @@ export function Preview({ size, bounds, imageUrl, chatBarText, expanded }: Previ
         </span>
       </div>
       {expanded ? (
-        <div data-testid="preview-menu">
+        // aria-hidden: CanvasEditor วาดทุกช่องเป็น role="button" (CanvasEditor.tsx) แต่ตัวที่ฝังอยู่ตรงนี้
+        // เป็นแค่ภาพจำลองเฉยๆ ไม่ใช่ตัวควบคุมจริง — canvas หลักที่แก้ไขได้ต่างหากคือของจริง ถ้าไม่ซ่อน
+        // ชุดนี้จาก accessibility tree ทุกช่องจะมีอยู่สองชุดพร้อมกัน คน tab ด้วยคีย์บอร์ดจะเจอโซนที่กดแล้ว
+        // ไม่ทำอะไร และ screen reader จะพูดชื่อช่องซ้ำสองรอบโดยไม่มีทางบอกได้ว่าอันไหนคือของจริง
+        <div data-testid="preview-menu" aria-hidden="true">
           <CanvasEditor
             size={size}
             bounds={bounds}
