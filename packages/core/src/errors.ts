@@ -7,9 +7,24 @@ export abstract class CoreError extends Error {
   }
 }
 
+/**
+ * รายละเอียดรายฟิลด์ของการตรวจ payload
+ *
+ * ชั้น core ไม่ใช่คนตัดสินภาษาของผู้ใช้ (สเปก 11.7 และ 12) — `code` คือสิ่งที่ UI เอาไปแปล
+ * ส่วน `message` เป็นอังกฤษไว้ให้ log กับนักพัฒนาอ่าน ไม่ใช่ข้อความสำหรับผู้ใช้ปลายทาง
+ */
+export interface ValidationIssue {
+  /** ตำแหน่งในโครงสร้าง payload เช่น 'areas.0.bounds' หรือ '(root)' */
+  path: string
+  /** คีย์คงที่สำหรับแปล เช่น 'area_out_of_bounds' หรือ code ของ zod อย่าง 'too_small' */
+  code: string
+  /** อังกฤษเสมอ สำหรับ log และนักพัฒนา */
+  message: string
+}
+
 export class ValidationError extends CoreError {
   readonly code = 'validation_failed'
-  constructor(message: string, readonly issues: readonly string[] = []) {
+  constructor(message: string, readonly issues: readonly ValidationIssue[] = []) {
     super(message)
   }
 }

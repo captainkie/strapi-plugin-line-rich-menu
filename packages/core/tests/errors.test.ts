@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CoreError, ImageBombError, ImageTooLargeError, LineAuthError, LineRateLimitError,
   LineServerError, LineValidationError, UnsupportedImageError, ValidationError,
-  CryptoEnvelopeError,
+  CryptoEnvelopeError, type ValidationIssue,
 } from '../src/errors.js'
 
 describe('error taxonomy', () => {
@@ -68,6 +68,9 @@ describe('error taxonomy', () => {
 
   it('ValidationError เก็บ issues ว่างเป็นค่าเริ่มต้นถ้าไม่ได้ส่งมา', () => {
     expect(new ValidationError('x').issues).toEqual([])
-    expect(new ValidationError('x', ['a', 'b']).issues).toEqual(['a', 'b'])
+    const issues: ValidationIssue[] = [
+      { path: 'areas.0.bounds', code: 'area_out_of_bounds', message: 'area falls outside the canvas' },
+    ]
+    expect(new ValidationError('x', issues).issues).toEqual(issues)
   })
 })
