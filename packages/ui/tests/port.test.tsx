@@ -72,6 +72,23 @@ describe('UIPort', () => {
     expect(screen.getByTestId('my-button')).toBeDisabled()
   })
 
+  // stub เคยรับ alignItems/justifyContent/wrap มาแล้วทิ้ง — ผังสองคอลัมน์ของสเปก §5.7 จึงไม่เคย
+  // ถูกวาดเป็นสองคอลัมน์เลย ทั้งในเทสต์และใน playground เทสต์นี้ยึด prop ทั้งสามไว้กับ style จริง
+  it('ui.Flex วาด alignItems/justifyContent/wrap ที่รับมาจริง ไม่ใช่รับแล้วทิ้ง', () => {
+    const port = createStubPort()
+    render(
+      <port.ui.Flex alignItems="flex-start" justifyContent="space-between" wrap="wrap" gap={4}>
+        <span data-testid="flex-child">x</span>
+      </port.ui.Flex>,
+    )
+    const box = screen.getByTestId('flex-child').parentElement!
+    expect(box).toHaveStyle({
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      flexWrap: 'wrap',
+    })
+  })
+
   // สมาชิกไม่ได้ประกาศ `name` เอง — กลุ่มเป็นคนแจกให้ ถ้า adapter ตัวไหนลืมส่งต่อ radio จะกลาย
   // เป็นสี่ตัวที่ไม่ได้อยู่กลุ่มเดียวกันในสายตาเบราว์เซอร์ ติ๊กพร้อมกันได้หมดโดยไม่มี error ใดฟ้อง
   it('ui.RadioGroup แจก name ของกลุ่มลงไปถึงสมาชิกทุกตัว', () => {
