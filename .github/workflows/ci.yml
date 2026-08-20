@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # มิวเทชันเทสต์ (ดู job `mutation` ด้านล่าง) ช้าเกินจะรันทุก push/PR แต่ยังต้องรันสม่ำเสมอ
+    # ตามสเปก 13.4 ("mutation (core, nightly)") — 02:00 UTC ทุกคืน ไม่ใช่ required check ของ PR ใด ๆ
+    # (ดู .github/rulesets/main.json — "mutation" ไม่อยู่ใน required_status_checks)
+    - cron: '0 2 * * *'
 
 permissions:
   contents: read
@@ -26,7 +31,11 @@ jobs:
 
   mutation:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    # เดิมรันเฉพาะ push (ซึ่ง trigger แค่ตอน merge เข้า main แล้ว) เท่ากับ ruleset ของ main
+    # (.github/rulesets/main.json) บังคับให้เป็น required check ไม่ได้เพราะ Stryker รันหลัง merge
+    # เสมอ — ช้าเกินจะเป็น required check ของ PR ตั้งใจไว้แบบนั้น (ดูสเปก 13.4) แต่ก็ต้องมีทางรัน
+    # แบบ nightly เพื่อให้ยังจับ mutant ที่ตกหล่นได้สม่ำเสมอ ไม่ใช่แค่ตอน push เข้า main เท่านั้น
+    if: github.event_name == 'push' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
