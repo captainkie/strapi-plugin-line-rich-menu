@@ -32,7 +32,17 @@ export interface UIPrimitives {
   Toggle: ComponentType<{ name: string; checked: boolean; onChange: (checked: boolean) => void; label?: string }>
   Modal: ComponentType<{ open: boolean; onClose: () => void; title: string; footer?: ReactNode; children?: ReactNode }>
   Typography: ComponentType<{ variant?: 'alpha' | 'beta' | 'delta' | 'omega' | 'pi'; textColor?: 'neutral600' | 'neutral800' | 'danger600' | 'success600' | 'warning600'; children?: ReactNode }>
-  Flex: ComponentType<{ direction?: 'row' | 'column'; gap?: number; alignItems?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | 'baseline'; justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | 'baseline'; wrap?: 'wrap' | 'nowrap'; children?: ReactNode }>
+  /**
+   * `alignItems` กับ `justifyContent` ใช้ union คนละชุด เพราะ CSS สองตัวนี้รับค่าไม่เหมือนกัน —
+   * เดิมใช้ชุดเดียวกันทั้งคู่ ทำให้เขียน `alignItems="space-between"` (ไม่ใช่ค่าของ align-items)
+   * หรือ `justifyContent="baseline"` (ไม่ใช่ค่าของ justify-content) ได้โดยไม่มี type error
+   * แล้วไปเงียบ ๆ ตอน render จริง เพราะเบราว์เซอร์ทิ้งค่าที่ไม่รู้จักโดยไม่บ่น
+   *
+   * `gap` คือ "ลำดับใน spacing scale ของ design system" ไม่ใช่พิกเซล — DS ทั้งสองเวอร์ชันรับเลข
+   * แบบนี้ (`gap={4}` ≈ 16px ในแอดมินจริง) adapter จึงส่งต่อได้ตรง ๆ ไม่ต้องแปลง ส่วน stub วาดเป็น
+   * พิกเซลดิบ ซึ่งเป็นค่าประมาณที่ยอมรับไว้แล้ว (ดูคอมเมนต์ที่ Flex ใน stub-port.tsx)
+   */
+  Flex: ComponentType<{ direction?: 'row' | 'column'; gap?: number; alignItems?: 'flex-start' | 'center' | 'flex-end' | 'stretch' | 'baseline'; justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | 'space-around' | 'space-evenly'; wrap?: 'wrap' | 'nowrap'; children?: ReactNode }>
   Divider: ComponentType<Record<string, never>>
   Alert: ComponentType<{ variant: 'success' | 'warning' | 'danger'; title?: string; onClose?: () => void; children?: ReactNode }>
   Loader: ComponentType<{ children?: ReactNode }>

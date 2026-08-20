@@ -115,8 +115,17 @@ const primitives: UIPrimitives = {
       </div>
     ) : null,
   Typography: ({ children }) => <span>{children}</span>,
-  Flex: ({ direction = 'row', gap = 0, children }) => (
-    <div style={{ display: 'flex', flexDirection: direction, gap }}>{children}</div>
+  // ต้องวาด alignItems/justifyContent/wrap ให้ครบ ไม่ใช่รับมาแล้วทิ้ง — ตอนที่ทิ้ง ผังสองคอลัมน์
+  // ของสเปก §5.7 ไม่เคยถูกวาดเป็นสองคอลัมน์เลยสักครั้ง ทั้งในเทสต์และใน playground ที่เปิดดูด้วยตา
+  // ทุกอย่างที่เราตรวจกันมาคือคอลัมน์เดียวที่ทำท่าเหมือนสองคอลัมน์
+  //
+  // `gap` ที่ port ประกาศคือลำดับใน spacing scale แต่ตรงนี้วาดเป็นพิกเซลดิบ — เป็นค่าประมาณที่
+  // ยอมรับไว้โดยรู้ตัว ไม่ใช่ความไม่ตรงกันแบบเงียบ ๆ: jsdom ไม่คำนวณ layout อยู่แล้ว เทสต์จึงไม่มีทาง
+  // เห็นความต่าง ส่วน playground ต้องการแค่ระยะห่างที่ "พอดูออก" ไม่ใช่ระยะที่ตรงกับแอดมินจริงเป๊ะ
+  Flex: ({ direction = 'row', gap = 0, alignItems, justifyContent, wrap, children }) => (
+    <div style={{ display: 'flex', flexDirection: direction, gap, alignItems, justifyContent, flexWrap: wrap }}>
+      {children}
+    </div>
   ),
   Divider: () => <hr />,
   Alert: ({ variant, title, children }) => (
