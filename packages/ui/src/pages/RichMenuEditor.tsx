@@ -100,6 +100,9 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
     })
     setActive(null)
     setAreaErrors({})
+    // ผู้ใช้เพิ่งทำสิ่งที่แบนเนอร์ "ยังไม่มี template" ขอไว้ (เลือก template) — ต้องหายไปทันที
+    // ไม่ใช่ค้างอยู่บนจอจนกว่าจะกด save รอบถัดไปที่บรรทัดต้นของ save() ถึงจะไปเคลียร์ให้
+    setFormError(null)
     setPicking(false)
   }
 

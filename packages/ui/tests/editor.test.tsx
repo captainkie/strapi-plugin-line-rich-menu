@@ -107,6 +107,16 @@ describe('RichMenuEditor', () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
+  // A4 — applyTemplate เคลียร์ areaErrors ตอนเลือก template ใหม่อยู่แล้ว แต่ไม่เคยเคลียร์ formError
+  // แบนเนอร์ "ยังไม่มี template" เลยค้างอยู่บนจอทั้งที่ผู้ใช้เพิ่งทำสิ่งที่มันขอไปแล้ว จนกว่าจะกด save รอบถัดไป
+  it('แบนเนอร์ "ยังไม่มี template" หายไปทันทีที่เลือก template ไม่ต้องรอกด save รอบถัดไป', async () => {
+    setup()
+    fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+    await waitFor(() => expect(screen.getByText('editor.error.noTemplate')).toBeInTheDocument())
+    chooseTemplate()
+    expect(screen.queryByText('editor.error.noTemplate')).not.toBeInTheDocument()
+  })
+
   // A2 — สเปก §5.5: mode ต้องแยกจาก text เสมอ เพื่อไม่ให้สับสนว่าใครเป็นคนพิมพ์ label ที่เห็น
   // เดิม publish จะเติม default label แทนข้อความว่างให้เงียบ ๆ ทั้งที่ mode ยังเป็น custom อยู่
   it('publish โดยเลือกโหมด custom แต่ไม่พิมพ์ข้อความไม่ได้ — ต้องบอกที่ช่องนั้น ไม่ใช่เติมให้เงียบๆ', async () => {
