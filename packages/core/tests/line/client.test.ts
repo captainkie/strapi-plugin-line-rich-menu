@@ -113,6 +113,32 @@ describe('LineClient เส้นทางปกติ', () => {
     expect(await local.createRichMenu(payload)).toBe('local-1')
   })
 
+  it('getRichMenu คืน richMenuId ของเมนูที่ระบุ', async () => {
+    server.use(http.get('https://api.line.me/v2/bot/richmenu/rm-9', () =>
+      HttpResponse.json({ richMenuId: 'rm-9' })))
+    expect(await client.getRichMenu('rm-9')).toEqual({ richMenuId: 'rm-9' })
+  })
+
+  it('deleteRichMenu ยิง DELETE ไปที่ richMenuId ที่ระบุ', async () => {
+    let hitUrl: string | null = null
+    server.use(http.delete('https://api.line.me/v2/bot/richmenu/rm-9', ({ request }) => {
+      hitUrl = request.url
+      return HttpResponse.json({})
+    }))
+    await client.deleteRichMenu('rm-9')
+    expect(hitUrl).toBe('https://api.line.me/v2/bot/richmenu/rm-9')
+  })
+
+  it('linkToUser ยิงไปที่ userId และ richMenuId ที่ระบุ', async () => {
+    let hitUrl: string | null = null
+    server.use(http.post('https://api.line.me/v2/bot/user/U123/richmenu/rm-9', ({ request }) => {
+      hitUrl = request.url
+      return HttpResponse.json({})
+    }))
+    await client.linkToUser('U123', 'rm-9')
+    expect(hitUrl).toBe('https://api.line.me/v2/bot/user/U123/richmenu/rm-9')
+  })
+
   it('ใช้ globalThis.fetch ตอนเรียก ไม่ใช่ตอนสร้าง — ไม่งั้นตัว interceptor ที่ติดตั้งทีหลังจะถูกข้าม', async () => {
     const originalFetch = globalThis.fetch
     let calledWith: string | null = null

@@ -82,6 +82,71 @@ describe('retry และ backoff', () => {
     expect(hits).toBe(1)
   })
 
+  it('detail ที่ไม่มี property ต้องได้แค่ message ล้วน ๆ ไม่มี ": " นำหน้า', async () => {
+    server.use(http.post('https://api.line.me/v2/bot/richmenu', () =>
+      HttpResponse.json({ message: 'invalid', details: [{ message: 'bad thing' }] }, { status: 400 })))
+    const { client } = makeClient()
+    try {
+      await client.createRichMenu(payload)
+      expect.unreachable('ควรโยน error')
+    } catch (e) {
+      expect((e as LineValidationError).details).toEqual(['bad thing'])
+    }
+  })
+
+  it('หลาย detail ต้องแมปมาครบทุกอัน ไม่ใช่แค่อันแรก', async () => {
+    server.use(http.post('https://api.line.me/v2/bot/richmenu', () =>
+      HttpResponse.json({
+        message: 'invalid',
+        details: [{ property: 'a', message: 'x' }, { property: 'b', message: 'y' }],
+      }, { status: 400 })))
+    const { client } = makeClient()
+    try {
+      await client.createRichMenu(payload)
+      expect.unreachable('ควรโยน error')
+    } catch (e) {
+      expect((e as LineValidationError).details).toEqual(['a: x', 'b: y'])
+    }
+  })
+
+  it('ไม่มี details แต่มี message ระดับบนสุด — ต้องใช้ message นั้นแทนไม่ใช่ปล่อยว่าง', async () => {
+    server.use(http.post('https://api.line.me/v2/bot/richmenu', () =>
+      HttpResponse.json({ message: 'something went wrong overall' }, { status: 400 })))
+    const { client } = makeClient()
+    try {
+      await client.createRichMenu(payload)
+      expect.unreachable('ควรโยน error')
+    } catch (e) {
+      expect((e as LineValidationError).details).toEqual(['something went wrong overall'])
+    }
+  })
+
+  it('body ของ error ที่ parse เป็น JSON ไม่ได้เลย — ต้องได้ details ว่างเปล่า ไม่ใช่ throw ซ้อน', async () => {
+    server.use(http.post('https://api.line.me/v2/bot/richmenu', () =>
+      new HttpResponse('not json at all {{{', { status: 400 })))
+    const { client } = makeClient()
+    try {
+      await client.createRichMenu(payload)
+      expect.unreachable('ควรโยน error')
+    } catch (e) {
+      expect(e).toBeInstanceOf(LineValidationError)
+      expect((e as LineValidationError).details).toEqual([])
+    }
+  })
+
+  it('retry-after ที่ไม่ใช่ตัวเลข ต้อง fallback เป็น 1 วินาที ไม่ใช่ NaN', async () => {
+    server.use(http.post('https://api.line.me/v2/bot/richmenu', () =>
+      new HttpResponse(null, { status: 429, headers: { 'retry-after': 'not-a-number' } })))
+    const { client } = makeClient()
+    try {
+      await client.createRichMenu(payload)
+      expect.unreachable('ควรโยน error')
+    } catch (e) {
+      expect(e).toBeInstanceOf(LineRateLimitError)
+      expect((e as LineRateLimitError).retryAfterSeconds).toBe(1)
+    }
+  })
+
   // ยามกัน token รั่ว — ข้อบังคับจาก spec 13.2 ข้อ 2 และ 3
   it('access token ต้องไม่ปรากฏใน message ของ error ทุกชนิด', async () => {
     const statuses = [400, 401, 429, 500]

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/api/schema/stryker-core.json",
+  "packageManager": "pnpm",
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "reporters": ["html", "clear-text", "progress"],
+  "mutate": ["src/**/*.ts", "!src/index.ts", "!src/image/pipeline.ts"],
+  "thresholds": { "high": 90, "low": 80, "break": 75 },
+  "coverageAnalysis": "perTest",
+  "plugins_comment": "pnpm does not flatten @stryker-mutator/* packages next to @stryker-mutator/core (each lives in its own .pnpm/ tree), so Stryker's implicit plugin auto-discovery ('modules should be installed right next to stryker') cannot find vitest-runner. Without this explicit list, `stryker run` fails immediately with 'Cannot find TestRunner plugin \"vitest\"'. Verified locally against pnpm 11.5.2.",
+  "mutate_comment": "src/image/pipeline.ts (normalize + compose) is deliberately excluded. Its mozjpeg round-trip tests take 10-14s each on this machine (tests/image/pipeline.test.ts, tests/image/compose.test.ts) and cover most of the file's statements, so most mutants there would force multi-second reruns; a 90-line file with that profile can turn a minutes-long mutation run into one that silently takes tens of minutes on a slower CI runner. It already carries 13 direct unit/boundary tests and the >=90% line-coverage gate from `pnpm test:coverage`. See task-14-15-report.md for the full rationale; if mutation coverage of this file is wanted later, give it its own scoped Stryker run outside the main CI gate."
+}
