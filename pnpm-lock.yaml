@@ -67,6 +67,9 @@ importers:
       '@fosivo/line-rich-menu-core':
         specifier: workspace:*
         version: link:../../packages/core
+      sharp:
+        specifier: ^0.35.3
+        version: 0.35.3(@types/node@20.19.43)
       tsx:
         specifier: ^4.19.0
         version: 4.23.12

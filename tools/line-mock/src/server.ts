@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
+import { inspectImage } from '@fosivo/line-rich-menu-core'
 import { createStore } from './store.js'
 
 interface Detail { property: string; message: string }
@@ -63,7 +64,10 @@ export function createServer(): FastifyInstance {
   app.get('/v2/bot/richmenu/:id', async (req, reply) => {
     const { id } = req.params as { id: string }
     const found = store.menus.get(id)
-    return found ? reply.send({ richMenuId: found.richMenuId }) : reply.code(404).send({ message: 'not found' })
+    if (!found) return reply.code(404).send({ message: 'not found' })
+    // `image` เป็นส่วนขยายเฉพาะของ mock นี้ (ไม่มีใน LINE จริง) ให้เทสต์ integration
+    // ตรวจสอบได้ว่า dimension ของรูปที่อัปจริงตรงกับ size ที่ menu ประกาศไว้ (ดูสเปก 4.1)
+    return reply.send({ richMenuId: found.richMenuId, ...(found.image ? { image: found.image } : {}) })
   })
 
   app.delete('/v2/bot/richmenu/:id', async (req, reply) => {
@@ -81,7 +85,17 @@ export function createServer(): FastifyInstance {
     if (buffer.length > 1_048_576) {
       return reply.code(400).send({ message: 'invalid', details: [{ property: 'content', message: 'exceeds 1MB' }] })
     }
-    menu.image = { mime: String(req.headers['content-type']), bytes: buffer.length }
+    // เช่นเดียวกับ LINE จริง mock นี้ไม่ตรวจว่าเนื้อไฟล์เป็นรูปจริงหรือไม่ (แค่ตรวจขนาด) —
+    // ยังยอมรับ payload ทดสอบที่เป็น byte ล้วน ๆ เหมือนเดิม (ดู server.test.ts) แต่ถ้าอ่านเป็นรูป
+    // ได้จริง จะเก็บ dimension ไว้ให้เทสต์ integration (ดู tests/integration.test.ts) ยืนยันได้ว่า
+    // รูปที่อัปจริงตรงกับ size ที่ menu ประกาศไว้ตอน create เป๊ะ — อ่านไม่ออกก็แค่ไม่มี width/height
+    // ติดมา ไม่ reject การอัปโหลด
+    const dimensions = await inspectImage(buffer).catch(() => null)
+    menu.image = {
+      mime: String(req.headers['content-type']),
+      bytes: buffer.length,
+      ...(dimensions ? { width: dimensions.width, height: dimensions.height } : {}),
+    }
     return reply.send({})
   })
 
