@@ -80,7 +80,12 @@ export function TemplatePicker({
               dangerouslySetInnerHTML={{ __html: renderTemplateSvg(tpl.bounds, tpl.size) }}
             />
             <span style={{ display: 'block', padding: '.4rem', fontSize: '.8rem', color: '#32324d' }}>
-              {t('template.picker.areaCount', { count: tpl.bounds.length })}
+              {/* อังกฤษต้องแยกรูปเอกพจน์ ไม่งั้นแบบที่มีช่องเดียวจะขึ้นว่า "1 areas" — ภาษาไทยใช้
+                  สตริงเดียวกันทั้งสองรูปเพราะไม่มีพหูพจน์ แต่ต้องมีคีย์ครบทั้งสองภาษาเท่ากันอยู่ดี */}
+              {t(
+                tpl.bounds.length === 1 ? 'template.picker.areaCount.one' : 'template.picker.areaCount',
+                { count: tpl.bounds.length },
+              )}
             </span>
           </button>
         ))}

@@ -130,6 +130,32 @@ describe('i18n', () => {
     })
   })
 
+  // คำแปลไทยที่ "ตรงกับอังกฤษเป๊ะ" มีสองแบบที่หน้าตาเหมือนกันทุกประการ คือแบบที่ตั้งใจใช้คำทับศัพท์
+  // ตามที่ LINE ใช้เอง กับแบบที่ลืมแปลแล้ว copy อังกฤษมาวาง — guard ตัวอื่นในไฟล์นี้แยกสองอย่างนี้
+  // ไม่ออกเลย เพราะคีย์มีครบและค่าไม่ว่าง allowlist ด้านล่างจึงเป็นการประกาศเจตนา: อยู่ในนี้ = ตั้งใจ
+  // ไม่อยู่ = พลาด เพิ่มคีย์เข้ารายการนี้ได้ แต่ต้องเป็นการตัดสินใจที่เห็นใน diff ไม่ใช่หลุดมาเงียบ ๆ
+  describe('คำแปลที่เหมือนอังกฤษทุกตัวอักษร ต้องเป็นคำทับศัพท์ที่ตั้งใจ ไม่ใช่ที่ลืมแปล', () => {
+    const DELIBERATE_LOANWORDS: readonly string[] = [
+      'action.field.uri',
+      'action.type.postback',
+      'action.type.uri',
+      'channel.accessToken',
+      'channel.channelId',
+      'channel.channelSecret',
+      'editor.heading',
+      'editor.template',
+      'template.picker.group.compact',
+      'template.picker.group.large',
+    ]
+
+    it('ไม่มีคีย์ที่เหมือนกันเป๊ะนอกเหนือจากรายการที่ประกาศไว้', () => {
+      const identical = Object.keys(MESSAGES.en)
+        .filter((key) => MESSAGES.en[key] === MESSAGES.th[key])
+        .sort()
+      expect(identical).toEqual([...DELIBERATE_LOANWORDS].sort())
+    })
+  })
+
   describe('translations/{en,th}.json เรียงตามคีย์ (spec §12 — source of truth ที่ adapter จะ copy ไป)', () => {
     it('en.json เรียงตามคีย์', () => {
       const raw = JSON.parse(readFileSync(join(translationsRoot, 'en.json'), 'utf8')) as Record<string, string>

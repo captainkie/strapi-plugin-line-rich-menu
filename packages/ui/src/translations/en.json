@@ -85,6 +85,7 @@
   "status.published": "Published",
   "status.publishing": "Publishing",
   "template.picker.areaCount": "{count} areas",
+  "template.picker.areaCount.one": "{count} area",
   "template.picker.confirmDiscard": "Change and discard",
   "template.picker.discardBody": "A different template has different areas, so the actions set on the current ones cannot be carried over.",
   "template.picker.discardImageBody": "The canvas size is changing too, so the image you uploaded won't fit anymore and will be removed.",

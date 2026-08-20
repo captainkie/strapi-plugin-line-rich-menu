@@ -85,6 +85,7 @@
   "status.published": "เผยแพร่แล้ว",
   "status.publishing": "กำลังเผยแพร่",
   "template.picker.areaCount": "{count} ช่อง",
+  "template.picker.areaCount.one": "{count} ช่อง",
   "template.picker.confirmDiscard": "เปลี่ยนและทิ้งของเดิม",
   "template.picker.discardBody": "template แบบอื่นมีจำนวนช่องไม่เท่ากัน action ที่ตั้งไว้กับช่องเดิมจึงพกไปด้วยไม่ได้",
   "template.picker.discardImageBody": "ขนาดผืนผ้าใบก็เปลี่ยนไปด้วย รูปที่อัปโหลดไว้จะไม่พอดีอีกต่อไปและจะถูกลบออก",
