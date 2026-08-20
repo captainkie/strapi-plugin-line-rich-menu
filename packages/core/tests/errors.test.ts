@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CoreError, ImageBombError, ImageTooLargeError, LineAuthError, LineRateLimitError,
-  LineServerError, LineValidationError, UnsupportedImageError, ValidationError,
-  CryptoEnvelopeError, type ValidationIssue,
+  CoreError, ImageBombError, ImageProcessingError, ImageTooLargeError, LineAuthError,
+  LineRateLimitError, LineServerError, LineValidationError, UnsupportedImageError,
+  ValidationError, CryptoEnvelopeError, type ValidationIssue,
 } from '../src/errors.js'
 
 describe('error taxonomy', () => {
@@ -15,6 +15,7 @@ describe('error taxonomy', () => {
     expect(new UnsupportedImageError('bmp').code).toBe('image_unsupported_format')
     expect(new ImageTooLargeError(2_000_000).code).toBe('image_too_large')
     expect(new ImageBombError(1_000_000_000).code).toBe('image_pixel_limit_exceeded')
+    expect(new ImageProcessingError().code).toBe('image_processing_failed')
     expect(new CryptoEnvelopeError('x').code).toBe('crypto_envelope_invalid')
   })
 
@@ -57,6 +58,13 @@ describe('error taxonomy', () => {
   it('UnsupportedImageError ที่ตรวจฟอร์แมตไม่ได้เลย บอกว่า unknown ไม่ใช่ undefined ดิบ ๆ', () => {
     expect(new UnsupportedImageError(undefined).message).toBe('Unsupported image format: unknown')
     expect(new UnsupportedImageError(undefined).detectedFormat).toBeUndefined()
+  })
+
+  // เหตุผลเดียวกับ CryptoEnvelopeError: ข้อความจาก upstream ไม่ควรถูกส่งต่อ (สเปก 11.7)
+  it('ImageProcessingError ไม่พกข้อความดิบของ libvips ติดมาด้วย', () => {
+    const e = new ImageProcessingError()
+    expect(e.message).toBe('Image processing failed')
+    expect(e.message).not.toMatch(/vips/i)
   })
 
   it('LineValidationError เก็บ message คงที่ และ details ว่างเป็นค่าเริ่มต้น', () => {

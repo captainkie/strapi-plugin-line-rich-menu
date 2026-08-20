@@ -60,6 +60,25 @@ export function pngBomb(width = 25000, height = 25000): Buffer {
   ])
 }
 
+/**
+ * JPEG ที่หัวไฟล์สมบูรณ์แต่เนื้อขาดกลางคัน — เคสของไฟล์ที่อัปโหลดค้างหรือดิสก์เต็ม
+ *
+ * `sharp().metadata()` อ่านผ่านและรายงานขนาดถูกต้อง จึงผ่าน inspectImage ไปได้
+ * แต่การ decode จริงจะล้มด้วย 'VipsJpeg: premature end of JPEG image'
+ */
+export async function truncatedJpeg(width = 800, height = 600): Promise<Buffer> {
+  const pixels = Buffer.alloc(width * height * 3)
+  let seed = 7
+  for (let i = 0; i < pixels.length; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    pixels[i] = seed & 0xff
+  }
+  const whole = await sharp(pixels, { raw: { width, height, channels: 3 } })
+    .jpeg({ quality: 95 })
+    .toBuffer()
+  return whole.subarray(0, Math.floor(whole.length * 0.4))
+}
+
 /** ไฟล์ที่อ้างว่าเป็นรูปแต่เนื้อในไม่ใช่ */
 export function fakeImage(): Buffer {
   return Buffer.from('นี่ไม่ใช่รูปภาพ แต่ตั้งชื่อว่า .png', 'utf8')

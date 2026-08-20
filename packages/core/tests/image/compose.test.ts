@@ -1,8 +1,8 @@
 import sharp from 'sharp'
 import { describe, expect, it, vi } from 'vitest'
-import { UnsupportedImageError } from '../../src/errors.js'
+import { ImageProcessingError, UnsupportedImageError, ValidationError } from '../../src/errors.js'
 import { compose, normalize } from '../../src/image/pipeline.js'
-import { fakeImage, solidJpeg } from '../fixtures/make-fixtures.js'
+import { fakeImage, solidJpeg, truncatedJpeg } from '../fixtures/make-fixtures.js'
 
 // compose ทำงานบนผืนผ้าใบ 2500x1686 จริงและเทสต์สุดท้ายเรียก normalize (mozjpeg) ต่อ —
 // เผื่อ CI runner ช้ากว่าเครื่อง dev ด้วยเพดานเดียวกับ pipeline.test.ts (ดูเหตุผลที่นั่น)
@@ -58,5 +58,35 @@ describe('compose', () => {
     const out = await compose([{ bounds: { x: 0, y: 0, width: 2500, height: 1686 }, image: await solidJpeg(500, 500) }], SIZE)
     const normalized = await normalize(out, 'large')
     expect(normalized.bytes).toBeLessThanOrEqual(1_048_576)
+  })
+
+  // compose ไม่ได้เดินผ่าน schema.ts เลย จึงต้องบังคับ invariant เดียวกันเอง (isWithinCanvas)
+  // ไม่งั้น bounds ที่ล้นกรอบจะโผล่เป็น composite error ดิบของ sharp แทน ValidationError ที่แปลได้
+  it('ปฏิเสธช่องที่ bounds ล้นออกนอกผืนผ้าใบด้วย ValidationError code area_out_of_bounds', async () => {
+    try {
+      await compose(
+        [{ bounds: { x: 2400, y: 0, width: 200, height: 100 }, image: await solidJpeg(100, 100) }],
+        SIZE,
+      )
+      expect.unreachable('compose ต้องโยน ValidationError')
+    } catch (e) {
+      expect(e).toBeInstanceOf(ValidationError)
+      const err = e as ValidationError
+      expect(err.issues[0]).toMatchObject({ path: 'parts.0.bounds', code: 'area_out_of_bounds' })
+    }
+  })
+
+  it('ปฏิเสธ bounds ที่ตำแหน่งติดลบเช่นกัน แม้ width/height จะพอดีกรอบ', async () => {
+    await expect(
+      compose([{ bounds: { x: -10, y: 0, width: 100, height: 100 }, image: await solidJpeg(100, 100) }], SIZE),
+    ).rejects.toBeInstanceOf(ValidationError)
+  })
+
+  // หัวไฟล์สมบูรณ์ (ผ่าน inspectImage) แต่เนื้อขาดกลางคัน — decode จริงตอน resize ถึงจะล้ม
+  // ต้องได้ ImageProcessingError ที่ห่อ error ดิบของ libvips ไว้ เหมือนที่ normalize ทำ
+  it('ปฏิเสธด้วย ImageProcessingError เมื่อรูปในช่องหัวสมบูรณ์แต่เนื้อขาดกลางคัน', async () => {
+    await expect(
+      compose([{ bounds: { x: 0, y: 0, width: 100, height: 100 }, image: await truncatedJpeg() }], SIZE),
+    ).rejects.toBeInstanceOf(ImageProcessingError)
   })
 })

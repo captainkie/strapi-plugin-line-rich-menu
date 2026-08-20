@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ImageTooLargeError } from '../../src/errors.js'
+import { ImageProcessingError, ImageTooLargeError } from '../../src/errors.js'
 import { MAX_OUTPUT_BYTES } from '../../src/image/guards.js'
 import { normalize } from '../../src/image/pipeline.js'
-import { noisePng, solidJpeg, transparentPng } from '../fixtures/make-fixtures.js'
+import { noisePng, solidJpeg, transparentPng, truncatedJpeg } from '../fixtures/make-fixtures.js'
 
 // เทสต์นี้ทำ mozjpeg บีบไฟล์ noise ที่บีบยากจริง ~4s บนเครื่องนี้ และ CI runner ช้ากว่านี้
 // 5000ms default ของ Vitest จึงเป็น false-positive hang detector ไม่ใช่ performance bar —
@@ -63,5 +63,11 @@ describe('normalize', () => {
       expect(e).toBeInstanceOf(ImageTooLargeError)
       expect((e as ImageTooLargeError).actualBytes).toBeGreaterThan(500)
     }
+  })
+
+  // หัวไฟล์สมบูรณ์ (metadata อ่านผ่าน inspectImage) แต่เนื้อขาดกลางคัน — decode จริงถึงจะล้ม
+  // ต้องได้ ImageProcessingError ที่ห่อ error ดิบของ libvips ไว้ ไม่ใช่ปล่อยให้หลุดขึ้นไป
+  it('โยน ImageProcessingError เมื่อไฟล์หัวสมบูรณ์แต่เนื้อขาดกลางคัน (ผ่าน inspectImage แต่ decode ไม่ได้)', async () => {
+    await expect(normalize(await truncatedJpeg(), 'large')).rejects.toBeInstanceOf(ImageProcessingError)
   })
 })
