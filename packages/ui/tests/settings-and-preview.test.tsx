@@ -88,7 +88,7 @@ describe('ChatBarSettings', () => {
     const onChange = vi.fn()
     wrap(<ChatBarSettings value={value} onChange={onChange} />)
     fireEvent.click(screen.getByLabelText('chatBar.mode.custom'))
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ mode: 'custom' }))
+    expect(onChange).toHaveBeenCalledWith({ mode: 'custom', text: '', selected: true })
   })
 })
 
