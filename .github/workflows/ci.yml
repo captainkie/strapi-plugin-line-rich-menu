@@ -59,6 +59,11 @@ jobs:
             --lockfile=./pnpm-lock.yaml
 
   codeql:
+    # CodeQL ต้องมี GitHub Advanced Security ซึ่งเป็นสินค้าระดับ organization
+    # repo นี้เป็นของบัญชีส่วนตัวและยัง private อยู่ จึงเปิดใช้ไม่ได้เชิงโครงสร้าง ไม่ใช่แค่ยังไม่เปิดสวิตช์
+    # ปล่อย job ไว้แบบมีเงื่อนไข เพื่อให้มันเริ่มทำงานเองวันที่ repo เปิด public ตอนปล่อย 1.0.0
+    # ไม่ลบทิ้ง เพราะจะลืม และไม่ปล่อยให้แดงค้าง เพราะ CI ที่แดงตลอดสอนให้คนเลิกอ่าน CI
+    if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     permissions:
       contents: read
