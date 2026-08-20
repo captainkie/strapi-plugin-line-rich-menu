@@ -288,6 +288,13 @@ height = bounds.height / size.height * 100%
 **การอัปโหลดรูป** — ไม่เรียก Media Library UI ของ Strapi (v4 กับ v5 ต่างกันมาก) แต่ `POST /upload`
 ซึ่งเป็น endpoint เดียวกันทั้งสองเวอร์ชัน แล้วเก็บ file id ที่ได้กลับมา
 
+**ตัวเลือกไฟล์เป็น `<input type="file">` ดิบ ไม่ผ่าน port** — ตัดสินใจไว้แบบเดียวกับ CanvasEditor
+Design System ทั้ง v1 และ v2 ไม่มี file input ที่ควรค่าแก่การ adapt และถ้าทำเป็น primitive
+ทั้งสอง adapter จะ implement เป็น input ดิบเหมือนกันอยู่ดี — ได้ความซับซ้อนเพิ่มโดยไม่ได้อะไรกลับมา
+
+**accordion ของรายการช่องประกอบเอง ไม่ผ่าน port** — เป็น `<section>` + `<button aria-expanded>` +
+children แบบมีเงื่อนไข ซึ่งเป็น HTML ล้วนและคุม ARIA ได้ตรงกว่าการฝากไว้กับ DS สองเวอร์ชันที่ต่างกัน
+
 ### 5.3 หน้าจอ
 
 | หน้า | ที่อยู่ | เนื้อหา |
