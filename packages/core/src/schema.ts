@@ -1,12 +1,9 @@
 import { z } from 'zod'
 import { ValidationError, type ValidationIssue } from './errors.js'
+import { isAllowedCanvas } from './templates.js'
 import type { RichMenuPayload } from './types.js'
 
 export const ALLOWED_URI_SCHEMES = ['https:', 'http:', 'tel:', 'line:'] as const
-
-const ALLOWED_CANVAS = [
-  '2500x1686', '2500x843', '1200x810', '1200x405', '800x540', '800x270',
-] as const
 
 const uriString = z.string().min(1).max(1000).refine((value) => {
   let parsed: URL
@@ -50,7 +47,7 @@ const sizeSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
 }).strict().refine(
-  (s) => (ALLOWED_CANVAS as readonly string[]).includes(`${s.width}x${s.height}`),
+  (s) => isAllowedCanvas(s),
   {
     message: 'size must be one of the canvas sizes LINE accepts',
     params: { code: 'canvas_size_not_allowed' },

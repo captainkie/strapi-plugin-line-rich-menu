@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { SIZE_LADDER, TEMPLATES, type TemplateDef } from '../src/templates.js'
+import {
+  isAllowedCanvas, LINE_ALLOWED_SIZES, sizeNameFor, SIZE_LADDER, TEMPLATES, type TemplateDef,
+} from '../src/templates.js'
 
 const all = Object.values(TEMPLATES)
 
@@ -52,15 +54,47 @@ describe('แคตตาล็อก template', () => {
     }
   })
 
-  it('ทุกขนาดใน SIZE_LADDER เป็นขนาดที่ LINE รับ และเรียงจากใหญ่ไปเล็ก', () => {
-    const allowed = new Set([
-      '2500x1686', '2500x843', '1200x810', '1200x405', '800x540', '800x270',
-    ])
+  it('ทุกขนาดใน SIZE_LADDER เป็นขนาดที่ LINE รับ (ตรงกับ LINE_ALLOWED_SIZES) และเรียงจากใหญ่ไปเล็ก', () => {
+    const allowed = new Set(LINE_ALLOWED_SIZES.map((s) => `${s.width}x${s.height}`))
     for (const sizes of Object.values(SIZE_LADDER)) {
       for (const s of sizes) expect(allowed.has(`${s.width}x${s.height}`)).toBe(true)
       const widths = sizes.map((s) => s.width)
       expect(widths).toEqual([...widths].sort((a, b) => b - a))
     }
+  })
+
+  it('LINE_ALLOWED_SIZES มีครบ 6 ขนาด ไม่ซ้ำกันเลย', () => {
+    expect(LINE_ALLOWED_SIZES).toHaveLength(6)
+    const keys = new Set(LINE_ALLOWED_SIZES.map((s) => `${s.width}x${s.height}`))
+    expect(keys.size).toBe(6)
+  })
+})
+
+describe('isAllowedCanvas', () => {
+  it('ผ่านทุกขนาดที่อยู่ใน LINE_ALLOWED_SIZES', () => {
+    for (const size of LINE_ALLOWED_SIZES) expect(isAllowedCanvas(size)).toBe(true)
+  })
+
+  it('ปฏิเสธขนาดที่ไม่อยู่ใน allowlist', () => {
+    expect(isAllowedCanvas({ width: 999, height: 999 })).toBe(false)
+  })
+
+  it('ปฏิเสธขนาดที่ใกล้เคียงแต่ไม่ตรงเป๊ะ (กว้างตรงแต่สูงผิด)', () => {
+    expect(isAllowedCanvas({ width: 2500, height: 1000 })).toBe(false)
+  })
+})
+
+describe('sizeNameFor', () => {
+  it('คืน large สำหรับทุกขนาดใน SIZE_LADDER.large', () => {
+    for (const size of SIZE_LADDER.large) expect(sizeNameFor(size)).toBe('large')
+  })
+
+  it('คืน compact สำหรับทุกขนาดใน SIZE_LADDER.compact', () => {
+    for (const size of SIZE_LADDER.compact) expect(sizeNameFor(size)).toBe('compact')
+  })
+
+  it('คืน undefined สำหรับขนาดที่ไม่อยู่ในแคตตาล็อกเลย', () => {
+    expect(sizeNameFor({ width: 999, height: 999 })).toBeUndefined()
   })
 })
 

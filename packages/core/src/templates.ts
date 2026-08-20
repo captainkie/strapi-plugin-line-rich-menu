@@ -24,6 +24,36 @@ export const SIZE_LADDER: Record<RichMenuSizeName, RichMenuSize[]> = {
   ],
 }
 
+/**
+ * ทุกขนาดผืนผ้าใบที่ LINE ยอมรับ รวม 6 แบบ (สเปก 4.1) — ที่เดียวที่ประกาศตัวเลขพวกนี้
+ * `schema.ts` ต้อง derive มาจากตัวนี้แทนพิมพ์ string ซ้ำเอง ไม่งั้นวันไหนแก้ที่เดียวไม่ครบ
+ * validate กับ template catalog จะไม่ตรงกันแบบเงียบ ๆ
+ */
+export const LINE_ALLOWED_SIZES: readonly RichMenuSize[] = [
+  ...SIZE_LADDER.large,
+  ...SIZE_LADDER.compact,
+]
+
+export function isAllowedCanvas(size: RichMenuSize): boolean {
+  return LINE_ALLOWED_SIZES.some((s) => s.width === size.width && s.height === size.height)
+}
+
+/**
+ * ย้อนจากพิกเซลจริงกลับไปหาชื่อขนาดที่ DB เก็บ (`large` / `compact`)
+ *
+ * มีไว้ให้ฝั่งเรียก (Strapi service) ปิดช่องโหว่ที่สเปก 4.1 เตือนไว้: `normalize` เลือกพิกเซลเอง
+ * จาก SIZE_LADDER (อาจลดขั้นถ้าบีบไม่ลง 1 MB) — ฝั่งเรียกต้องใช้ผลลัพธ์จริงของ normalize
+ * ไปคำนวณ payload.size แทนการเดาไว้ก่อนแยกต่างหาก ไม่งั้นรูปที่อัปกับเมนูที่ LINE ถืออาจคนละขนาด
+ */
+export function sizeNameFor(size: RichMenuSize): RichMenuSizeName | undefined {
+  for (const sizeName of Object.keys(SIZE_LADDER) as RichMenuSizeName[]) {
+    if (SIZE_LADDER[sizeName].some((s) => s.width === size.width && s.height === size.height)) {
+      return sizeName
+    }
+  }
+  return undefined
+}
+
 const b = (x: number, y: number, width: number, height: number): Bounds => ({ x, y, width, height })
 
 const defs: TemplateDef[] = [
