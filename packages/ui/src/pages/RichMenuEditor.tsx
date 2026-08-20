@@ -219,15 +219,20 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
           </ui.Flex>
 
           {template === null ? null : (
-            <CanvasEditor
-              size={size}
-              bounds={draft.bounds}
-              showOutlines={outlines}
-              activeIndex={active}
-              onSelect={setActive}
-              errors={areaErrors}
-              {...(draft.image === null ? {} : { imageUrl: draft.image.url })}
-            />
+            // testid ของตัวเอง เพราะ CanvasEditor ทุกตัวใช้ data-testid="rich-menu-canvas" เหมือนกันหมด
+            // (รวมถึงชุดที่ฝังอยู่ใน Preview) — ต้องมี wrapper แยกให้ทดสอบ query เจาะจงมาที่ canvas
+            // ที่แก้ไขได้จริงตัวนี้ได้ ไม่ใช่ตัวไหนก็ได้ที่ query เจอก่อน
+            <div data-testid="editable-canvas">
+              <CanvasEditor
+                size={size}
+                bounds={draft.bounds}
+                showOutlines={outlines}
+                activeIndex={active}
+                onSelect={setActive}
+                errors={areaErrors}
+                {...(draft.image === null ? {} : { imageUrl: draft.image.url })}
+              />
+            </div>
           )}
 
           <AreaList
