@@ -3,7 +3,11 @@ import * as browserEntry from '../src/browser.js'
 
 // packages/core/src/browser.ts คือ subpath "./browser" — ต้องไม่มีอะไรที่ import sharp
 // หรือ node:crypto รั่วเข้ามา (ดูเหตุผลเต็มใน src/browser.ts และ tsup.config.ts)
-// เทสต์นี้ยืนยันที่ต้นทาง (src) ไม่ใช่ dist — dist ถูกตรวจแยกด้วย grep หลัง build
+// เทสต์นี้ยืนยันที่ต้นทาง (src) ผ่าน barrel export เท่านั้น (denylist ของ symbol ที่รู้จักอยู่แล้ว
+// เช่น normalize/compose/LineClient) — ไม่ได้ตรวจ dist และจับโมดูลผูก Node ใหม่ที่ยังไม่มีชื่อ
+// ในลิสต์นี้ไม่ได้ ด่านที่ตรวจ dist จริง (จับได้ทั้งสองกรณี) คือ job `quality` ใน
+// .github/workflows/ci.yml ขั้นตอนหลัง `pnpm build`: grep หา import/require ของ sharp
+// ใน dist/browser.js และ dist/browser.cjs โดยตรง
 
 describe('subpath "./browser" — โค้ดที่ปลอดภัยจะรันในเบราว์เซอร์', () => {
   it('มี symbol ที่ไม่ผูก Node runtime ครบ — templates, schema, errors, thumbnail, types', () => {

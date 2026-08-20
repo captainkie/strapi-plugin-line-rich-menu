@@ -28,6 +28,18 @@ jobs:
       - run: pnpm lint
       - run: pnpm test:coverage
       - run: pnpm build
+      - name: ตรวจว่า dist/browser.{js,cjs} ไม่มี sharp หลุดเข้ามา
+        # ตรวจ import/require จริงเท่านั้น ไม่ใช่คำว่า "sharp" ลอย ๆ — .d.ts มีคำนี้ใน
+        # JSDoc comment (browser.d.ts) ซึ่งเป็น false positive ถ้า grep ทั้งไฟล์ จึงเช็คแค่
+        # .js/.cjs ที่รันจริง เทียบกับ tests/browser.test.ts ที่ตรวจแค่ที่ต้นทาง (src) —
+        # ด่านนี้ตรวจที่ dist (สิ่งที่ผู้บริโภคแพ็กเกจได้จริง) และจับได้ทั้งการ import sharp
+        # กลับเข้ามาซ้ำและโมดูลผูก Node ใหม่ ๆ ที่เพิ่มเข้า src/browser.ts ในอนาคต
+        run: |
+          if grep -nE "from ['\"]sharp['\"]|require\(['\"]sharp['\"]\)" \
+            packages/core/dist/browser.js packages/core/dist/browser.cjs; then
+            echo "::error::sharp ถูก import เข้า packages/core/dist/browser.{js,cjs} — subpath \"./browser\" ต้องรันในเบราว์เซอร์ได้โดยไม่มี sharp"
+            exit 1
+          fi
 
   mutation:
     runs-on: ubuntu-latest
