@@ -196,6 +196,15 @@ describe('RichMenuEditor', () => {
     await waitFor(() => expect(screen.getAllByTestId('save-draft')[0]).not.toBeDisabled())
   })
 
+  // setup() สร้าง toast fixture ไว้ตั้งแต่ต้นแต่ไม่มี test ไหนใช้เลย — catch ที่กลืน onSave ที่ reject
+  // ใน save() (RichMenuEditor.tsx) จึงไม่เคยถูกทดสอบ: บันทึกที่ล้มเหลวหน้าตาเหมือนบันทึกสำเร็จทุกอย่าง
+  it('onSave ล้มเหลว ผู้ใช้ต้องได้รับแจ้งผ่าน toast ไม่ใช่ดูเหมือนบันทึกสำเร็จ', async () => {
+    const onSave = vi.fn(async () => { throw new Error('boom') })
+    const { toast } = setup({ onSave })
+    fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
+    await waitFor(() => expect(toast).toHaveBeenCalledWith({ type: 'danger', message: 'editor.saveFailed' }))
+  })
+
   it('ยกเลิกแล้วเรียก onCancel', () => {
     const { onCancel } = setup()
     fireEvent.click(screen.getAllByTestId('cancel')[0]!)
