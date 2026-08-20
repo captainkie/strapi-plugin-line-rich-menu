@@ -42,6 +42,7 @@ describe('CanvasEditor', () => {
   it('ซ่อนกรอบและตัวเลขเมื่อปิด outline', () => {
     setup({ showOutlines: false })
     expect(screen.queryByText('833×843')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button')[0]!.style.border).toBe('')
   })
 
   it('ติดป้าย A B C ตามลำดับช่อง', () => {
@@ -77,6 +78,14 @@ describe('CanvasEditor', () => {
     expect(onSelect).not.toHaveBeenCalled()
   })
 
+  it('กด Enter จาก element ลูกที่ซ้อนอยู่ข้างในช่อง ต้องไม่ถูกดักไปเลือกช่อง', () => {
+    const { onSelect } = setup()
+    const area = screen.getAllByRole('button')[0]!
+    const nested = area.querySelector('span')!
+    fireEvent.keyDown(nested, { key: 'Enter' })
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
   it('บอกว่าช่องไหนถูกเลือกอยู่ผ่าน aria-pressed', () => {
     setup({ activeIndex: 3 })
     expect(screen.getAllByRole('button')[3]!).toHaveAttribute('aria-pressed', 'true')
@@ -88,6 +97,17 @@ describe('CanvasEditor', () => {
     setup({ errors: { 2: 'ต้องกรอก URI' } })
     expect(screen.getAllByRole('button')[2]!).toHaveAttribute('data-invalid', 'true')
     expect(screen.getAllByRole('button')[2]!.getAttribute('aria-label')).toContain('ต้องกรอก URI')
+    expect(screen.getAllByRole('button')[0]!).not.toHaveAttribute('data-invalid')
+  })
+
+  // Task 6 review: ช่องที่ทับกันได้ (LINE อนุญาต) ช่องหลังในลำดับ DOM จะทับมือจับของช่องก่อนหน้า
+  // ช่องที่ active ต้องมี z-index สูงกว่า ผู้ใช้ถึงจะคลิกมือจับของมันได้เสมอ
+  it('ช่องที่ active มี z-index สูงกว่าช่องที่ไม่ active', () => {
+    setup({ activeIndex: 3 })
+    const areas = screen.getAllByRole('button')
+    const activeZ = Number(areas[3]!.style.zIndex)
+    const inactiveZ = Number(areas[0]!.style.zIndex)
+    expect(activeZ).toBeGreaterThan(inactiveZ)
   })
 
   it('แสดงรูปพื้นหลังเมื่อมี', () => {
