@@ -15,7 +15,20 @@ export interface UIPrimitives {
   Select: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; error?: string; disabled?: boolean; children?: ReactNode }>
   Option: ComponentType<{ value: string; children?: ReactNode }>
   Checkbox: ComponentType<{ name: string; checked: boolean; onChange: (checked: boolean) => void; children?: ReactNode }>
-  Radio: ComponentType<{ name: string; value: string; checked: boolean; onChange: (value: string) => void; children?: ReactNode }>
+  /**
+   * กลุ่มเป็นเจ้าของทั้ง `value` และ `onChange` ส่วนสมาชิกบอกแค่ว่าตัวเองคือค่าไหน — ไม่ใช่
+   * radio เดี่ยว ๆ ที่ถือ `checked` ของตัวเองแล้วจับกลุ่มกันด้วย attribute `name` เฉย ๆ
+   *
+   * DS v2 (Strapi 5) วางอยู่บน Radix ซึ่ง radio group คือ `Root` ที่ถือ value/onValueChange
+   * ครอบ `Item` — `Item` ที่อยู่นอก `Root` ใช้ไม่ได้เลย ถ้า port ไม่มีที่ให้วาด `Root` adapter
+   * ฝั่ง v5 จะไม่มีทาง implement ได้ไม่ว่าจะเขียนภายในตัวเองเก่งแค่ไหน รูปนี้จึงลง Radix ได้ตรง ๆ
+   * และฝั่ง v4 ก็แค่ `<fieldset>` ครอบ radio ของ DS v1 ตามเดิม
+   *
+   * `label` ต้องลงเอยเป็นชื่อของกลุ่มใน accessibility tree (เช่น `<legend>` ของ `<fieldset>`)
+   * ไม่ใช่ข้อความลอย ๆ ข้าง ๆ ไม่งั้นคนใช้ screen reader จะได้ยิน radio หลายตัวโดยไม่รู้ว่าตัวไหนคู่กับตัวไหน
+   */
+  RadioGroup: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; children?: ReactNode }>
+  Radio: ComponentType<{ value: string; children?: ReactNode }>
   Toggle: ComponentType<{ name: string; checked: boolean; onChange: (checked: boolean) => void; label?: string }>
   Modal: ComponentType<{ open: boolean; onClose: () => void; title: string; footer?: ReactNode; children?: ReactNode }>
   Typography: ComponentType<{ variant?: 'alpha' | 'beta' | 'delta' | 'omega' | 'pi'; textColor?: 'neutral600' | 'neutral800' | 'danger600' | 'success600' | 'warning600'; children?: ReactNode }>

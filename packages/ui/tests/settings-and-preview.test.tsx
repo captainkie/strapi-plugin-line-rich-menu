@@ -90,6 +90,39 @@ describe('ChatBarSettings', () => {
     fireEvent.click(screen.getByLabelText('chatBar.mode.custom'))
     expect(onChange).toHaveBeenCalledWith({ mode: 'custom', text: '', selected: true })
   })
+
+  // ตัวเลือกสองชุดนี้เคยเป็น radio สี่ตัวเรียงกันที่จับกลุ่มกันด้วย attribute `name` เท่านั้น —
+  // คนใช้ screen reader จึงได้ยิน radio สี่ตัวลอย ๆ โดยไม่มีอะไรบอกว่าตัวไหนอยู่ชุดเดียวกัน
+  // เทสต์นี้ยึดทั้งสองด้าน: กลุ่มต้องมีอยู่จริงใน accessibility tree และต้องมีชื่อของตัวเอง
+  it('ตัวเลือกแต่ละชุดเป็นกลุ่มที่มีชื่อของตัวเอง ไม่ใช่ radio ลอย ๆ สี่ตัว', () => {
+    wrap(<ChatBarSettings value={value} onChange={vi.fn()} />)
+    expect(screen.getByRole('radiogroup', { name: 'chatBar.mode' })).toBeInTheDocument()
+    expect(screen.getByRole('radiogroup', { name: 'chatBar.behavior' })).toBeInTheDocument()
+  })
+
+  // ช่องข้อความไม่ใช่ตัวเลือกของกลุ่ม "โหมด" — ถ้ามันหลุดเข้าไปอยู่ในกลุ่ม ผู้ใช้ screen reader
+  // จะได้ยินว่ากลุ่มนี้มีสามตัวเลือก ทั้งที่มีจริงแค่สอง
+  it('กลุ่มโหมดมีสมาชิกแค่สองตัว ช่องข้อความไม่นับเป็นตัวเลือกของกลุ่ม', () => {
+    wrap(<ChatBarSettings value={value} onChange={vi.fn()} />)
+    const group = within(screen.getByRole('radiogroup', { name: 'chatBar.mode' }))
+    expect(group.getAllByRole('radio')).toHaveLength(2)
+    expect(group.queryByLabelText('chatBar.text')).not.toBeInTheDocument()
+  })
+
+  it('เลือกสมาชิกในกลุ่มพฤติกรรมแล้วรายงานค่าของสมาชิกตัวนั้น ไม่ใช่ค่าของกลุ่มเดิม', () => {
+    const onChange = vi.fn()
+    wrap(<ChatBarSettings value={value} onChange={onChange} />)
+    fireEvent.click(screen.getByLabelText('chatBar.behavior.collapsed'))
+    expect(onChange).toHaveBeenCalledWith({ mode: 'default', text: '', selected: false })
+  })
+
+  it('สมาชิกที่ตรงกับค่าปัจจุบันถูกติ๊กไว้ตัวเดียว ไม่ใช่ทุกตัวหรือไม่มีเลย', () => {
+    wrap(<ChatBarSettings value={{ mode: 'custom', text: 'ร้านค้า', selected: true }} onChange={vi.fn()} />)
+    expect(screen.getByLabelText('chatBar.mode.custom')).toBeChecked()
+    expect(screen.getByLabelText('chatBar.mode.default')).not.toBeChecked()
+    expect(screen.getByLabelText('chatBar.behavior.shown')).toBeChecked()
+    expect(screen.getByLabelText('chatBar.behavior.collapsed')).not.toBeChecked()
+  })
 })
 
 describe('Preview', () => {
