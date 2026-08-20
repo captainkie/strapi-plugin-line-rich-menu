@@ -1,0 +1,28 @@
+# OMC / agent state
+.omc/
+
+# ต้นทางจากโปรเจกต์ลูกค้า — ใช้อ้างอิงระหว่าง port เท่านั้น ห้ามขึ้น repo สาธารณะ
+docs/files/
+
+# deps & build
+node_modules/
+dist/
+build/
+.strapi/
+.cache/
+coverage/
+.stryker-tmp/
+*.tsbuildinfo
+
+# env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+*.log
