@@ -34,9 +34,10 @@ export function emptyDraft(): RichMenuDraft {
     areas: [],
     bounds: [],
     sizeName: 'large',
-    // ยุบแถบไว้ก่อนโดย default — เมนูที่เพิ่งสร้างยังไม่มีอะไรให้กาง และ preview
-    // จะได้ไม่วาด CanvasEditor ซ้อนตัวที่สองทับ canvas หลักที่แก้ไขได้จริงตั้งแต่แรกเปิดฟอร์ม
-    chatBar: { mode: 'default', text: '', selected: false },
+    // เมนูใหม่แสดงแถบไว้ (shown) โดย default ตามที่ LINE OA Manager เองทำ — สเปก §5.7
+    // "Default behavior (•) Shown". Preview จะวาด CanvasEditor ซ้อนอีกชุดตอนกางแถบก็จริง แต่ชุดนั้น
+    // ถูกซ่อนจาก accessibility tree แล้ว (aria-hidden ที่ Preview.tsx) จึงไม่ชนกับ canvas หลักอีก
+    chatBar: { mode: 'default', text: '', selected: true },
     image: null,
   }
 }
