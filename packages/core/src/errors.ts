@@ -76,6 +76,21 @@ export class ImageBombError extends CoreError {
   }
 }
 
+/**
+ * sharp/libvips ล้มระหว่างประมวลผลรูปที่ผ่านการตรวจ metadata มาแล้ว
+ * เช่นไฟล์ที่หัวสมบูรณ์แต่เนื้อขาดกลางคัน ซึ่ง `.metadata()` อ่านผ่านแต่ decode ไม่ได้
+ *
+ * ไม่พก message เดิมติดมาด้วย ด้วยเหตุผลเดียวกับ CryptoEnvelopeError ใน crypto.ts:
+ * ข้อความจาก upstream ('VipsJpeg: ...') อาจสะท้อนข้อมูลที่ไม่ควรหลุด และสเปก 11.7
+ * มีอยู่เพื่อไม่ให้ adapter ส่งข้อความดิบจาก upstream ขึ้น UI
+ */
+export class ImageProcessingError extends CoreError {
+  readonly code = 'image_processing_failed'
+  constructor() {
+    super('Image processing failed')
+  }
+}
+
 export class CryptoEnvelopeError extends CoreError {
   readonly code = 'crypto_envelope_invalid'
 }
