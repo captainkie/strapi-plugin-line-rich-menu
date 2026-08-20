@@ -1,0 +1,8 @@
+packages:
+  - 'packages/*'
+  - 'tools/*'
+  - 'examples/*'
+allowBuilds:
+  esbuild: true
+  msw: false
+  sharp: true

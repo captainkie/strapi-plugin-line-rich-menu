@@ -12,6 +12,7 @@ build/
 .cache/
 coverage/
 .stryker-tmp/
+reports/
 *.tsbuildinfo
 
 # env & secrets
@@ -26,3 +27,6 @@ coverage/
 .idea/
 .vscode/
 *.log
+
+# SDD scratch (per-plan workspace)
+.superpowers/
