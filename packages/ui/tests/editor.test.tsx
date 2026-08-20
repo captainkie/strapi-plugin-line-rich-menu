@@ -119,6 +119,26 @@ describe('RichMenuEditor', () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
+  // A3 — MainSettings รับ prop errors มาตั้งแต่ fix round ของ Task 9 แต่ RichMenuEditor ไม่เคยส่งอะไร
+  // เข้าไปเลย issue ที่ไม่ใช่ของช่อง (เช่น path "name") จึงตกไปอยู่ที่แบนเนอร์รวมแทนที่จะขึ้นที่ช่องชื่อ
+  //
+  // t('editor.untitled') ถูกบังคับให้คืนค่าว่างเปล่าเพื่อให้ name ผิด schema (min 1) จริง — ปกติ title
+  // ว่างจะถูกแทนด้วยคำนี้เสมอ ทำให้ name ไม่มีทางว่างได้ผ่านโค้ดจริง (จงใจ ไม่ใช่บั๊ก) จึงต้องปลอมจุดนี้
+  // เพื่อพิสูจน์ทางเดินของ error แม้ path นี้แทบไม่มีทางเกิดจากการกรอกฟอร์มปกติ
+  it('error ที่ path "name" จาก validateRichMenu ขึ้นที่ช่องชื่อใน MainSettings ไม่ใช่แบนเนอร์รวม', async () => {
+    const t = (key: string) => (key === 'editor.untitled' ? '' : key)
+    render(
+      <PortProvider value={createStubPort({ t, toast: vi.fn() })}>
+        <RichMenuEditor aliasOptions={[]} onSave={vi.fn(async () => {})} onCancel={vi.fn()} />
+      </PortProvider>,
+    )
+    chooseTemplate()
+    fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+    await waitFor(() => expect(document.getElementById('title-error')).not.toBeNull())
+    expect(document.getElementById('title-error')?.textContent).toBe('validation.too_small')
+    expect(screen.queryByText('editor.error.noTemplate')).not.toBeInTheDocument()
+  })
+
   // สเปก §5.6 ข้อ 4 — error ต้องโผล่ที่ช่องที่ผิด
   it('publish ที่ล้มเพราะ action ไม่ครบ แสดง error ที่ช่องนั้น ไม่ใช่รวมบนหัวฟอร์ม', async () => {
     setup()

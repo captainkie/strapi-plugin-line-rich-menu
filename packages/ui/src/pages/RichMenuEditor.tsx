@@ -9,7 +9,7 @@ import { AreaList } from '../components/AreaList.js'
 import { ChatBarSettings, type ChatBarValue } from '../components/ChatBarSettings.js'
 import { CanvasEditor } from '../components/CanvasEditor.js'
 import { ImageField, type UploadedImage } from '../components/ImageField.js'
-import { MainSettings } from '../components/MainSettings.js'
+import { MainSettings, type MainSettingsValue } from '../components/MainSettings.js'
 import { Preview } from '../components/Preview.js'
 import { TemplatePicker } from '../components/TemplatePicker.js'
 
@@ -71,6 +71,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
   const [active, setActive] = useState<number | null>(null)
   const [view, setView] = useState<'list' | 'expanded'>('list')
   const [areaErrors, setAreaErrors] = useState<Record<number, string>>({})
+  const [mainErrors, setMainErrors] = useState<Partial<Record<keyof MainSettingsValue, string>>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [chatBarError, setChatBarError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -105,6 +106,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
   const save = async (publish: boolean) => {
     setFormError(null)
     setAreaErrors({})
+    setMainErrors({})
     setChatBarError(null)
 
     if (publish) {
@@ -137,14 +139,23 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
         })
       } catch (error) {
         if (error instanceof ValidationError) {
-          const next: Record<number, string> = {}
+          // ไล่ issue ที่ไม่ใช่ของช่อง (index === null) ไปลงฟิลด์ที่มันพูดถึงจริง ๆ แทนที่จะโยนรวมขึ้น
+          // แบนเนอร์บนหัวฟอร์มหมด — เหมือนที่ areaErrors ทำให้ AreaList อยู่แล้ว (สเปก §5.6 ข้อ 4)
+          const nextAreaErrors: Record<number, string> = {}
+          const nextMainErrors: Partial<Record<keyof MainSettingsValue, string>> = {}
           for (const issue of error.issues) {
             const index = areaIndexOf(issue.path)
-            if (index === null) setFormError(t(`validation.${issue.code}`))
-            else next[index] = t(`validation.${issue.code}`)
+            const message = t(`validation.${issue.code}`)
+            if (index !== null) { nextAreaErrors[index] = message; continue }
+            if (issue.path === 'name') { nextMainErrors.title = message; continue }
+            if (issue.path === 'chatBarText') { setChatBarError(message); continue }
+            setFormError(message)
           }
-          setAreaErrors(next)
-          if (Object.keys(next).length > 0 && view === 'list') setActive(Number(Object.keys(next)[0]))
+          setAreaErrors(nextAreaErrors)
+          setMainErrors(nextMainErrors)
+          if (Object.keys(nextAreaErrors).length > 0 && view === 'list') {
+            setActive(Number(Object.keys(nextAreaErrors)[0]))
+          }
           return
         }
         throw error
@@ -192,6 +203,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
       <MainSettings
         value={{ title: draft.title, startAt: draft.startAt, endAt: draft.endAt }}
         onChange={(next) => setDraft((prev) => ({ ...prev, ...next }))}
+        errors={mainErrors}
       />
 
       <ui.Divider />
