@@ -50,9 +50,37 @@ describe('renderTemplateSvg', () => {
     expect(svg.match(/<rect/g)).toHaveLength(2)
   })
 
-  it('ไม่มี script หรือ event handler หลุดเข้าไปใน SVG', () => {
+  // เดิมเช็คแค่ onload=/onclick= สองตัว — แคบเกินไปเพราะ event handler attribute ของ HTML/SVG
+  // มีอีกหลายสิบตัว (onmouseover, onerror, onfocus, ...) เช็คแบบ \son\w+\s*= ครอบคลุมทั้งตระกูล
+  it('ไม่มี script หรือ event handler ตระกูล on* ใด ๆ หลุดเข้าไปใน SVG', () => {
     const svg = renderTemplateSvg(t.bounds, t.size)
-    expect(svg).not.toMatch(/<script|onload=|onclick=/i)
+    expect(svg).not.toMatch(/<script|\son\w+\s*=/i)
+  })
+
+  // renderTemplateSvg เป็น public API — ผู้เรียกจาก JS ล้วน (เช่น adapter ที่ parse JSON จาก DB
+  // มาไม่ตรวจ) ส่งค่าที่ไม่ใช่ number จริงเข้ามาได้แม้ type จะประกาศว่าเป็น number ก็ตาม
+  // ค่าที่พยายามหลุดออกจาก attribute (เช่นปิด quote แล้วแปะ event handler) ต้องถูกบังคับเป็น
+  // fallback ที่ปลอดภัยเสมอ ไม่ใช่แปะสตริงดิบเข้าไปตรง ๆ
+  it('bounds/size ที่เป็นสตริงอันตราย (จาก JSON ที่ parse มาไม่ตรวจ) ถูกบังคับเป็นตัวเลขก่อนแปะเข้า markup', () => {
+    const hostileBounds = [{
+      x: '0" onmouseover="alert(1)' as unknown as number,
+      y: 0,
+      width: 100,
+      height: 100,
+    }]
+    const svg = renderTemplateSvg(hostileBounds, { width: 2500, height: 843 })
+    expect(svg).not.toMatch(/\son\w+\s*=/i)
+    expect(svg).not.toContain('alert(1)')
+    expect(svg).toContain('x="0"')
+  })
+
+  it('size ที่เป็นสตริงอันตรายก็ถูกบังคับเป็นตัวเลขเช่นกัน (viewBox)', () => {
+    const svg = renderTemplateSvg(t.bounds, {
+      width: '2500" onload="alert(1)' as unknown as number,
+      height: 1686,
+    })
+    expect(svg).not.toMatch(/\son\w+\s*=/i)
+    expect(svg).toContain('viewBox="0 0 0 1686"')
   })
 
   it('cell แต่ละอันต่อกันตรง ๆ ไม่มีตัวคั่นแปลกปลอมเล็ดลอดออกมา', () => {
