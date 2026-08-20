@@ -1,0 +1,72 @@
+version: 2
+
+updates:
+  # ---- npm / pnpm workspace: lockfile ที่ root ครอบคลุม packages/* และ tools/* ทั้งหมด ----
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Bangkok
+    open-pull-requests-limit: 5
+    # แพ็กเกจนี้เป็น library ที่คนอื่นเอาไปใช้ — ขยับ range ใน package.json
+    # เฉพาะตอนที่เวอร์ชันใหม่หลุดออกนอก range เดิมจริง ๆ ไม่ไล่บีบผู้ใช้ปลายทางอัปตาม
+    versioning-strategy: increase-if-necessary
+    commit-message:
+      prefix: chore
+      prefix-development: chore
+      include: scope
+    labels:
+      - dependencies
+    groups:
+      # ลำดับสำคัญ: กลุ่มที่เจาะจงต้องมาก่อนกลุ่มกวาดรวม
+      # เพราะ dependency ที่เข้าได้หลายกลุ่มจะถูกจัดเข้ากลุ่มแรกที่ตรง
+      eslint:
+        patterns:
+          - eslint
+          - "@eslint/*"
+          - typescript-eslint
+          - "@typescript-eslint/*"
+      test-tooling:
+        patterns:
+          - vitest
+          - "@vitest/*"
+          - "@stryker-mutator/*"
+          - msw
+          - fast-check
+      dev-tooling:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # @types/node ต้องอยู่สาย 20 ให้ตรงกับ engines ">=20.15.0"
+      # ถ้าปล่อยขึ้น 22 หรือ 24 จะได้ type ของ API ที่ Node 20 ไม่มีจริง
+      # แล้ว tsc จะผ่านทั้งที่ของจริงพังตอน runtime บนเครื่องลูกค้า
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
+      # eslint major เปลี่ยนรูปแบบ config ทั้งชุด ให้คนตัดสินใจเอง ไม่ใช่ bot
+      - dependency-name: eslint
+        update-types:
+          - version-update:semver-major
+
+  # ---- GitHub Actions ที่ ci.yml เรียกใช้ ----
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Bangkok
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - dependencies
+      - ci
+    groups:
+      actions:
+        patterns:
+          - "*"
