@@ -9,8 +9,8 @@ const channels = [
   { id: 'c1', name: 'ร้านทดสอบ', channelId: '1650000000', accessTokenPreview: '••••••••abcd', isDefault: true },
 ]
 
-function setup(overrides: { get?: unknown; post?: unknown } = {}) {
-  const base = createStubPort({ t: (k) => k })
+function setup(overrides: { get?: unknown; post?: unknown; t?: (key: string, values?: Record<string, string | number>) => string } = {}) {
+  const base = createStubPort({ t: overrides.t ?? ((k) => k) })
   const get = overrides.get ?? vi.fn(async () => channels)
   const post = overrides.post ?? vi.fn(async () => ({}))
   const port = { ...base, http: { ...base.http, get, post } as typeof base.http }
@@ -45,12 +45,22 @@ describe('ChannelSettings', () => {
     }))
   })
 
-  it('ปุ่ม Test connection แสดงชื่อ OA ที่ยิงเจอจริง', async () => {
+  // ต้องใช้ t ที่ interpolate จริง (ไม่ใช่ identity `(k) => k` ที่ทิ้ง values ทั้งก้อน) เพราะข้อความ
+  // ไทยวางชื่อ OA ไว้กลางประโยค ("เชื่อมต่อกับ {name} แล้ว") ไม่ใช่ท้ายสุดแบบอังกฤษ — เทสต์นี้ต้องพิสูจน์
+  // ทั้งว่าชื่อไปถึง values ของ t() จริง และวางกลางประโยคได้ ไม่ใช่แค่ปรากฏอยู่ที่ไหนก็ได้ในข้อความ
+  it('ปุ่ม Test connection แสดงชื่อ OA ที่ยิงเจอจริง โดยวางกลางประโยคผ่าน t()', async () => {
+    const MESSAGES: Record<string, string> = { 'channel.testOk': 'เชื่อมต่อกับ {name} แล้ว' }
+    const t = (key: string, values?: Record<string, string | number>) => {
+      const template = MESSAGES[key] ?? key
+      return values === undefined
+        ? template
+        : Object.entries(values).reduce((s, [name, value]) => s.replaceAll(`{${name}}`, String(value)), template)
+    }
     const post = vi.fn(async () => ({ userId: 'U1', basicId: '@abc', displayName: 'ร้านที่ยิงเจอ' }))
-    setup({ post })
+    setup({ post, t })
     await waitFor(() => expect(screen.getByTestId('test-c1')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('test-c1'))
-    await waitFor(() => expect(screen.getByText(/ร้านที่ยิงเจอ/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('เชื่อมต่อกับ ร้านที่ยิงเจอ แล้ว')).toBeInTheDocument())
     expect(post).toHaveBeenCalledWith(ENDPOINTS.channelTest('c1'), undefined)
   })
 

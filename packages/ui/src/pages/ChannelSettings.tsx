@@ -47,9 +47,10 @@ export function ChannelSettings() {
     setTested(null)
     try {
       const info = await http.post<BotInfo>(ENDPOINTS.channelTest(id), undefined)
-      // ชื่อ OA เป็นข้อมูลจากเซิร์ฟเวอร์ ไม่ใช่ข้อความของ UI — แสดงตรง ๆ เหมือน channel.name/menu.title
-      // ที่อื่นในไฟล์นี้ ไม่ยัดเข้าไปเป็นค่า interpolate ของ t() ที่มีแต่ label คงที่เท่านั้นที่ผ่าน t()
-      setTested(info.displayName)
+      // ชื่อ OA ต้องผ่าน t() เสมอ ไม่ใช่ต่อ string เอง — มีแต่ t() เท่านั้นที่รู้วิธีวางชื่อ "กลางประโยค"
+      // ให้ถูกไวยากรณ์ของแต่ละภาษา (ไทย "เชื่อมต่อกับ {name} แล้ว" ชื่ออยู่กลางประโยค ไม่ใช่ท้ายสุด
+      // แบบอังกฤษ) การต่อ label กับ name ด้วย string concatenation ทำได้แค่วางชื่อไว้ท้ายสุดเสมอ
+      setTested(t('channel.testOk', { name: info.displayName }))
     } catch {
       setError(t('channel.testFailed'))
     }
@@ -62,7 +63,7 @@ export function ChannelSettings() {
     <ui.Flex direction="column" gap={3}>
       <ui.Typography variant="alpha">{t('channel.heading')}</ui.Typography>
       {error === null ? null : <ui.Alert variant="danger">{error}</ui.Alert>}
-      {tested === null ? null : <ui.Alert variant="success">{t('channel.testOk')} {tested}</ui.Alert>}
+      {tested === null ? null : <ui.Alert variant="success">{tested}</ui.Alert>}
 
       {channels.map((channel) => (
         <ui.Flex key={channel.id} justifyContent="space-between" alignItems="center">
