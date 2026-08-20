@@ -200,6 +200,18 @@ compose(areas: {bounds, image: Buffer}[], target: RichMenuSize): Promise<Buffer>
 
 `compose` วาดรูปแต่ละช่องลงบน canvas ขนาด `target` ตามพิกัด `bounds` แล้วส่งต่อเข้า `normalize`
 
+**เวลาที่ใช้จริง เป็นข้อจำกัดของสถาปัตยกรรม ไม่ใช่รายละเอียดปลีกย่อย** — วัดได้ระหว่างทำ Task 10:
+รูปที่บีบไม่ลง (noise เต็มเฟรม) ต้องไล่ mozjpeg ทั้งบันไดขนาด ใช้เวลา **เกิน 5 วินาที** ต่อการ normalize หนึ่งครั้ง
+
+ผลที่ตามมาต่อ Plan 03/04 ซึ่งต้องออกแบบเผื่อไว้:
+
+- endpoint ที่ publish **ห้ามทำ normalize แบบ synchronous ในคำขอเดียว** แล้วหวังว่าจะทัน — reverse proxy
+  หน้า Strapi ส่วนใหญ่ตั้ง timeout ไว้ 30–60 วินาที และรูปหลายช่องที่ต้อง compose แล้ว normalize จะชนเพดานนั้น
+- ทางที่ควรเป็น: normalize ตอน**อัปโหลด** ไม่ใช่ตอน publish แล้วเก็บผลที่ผ่านเกณฑ์ไว้ ทำให้ publish เหลือแค่ยิง API
+- sharp ทำงานบน libuv threadpool จึงไม่บล็อก event loop แต่กิน worker — อัปโหลดพร้อมกันหลายคนจะแย่ง
+  thread กันจนช้าลงทั้งระบบ ถ้าเจอปัญหาให้ตั้ง `UV_THREADPOOL_SIZE` หรือจำกัดคิว
+
+
 **เทสต์:** รัน sharp จริงบน fixture (รูปมือถือ 4000x3000 ~6MB, PNG โปร่งใส, รูปเล็กเกิน) แล้ว assert byte size และ dimension
 
 ### 4.4 `publish/machine.ts`
