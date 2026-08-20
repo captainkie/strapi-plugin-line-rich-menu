@@ -6,8 +6,9 @@ import { createContext, createElement, useContext, type ComponentType, type Reac
  * ทำให้เขียน component ครั้งเดียวแล้ว adapter สองตัวเป็นคนจับคู่ให้เอง
  */
 export interface UIPrimitives {
-  Button: ComponentType<{ onClick?: () => void; disabled?: boolean; variant?: 'default' | 'secondary' | 'danger'; type?: 'button' | 'submit'; children?: ReactNode }>
-  IconButton: ComponentType<{ onClick?: () => void; label: string; disabled?: boolean; children?: ReactNode }>
+  /** `testId` คือ data-testid ที่ต้องลงเอยบน element ที่ toBeDisabled()/click จับต้องได้จริง — adapter แต่ละตัว map ไปยังพร็อพที่ design system ของตัวเองรับ หรือ spread ตรง ๆ ก็ได้ */
+  Button: ComponentType<{ onClick?: () => void; disabled?: boolean; variant?: 'default' | 'secondary' | 'danger'; type?: 'button' | 'submit'; children?: ReactNode; testId?: string }>
+  IconButton: ComponentType<{ onClick?: () => void; label: string; disabled?: boolean; children?: ReactNode; testId?: string }>
   TextInput: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; hint?: string; error?: string; maxLength?: number; disabled?: boolean; placeholder?: string }>
   Textarea: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; error?: string; rows?: number }>
   Select: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; error?: string; disabled?: boolean; children?: ReactNode }>

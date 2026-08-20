@@ -72,12 +72,7 @@ export function TemplatePicker({
               dangerouslySetInnerHTML={{ __html: renderTemplateSvg(tpl.bounds, tpl.size) }}
             />
             <span style={{ display: 'block', padding: '.4rem', fontSize: '.8rem', color: '#32324d' }}>
-              {/* จำนวนช่องเป็นข้อมูล ไม่ใช่ข้อความที่ต้องแปล — ป้ายกำกับผ่าน t() ตัวเลขแปะตรงๆ
-                  ไม่พึ่งให้ t() ทำ interpolation ให้ เพราะ stub ของแพ็กเกจนี้ไม่รองรับ (ดู
-                  stub-port.tsx: `t: (key) => key` ทิ้ง values ทั้งหมด) และถึงในอนาคต adapter จริง
-                  จะรองรับ ก็ยังปลอดภัยเพราะ key `template.picker.areaCount` ควรแปลแค่หน่วยนับ
-                  ไม่ใช่ตัวเลข */}
-              {tpl.bounds.length} {t('template.picker.areaCount')}
+              {t('template.picker.areaCount', { count: tpl.bounds.length })}
             </span>
           </button>
         ))}
@@ -103,26 +98,9 @@ export function TemplatePicker({
         ) : (
           <>
             <ui.Button variant="secondary" onClick={onClose}>{t('common.cancel')}</ui.Button>
-            {/* ปุ่มนี้เป็น <button> ดิบ ไม่ผ่าน ui.Button — ui.Button ไม่รับ data-testid และไม่ส่งต่อ
-                prop ที่ไม่รู้จักไปที่ <button> จริงข้างใน (ดู stub-port.tsx) จึงไม่มีทางทำให้
-                data-testid ไปอยู่บน element เดียวกับ disabled ได้ถ้าไม่ผ่าน ui.Button — ปุ่มเลือก
-                template ด้านบน (template-option-*) ก็ใช้ <button> ดิบด้วยเหตุผลเดียวกัน */}
-            <button
-              type="button"
-              data-testid="template-apply"
-              onClick={apply}
-              disabled={selected === null}
-              style={{
-                padding: '.6rem 1.4rem',
-                border: 'none',
-                borderRadius: 4,
-                background: selected === null ? '#dcdce4' : OUTLINE_COLOR,
-                color: '#fff',
-                cursor: selected === null ? 'not-allowed' : 'pointer',
-              }}
-            >
+            <ui.Button onClick={apply} disabled={selected === null} testId="template-apply">
               {t('common.apply')}
-            </button>
+            </ui.Button>
           </>
         )
       }
