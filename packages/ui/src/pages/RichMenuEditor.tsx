@@ -179,8 +179,27 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
       <ui.Divider />
 
       <ui.Flex gap={4} alignItems="flex-start">
-        {/* คอลัมน์แก้ไข: canvas ที่ลากได้จริงต้องมาก่อน preview ในลำดับ DOM — ทั้งสองฝั่งวาด
-            ช่อง A/B ด้วย aria-label เดียวกัน ถ้า preview มาก่อนจะบังคลิกของผู้ใช้ */}
+        {/* Preview มาก่อนคอลัมน์ template/image/actions ตามผัง §5.7 (ซ้ายคือ Preview ขวาคือ
+            Template/Image/Actions) — เดิมสลับไว้เพราะ canvas ที่ฝังใน Preview วาดช่อง A/B ด้วย
+            aria-label เดียวกับ canvas หลักที่แก้ไขได้จริง ทำให้ query ด้วย role="button" ชนกัน
+            ตอนนี้ preview-menu ถูก aria-hidden แล้ว (ดู Preview.tsx) จึงไม่หลงเหลือใน accessibility
+            tree อีก ลำดับ DOM จึงกลับไปตามภาพหน้าจอได้โดยไม่กระทบการเลือกช่องด้วยคีย์บอร์ด/screen reader */}
+        <ui.Flex direction="column" gap={2}>
+          <Preview
+            size={size}
+            bounds={draft.bounds}
+            chatBarText={draft.chatBar.mode === 'custom' ? draft.chatBar.text : ''}
+            expanded={draft.chatBar.selected}
+            {...(draft.image === null ? {} : { imageUrl: draft.image.url })}
+          />
+          <ui.Toggle
+            name="outlines"
+            label={t('editor.showOutlines')}
+            checked={outlines}
+            onChange={setOutlines}
+          />
+        </ui.Flex>
+
         <ui.Flex direction="column" gap={3}>
           <ui.Flex gap={2} alignItems="center">
             <ui.Typography>{t('editor.template')}</ui.Typography>
@@ -224,22 +243,6 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
               }))}
             aliasOptions={aliasOptions}
             errors={areaErrors}
-          />
-        </ui.Flex>
-
-        <ui.Flex direction="column" gap={2}>
-          <Preview
-            size={size}
-            bounds={draft.bounds}
-            chatBarText={draft.chatBar.mode === 'custom' ? draft.chatBar.text : ''}
-            expanded={draft.chatBar.selected}
-            {...(draft.image === null ? {} : { imageUrl: draft.image.url })}
-          />
-          <ui.Toggle
-            name="outlines"
-            label={t('editor.showOutlines')}
-            checked={outlines}
-            onChange={setOutlines}
           />
         </ui.Flex>
       </ui.Flex>
