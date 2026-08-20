@@ -84,13 +84,34 @@ describe('RichMenuEditor', () => {
 
   // ปุ่ม Save draft มีสองชุด (หัว/ท้ายฟอร์ม) จาก testid เดียวกัน — ไล่ทั้งคู่เพื่อพิสูจน์ว่าทั้งสองชุด
   // บันทึกร่างเหมือนกันจริง ไม่ใช่แค่ชุดที่ทดสอบไว้
+  //
+  // A6 — เดิม assert ด้วย expect.anything() ซึ่งผ่านได้กับค่าอะไรก็ตามที่ไม่ใช่ null/undefined จึงไม่ได้
+  // พิสูจน์อะไรเลยว่า draft ที่ onSave ได้รับหน้าตาเป็นอย่างไร — เทียบกับ emptyDraft() ทั้งก้อนแทน
   it('บันทึกร่างได้แม้ยังกรอกไม่ครบ — ร่างคือร่าง ไม่ว่าจะกดปุ่มหัวหรือท้ายฟอร์ม', async () => {
     const { onSave } = setup()
     for (const button of screen.getAllByTestId('save-draft')) {
       onSave.mockClear()
       fireEvent.click(button)
-      await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.anything(), false))
+      await waitFor(() => expect(onSave).toHaveBeenCalledWith(emptyDraft(), false))
     }
+  })
+
+  // A6 — ยังไม่มี assertion ไหนพิสูจน์ว่า draft ที่ onSave ได้รับพกฟิลด์ที่ผู้ใช้แก้ไปครบทุกตัว
+  // (chatBar.mode, sizeName, bounds, image ฯลฯ) ซึ่งเป็น contract ที่ Task 14 กับ Plan 03 อาศัยต่อ
+  it('draft ที่ส่งให้ onSave พกทุกฟิลด์ที่ผู้ใช้แก้ไปครบ ไม่ใช่แค่บางส่วน', async () => {
+    const { onSave } = setup()
+    fireEvent.change(screen.getByLabelText('editor.title'), { target: { value: 'เมนูใหม่' } })
+    fireEvent.click(screen.getByLabelText('chatBar.mode.custom'))
+    fireEvent.change(screen.getByLabelText('chatBar.text'), { target: { value: 'ร้านค้า' } })
+    fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(
+      {
+        ...emptyDraft(),
+        title: 'เมนูใหม่',
+        chatBar: { mode: 'custom', text: 'ร้านค้า', selected: true },
+      },
+      false,
+    ))
   })
 
   // S1 (STANDING-CORRECTIONS.md) — stub-port's Alert renders role="status", not role="alert".
