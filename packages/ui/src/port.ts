@@ -9,7 +9,8 @@ export interface UIPrimitives {
   /** `testId` คือ data-testid ที่ต้องลงเอยบน element ที่ toBeDisabled()/click จับต้องได้จริง — adapter แต่ละตัว map ไปยังพร็อพที่ design system ของตัวเองรับ หรือ spread ตรง ๆ ก็ได้ */
   Button: ComponentType<{ onClick?: () => void; disabled?: boolean; variant?: 'default' | 'secondary' | 'danger'; type?: 'button' | 'submit'; children?: ReactNode; testId?: string }>
   IconButton: ComponentType<{ onClick?: () => void; label: string; disabled?: boolean; children?: ReactNode; testId?: string }>
-  TextInput: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; hint?: string; error?: string; maxLength?: number; disabled?: boolean; placeholder?: string }>
+  /** `type: 'password'` มาสก์ bearer credential เช่น LINE channel access token — ค่า default 'text' ทำให้จุดเรียกเดิมไม่ต้องแก้ */
+  TextInput: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; hint?: string; error?: string; maxLength?: number; disabled?: boolean; placeholder?: string; type?: 'text' | 'password' }>
   Textarea: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; error?: string; rows?: number }>
   Select: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; error?: string; disabled?: boolean; children?: ReactNode }>
   Option: ComponentType<{ value: string; children?: ReactNode }>
