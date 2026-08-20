@@ -1,7 +1,7 @@
 import sharp from 'sharp'
 import { ImageTooLargeError } from '../errors.js'
 import { SIZE_LADDER } from '../templates.js'
-import type { RichMenuSizeName } from '../types.js'
+import type { Bounds, RichMenuSize, RichMenuSizeName } from '../types.js'
 import { MAX_OUTPUT_BYTES, inspectImage } from './guards.js'
 
 export interface NormalizedImage {
@@ -53,4 +53,38 @@ export async function normalize(
   }
 
   throw new ImageTooLargeError(smallest)
+}
+
+export interface AreaImage {
+  bounds: Bounds
+  image: Buffer
+}
+
+/**
+ * วางรูปของแต่ละช่องลงบนผืนผ้าใบขนาดเต็ม
+ * พื้นหลังเป็นขาวทึบ ไม่ใช่โปร่งใส เพราะถ้าโปร่งใสแล้วถูกแปลงเป็น JPEG ทีหลังจะกลายเป็นดำ
+ */
+export async function compose(parts: readonly AreaImage[], size: RichMenuSize): Promise<Buffer> {
+  const layers = await Promise.all(
+    parts.map(async (part) => {
+      await inspectImage(part.image)
+      const resized = await sharp(part.image)
+        .resize(part.bounds.width, part.bounds.height, { fit: 'cover', position: 'centre' })
+        .png()
+        .toBuffer()
+      return { input: resized, left: part.bounds.x, top: part.bounds.y }
+    }),
+  )
+
+  return sharp({
+    create: {
+      width: size.width,
+      height: size.height,
+      channels: 3,
+      background: { r: 255, g: 255, b: 255 },
+    },
+  })
+    .composite(layers)
+    .png()
+    .toBuffer()
 }
