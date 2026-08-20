@@ -104,4 +104,35 @@ describe('retry และ backoff', () => {
     const client = new LineClient({ accessToken: 'secret-token-value', maxAttempts: 0, sleep: vi.fn(async () => {}) })
     await expect(client.createRichMenu(payload)).rejects.toBeInstanceOf(LineServerError)
   })
+
+  it('fetchImpl ที่ฉีดเข้ามาต้องชนะ globalThis.fetch เสมอ แม้ global จะถูกสลับทีหลัง', async () => {
+    const originalFetch = globalThis.fetch
+    let injectedCalled = false
+    let globalCalled = false
+    const injectedFetch = (async () => {
+      injectedCalled = true
+      return new Response(JSON.stringify({ richMenuId: 'rm-injected' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as typeof fetch
+    const globalStub = (async () => {
+      globalCalled = true
+      return new Response(JSON.stringify({ richMenuId: 'rm-global' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const client = new LineClient({ accessToken: 'secret-token-value', fetchImpl: injectedFetch })
+    globalThis.fetch = globalStub
+    try {
+      const richMenuId = await client.createRichMenu(payload)
+      expect(richMenuId).toBe('rm-injected')
+      expect(injectedCalled).toBe(true)
+      expect(globalCalled).toBe(false)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })
