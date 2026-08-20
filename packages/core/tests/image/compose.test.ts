@@ -1,8 +1,12 @@
 import sharp from 'sharp'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { UnsupportedImageError } from '../../src/errors.js'
 import { compose, normalize } from '../../src/image/pipeline.js'
 import { fakeImage, solidJpeg } from '../fixtures/make-fixtures.js'
+
+// compose ทำงานบนผืนผ้าใบ 2500x1686 จริงและเทสต์สุดท้ายเรียก normalize (mozjpeg) ต่อ —
+// เผื่อ CI runner ช้ากว่าเครื่อง dev ด้วยเพดานเดียวกับ pipeline.test.ts (ดูเหตุผลที่นั่น)
+vi.setConfig({ testTimeout: 15_000 })
 
 const SIZE = { width: 2500, height: 1686 }
 
