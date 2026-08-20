@@ -58,6 +58,23 @@ describe('TemplatePicker', () => {
     expect(t).toHaveBeenCalledWith('template.picker.areaCount', { count: 6 })
   })
 
+  // แบบที่มีช่องเดียวมีอยู่จริงทั้งกลุ่ม large และ compact เห็นได้บนหน้าจอตอนเปิด picker
+  // ถ้าใช้คีย์พหูพจน์กับมันจะอ่านว่า "1 areas" ซึ่งผิดในภาษาอังกฤษ (ไทยไม่มีพหูพจน์จึงใช้สตริงเดียวกัน
+  // ได้ แต่คีย์ต้องมีครบทั้งสองภาษา) เทสต์นี้ยืนยันว่าเลือกคีย์ตามจำนวนช่องจริง ไม่ใช่ใช้คีย์เดียวรวด
+  it('แบบที่มีช่องเดียวใช้คีย์เอกพจน์ ไม่ใช่คีย์พหูพจน์', () => {
+    const t = vi.fn((key: string) => key)
+    render(
+      <PortProvider value={createStubPort({ t })}>
+        <TemplatePicker
+          open currentKey={null} hasConfiguredActions={false} hasImage={false}
+          onApply={vi.fn()} onClose={vi.fn()}
+        />
+      </PortProvider>,
+    )
+    expect(t).toHaveBeenCalledWith('template.picker.areaCount.one', { count: 1 })
+    expect(t).not.toHaveBeenCalledWith('template.picker.areaCount', { count: 1 })
+  })
+
   it('ทำเครื่องหมายแบบที่ใช้อยู่', () => {
     setup({ currentKey: 'RICH_MENU_TEMPLATE_203' })
     expect(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_203'))
