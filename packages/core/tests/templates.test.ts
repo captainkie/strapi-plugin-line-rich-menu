@@ -103,6 +103,51 @@ describe('isAllowedCanvas', () => {
   })
 })
 
+describe('SIZE_LADDER แช่แข็ง runtime — mutate ไม่ได้จริง ไม่ใช่แค่ type-level', () => {
+  // ไฟล์ src เป็น ESM strict mode เขียนทับ property/array ของ frozen object เลย throw
+  // TypeError แทนที่จะ fail เงียบ ๆ (silent no-op แบบ sloppy mode) — เทสต์นี้ยืนยันทั้งสองด้าน:
+  // การ mutate เอง throw, และต่อให้ throw ไม่ทัน isAllowedCanvas ก็ต้องไม่เปลี่ยนพฤติกรรม
+
+  it('เขียนทับ width ของ entry ใน SIZE_LADDER.large throw TypeError', () => {
+    expect(() => {
+      // @ts-expect-error -- ทดสอบว่า runtime บล็อกจริง ต่อให้ type-level ห้ามไว้แล้ว
+      SIZE_LADDER.large[0].width = 1
+    }).toThrow(TypeError)
+  })
+
+  it('เขียนทับ entry ใน SIZE_LADDER.compact throw TypeError', () => {
+    expect(() => {
+      // @ts-expect-error -- ทดสอบว่า runtime บล็อกจริง ต่อให้ type-level ห้ามไว้แล้ว
+      SIZE_LADDER.compact[0] = { width: 1, height: 1 }
+    }).toThrow(TypeError)
+  })
+
+  it('push entry ใหม่เข้า SIZE_LADDER.large throw TypeError', () => {
+    expect(() => {
+      // @ts-expect-error -- ทดสอบว่า runtime บล็อกจริง ต่อให้ type-level ห้ามไว้แล้ว
+      SIZE_LADDER.large.push({ width: 1, height: 1 })
+    }).toThrow(TypeError)
+  })
+
+  it('เขียนทับ key ของ SIZE_LADDER เอง throw TypeError', () => {
+    expect(() => {
+      // @ts-expect-error -- ทดสอบว่า runtime บล็อกจริง ต่อให้ type-level ห้ามไว้แล้ว
+      SIZE_LADDER.large = []
+    }).toThrow(TypeError)
+  })
+
+  it('การพยายาม mutate (ที่ throw แล้วถูกจับไว้) ไม่เปลี่ยนสิ่งที่ isAllowedCanvas ยอมรับ', () => {
+    try {
+      // @ts-expect-error -- ทดสอบว่า runtime บล็อกจริง ต่อให้ type-level ห้ามไว้แล้ว
+      SIZE_LADDER.large[0].width = 1
+    } catch {
+      // คาดว่า throw — ประเด็นคือ isAllowedCanvas ต้องยังผ่านของจริงและปฏิเสธของปลอมเหมือนเดิม
+    }
+    expect(isAllowedCanvas({ width: 2500, height: 1686 })).toBe(true)
+    expect(isAllowedCanvas({ width: 1, height: 1686 })).toBe(false)
+  })
+})
+
 describe('sizeNameFor', () => {
   it('คืน large สำหรับทุกขนาดใน SIZE_LADDER.large', () => {
     for (const size of SIZE_LADDER.large) expect(sizeNameFor(size)).toBe('large')
