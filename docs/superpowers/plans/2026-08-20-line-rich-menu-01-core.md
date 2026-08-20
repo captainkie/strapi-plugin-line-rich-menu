@@ -583,7 +583,7 @@ const defs: TemplateDef[] = [
     key: 'RICH_MENU_TEMPLATE_101',
     sizeName: 'compact',
     size: COMPACT,
-    bounds: [b(0, 0, 833, 843), b(833, 0, 834, 843), b(1666, 0, 833, 843)],
+    bounds: [b(0, 0, 833, 843), b(833, 0, 834, 843), b(1667, 0, 833, 843)],
   },
   {
     key: 'RICH_MENU_TEMPLATE_102',
