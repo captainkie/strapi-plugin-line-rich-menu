@@ -41,6 +41,19 @@ describe('MainSettings', () => {
     fireEvent.click(screen.getByTestId('clear-period'))
     expect(onChange).toHaveBeenCalledWith({ title: 'เมนู', startAt: '', endAt: '' })
   })
+
+  it('ส่ง error มาครบสามฟิลด์ ต้องขึ้นครบทั้งสาม ไม่ใช่แค่ title', () => {
+    wrap(
+      <MainSettings
+        value={value}
+        onChange={vi.fn()}
+        errors={{ title: 'ชื่อห้ามว่าง', startAt: 'รูปแบบวันที่ไม่ถูกต้อง', endAt: 'ต้องอยู่หลังวันเริ่ม' }}
+      />,
+    )
+    expect(screen.getByText('ชื่อห้ามว่าง')).toBeInTheDocument()
+    expect(screen.getByText('รูปแบบวันที่ไม่ถูกต้อง')).toBeInTheDocument()
+    expect(screen.getByText('ต้องอยู่หลังวันเริ่ม')).toBeInTheDocument()
+  })
 })
 
 describe('ChatBarSettings', () => {
