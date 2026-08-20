@@ -10,7 +10,7 @@ function setup(overrides: Partial<React.ComponentProps<typeof TemplatePicker>> =
   render(
     <PortProvider value={createStubPort({ t: (key) => key })}>
       <TemplatePicker
-        open currentKey={null} hasConfiguredActions={false} hasImage={false}
+        currentKey={null} hasConfiguredActions={false} hasImage={false}
         onApply={onApply} onClose={onClose} {...overrides}
       />
     </PortProvider>,
@@ -19,11 +19,6 @@ function setup(overrides: Partial<React.ComponentProps<typeof TemplatePicker>> =
 }
 
 describe('TemplatePicker', () => {
-  it('ไม่เรนเดอร์อะไรเลยเมื่อปิดอยู่', () => {
-    setup({ open: false })
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
   it('แสดง Large 7 แบบ และ Compact 5 แบบ', () => {
     setup()
     expect(screen.getAllByTestId(/^template-option-RICH_MENU_TEMPLATE_2/)).toHaveLength(7)
@@ -58,7 +53,7 @@ describe('TemplatePicker', () => {
     render(
       <PortProvider value={createStubPort({ t })}>
         <TemplatePicker
-          open currentKey={null} hasConfiguredActions={false} hasImage={false}
+          currentKey={null} hasConfiguredActions={false} hasImage={false}
           onApply={vi.fn()} onClose={vi.fn()}
         />
       </PortProvider>,
@@ -74,7 +69,7 @@ describe('TemplatePicker', () => {
     render(
       <PortProvider value={createStubPort({ t })}>
         <TemplatePicker
-          open currentKey={null} hasConfiguredActions={false} hasImage={false}
+          currentKey={null} hasConfiguredActions={false} hasImage={false}
           onApply={vi.fn()} onClose={vi.fn()}
         />
       </PortProvider>,
@@ -151,7 +146,7 @@ describe('TemplatePicker', () => {
     const t = vi.fn((key: string) => `T:${key}`)
     render(
       <PortProvider value={createStubPort({ t })}>
-        <TemplatePicker open currentKey={null} hasConfiguredActions={false} hasImage={false}
+        <TemplatePicker currentKey={null} hasConfiguredActions={false} hasImage={false}
           onApply={vi.fn()} onClose={vi.fn()} />
       </PortProvider>,
     )

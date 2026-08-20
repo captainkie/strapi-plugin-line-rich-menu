@@ -6,7 +6,6 @@ import { usePort } from '../port.js'
 import { OUTLINE_COLOR } from '../styles.js'
 
 export interface TemplatePickerProps {
-  open: boolean
   currentKey: string | null
   /** ผู้ใช้ตั้ง action ไว้แล้วหรือยัง — ถ้าตั้งแล้วการเปลี่ยน template จะทิ้งมันไป */
   hasConfiguredActions: boolean
@@ -24,14 +23,20 @@ function sizesLabel(name: RichMenuSizeName): string {
   return SIZE_LADDER[name].map((s) => `${s.width}×${s.height}`).join(' · ')
 }
 
+/**
+ * ไม่มีพร็อพ `open` โดยตั้งใจ — ผู้เรียกต้อง mount/unmount เอาเอง (`{picking ? <TemplatePicker/> : null}`)
+ *
+ * ตอนที่มันรับ `open` แล้วผู้เรียก mount ค้างไว้ตลอดอายุหน้า `selected`/`confirming` ด้านล่างไม่เคย
+ * ถูกรีเซ็ตเลย: ผู้ใช้ที่กด Apply จนได้กล่องยืนยัน "ทิ้ง action ทั้งหมดไหม" แล้วปิด modal ทิ้งแทนที่จะ
+ * ตอบ พอเปิด picker ใหม่จะเจอกล่องยืนยันนั้นค้างอยู่ทันทีโดยไม่มีตารางให้เลือก และมันพูดถึง template
+ * ที่เขาเดินจากไปแล้ว — คลิกเดียวทิ้งงานทั้งหมด การ mount ใหม่ทุกครั้งคือสิ่งที่ทำให้ state สดเสมอ
+ */
 export function TemplatePicker({
-  open, currentKey, hasConfiguredActions, hasImage, onApply, onClose,
+  currentKey, hasConfiguredActions, hasImage, onApply, onClose,
 }: TemplatePickerProps) {
   const { ui, t } = usePort()
   const [selected, setSelected] = useState<string | null>(currentKey)
   const [confirming, setConfirming] = useState(false)
-
-  if (!open) return null
 
   // เปลี่ยนขนาดผืนผ้าใบ (large ↔ compact) = พิกัดเปลี่ยนทั้งชุด รูปเดิมจึงไม่พอดีกับผืนผ้าใบใหม่อีกต่อไป
   // (สเปก §5.6.3) ต่างจาก action ตรงที่ถ้าขนาดเท่าเดิม รูปยังใช้ต่อได้ ไม่ต้องเสียของเดิม
