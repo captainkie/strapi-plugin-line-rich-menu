@@ -42,6 +42,15 @@ interface RequestSpec {
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
+export const DEFAULT_MAX_ATTEMPTS = 3
+
+/**
+ * เพดานของ Retry-After — LINE ส่งค่ามาเป็นวินาที และไม่มีอะไรรับประกันว่าจะเป็นค่าสั้น ๆ
+ * ถ้าเชื่อค่าดิบ คำขอเดียวใน Strapi อาจค้างข้ามคืน (retry-after: 100000 คือ 27 ชั่วโมง)
+ * จึงหยุดรอที่ 60 วินาที แล้วปล่อยให้ typed error ขึ้นไปหาผู้เรียกแทนการนอนรอ
+ */
+export const MAX_RETRY_AFTER_SECONDS = 60
+
 export class LineClient {
   readonly #token: string
   readonly #base: string
@@ -58,7 +67,12 @@ export class LineClient {
     this.#dataBase = options.apiDataBaseUrl ?? DEFAULT_API_DATA_BASE
     this.#fetch = options.fetchImpl
     this.#sleep = options.sleep ?? defaultSleep
-    this.#maxAttempts = Math.max(1, options.maxAttempts ?? 3)
+    // Number() ไม่ใช่ของฟุ่มเฟือย — adapter ของ Strapi 4 เป็น JavaScript และมักส่ง
+    // Number(process.env.LINE_MAX_ATTEMPTS) เข้ามาตรง ๆ ซึ่งเป็น NaN เมื่อไม่ได้ตั้งตัวแปรไว้
+    // Math.max(1, NaN) คือ NaN ทำให้ลูป retry ไม่ทำงานเลย แล้ว #send จะโยน lastError
+    // ที่ยังเป็น undefined ออกไป — กลายเป็น 500 ที่ไม่มีข้อความ ไม่มี stack ไม่มี code
+    const attempts = Number(options.maxAttempts)
+    this.#maxAttempts = Number.isFinite(attempts) ? Math.max(1, attempts) : DEFAULT_MAX_ATTEMPTS
   }
 
   async validateRichMenu(payload: RichMenuPayload): Promise<void> {
@@ -146,7 +160,7 @@ export class LineClient {
 
       lastError = error
       const waitMs = error instanceof LineRateLimitError
-        ? error.retryAfterSeconds * 1000
+        ? Math.min(error.retryAfterSeconds, MAX_RETRY_AFTER_SECONDS) * 1000
         : 500 * 2 ** (attempt - 1)
       await this.#sleep(waitMs)
     }

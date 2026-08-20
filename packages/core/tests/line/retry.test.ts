@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import {
   LineAuthError, LineRateLimitError, LineServerError, LineValidationError,
 } from '../../src/errors.js'
-import { LineClient } from '../../src/line/client.js'
+import { DEFAULT_MAX_ATTEMPTS, LineClient, MAX_RETRY_AFTER_SECONDS } from '../../src/line/client.js'
 
 const server = setupServer()
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
@@ -168,6 +168,72 @@ describe('retry และ backoff', () => {
       new HttpResponse(null, { status: 500 })))
     const client = new LineClient({ accessToken: 'secret-token-value', maxAttempts: 0, sleep: vi.fn(async () => {}) })
     await expect(client.createRichMenu(payload)).rejects.toBeInstanceOf(LineServerError)
+  })
+
+  // maxAttempts ที่ไม่ใช่ตัวเลขคือเคสจริงของ adapter v4 ซึ่งเป็น JavaScript:
+  // Number(process.env.LINE_MAX_ATTEMPTS) เป็น NaN เมื่อลืมตั้งตัวแปร ส่วน '2' ใช้ได้เพราะ
+  // Math.max coerce ให้ ผลคือบั๊กที่ผ่าน dev แล้วไปโผล่เฉพาะที่ที่ลืมตั้งค่า
+  describe.each([
+    ['NaN', Number.NaN],
+    ['undefined', undefined],
+    ["สตริงตัวเลข '2'", '2' as unknown as number],
+  ])('maxAttempts = %s', (_label, maxAttempts) => {
+    it('ยังคืน typed error ของจริงออกมา ไม่ใช่ undefined', async () => {
+      server.use(http.post('https://api.line.me/v2/bot/richmenu', () =>
+        new HttpResponse(null, { status: 500 })))
+      const client = new LineClient({ accessToken: 'secret-token-value', maxAttempts, sleep: vi.fn(async () => {}) })
+      const caught = await client.createRichMenu(payload).then(() => null, (e: unknown) => e)
+      expect(caught).toBeInstanceOf(LineServerError)
+      expect((caught as LineServerError).code).toBe('line_server_error')
+    })
+  })
+
+  it('maxAttempts ที่เป็น NaN ต้องลองครบตามค่าเริ่มต้น ไม่ใช่ศูนย์ครั้ง', async () => {
+    let hits = 0
+    server.use(http.post('https://api.line.me/v2/bot/richmenu', () => {
+      hits++
+      return new HttpResponse(null, { status: 500 })
+    }))
+    const client = new LineClient({
+      accessToken: 'secret-token-value', maxAttempts: Number.NaN, sleep: vi.fn(async () => {}),
+    })
+    await expect(client.createRichMenu(payload)).rejects.toBeInstanceOf(LineServerError)
+    expect(hits).toBe(DEFAULT_MAX_ATTEMPTS)
+  })
+
+  // maxAttempts เศษส่วนทำให้เงื่อนไข attempt === maxAttempts ไม่มีวันเป็นจริง ลูปจึงจบลงเฉย ๆ
+  // แล้วตกไปที่ throw lastError ท้ายเมธอด — ต้องได้ error ตัวจริง ไม่ใช่ undefined
+  it('maxAttempts ที่เป็นเศษส่วนยังจบด้วย typed error ไม่ใช่ undefined', async () => {
+    server.use(http.post('https://api.line.me/v2/bot/richmenu', () =>
+      new HttpResponse(null, { status: 503 })))
+    const client = new LineClient({
+      accessToken: 'secret-token-value', maxAttempts: 1.5, sleep: vi.fn(async () => {}),
+    })
+    const caught = await client.createRichMenu(payload).then(() => null, (e: unknown) => e)
+    expect(caught).toBeInstanceOf(LineServerError)
+    expect((caught as LineServerError).status).toBe(503)
+  })
+
+  // retry-after: 100000 คือการนอน 27 ชั่วโมงกลางคำขอของ Strapi — ต้องมีเพดาน
+  it('Retry-After ที่ยาวเกินจริงถูกตัดที่เพดาน ไม่ใช่นอนรอตามที่ LINE บอก', async () => {
+    server.use(http.post('https://api.line.me/v2/bot/richmenu', () =>
+      new HttpResponse(null, { status: 429, headers: { 'retry-after': '100000' } })))
+    const { client, sleep } = makeClient()
+    const caught = await client.createRichMenu(payload).then(() => null, (e: unknown) => e)
+    expect(caught).toBeInstanceOf(LineRateLimitError)
+    // error ยังบอกค่าจริงที่ LINE ส่งมา เพราะผู้เรียกควรได้เห็นค่าดิบ ที่ถูกตัดคือเวลานอนเท่านั้น
+    expect((caught as LineRateLimitError).retryAfterSeconds).toBe(100_000)
+    expect(sleep.mock.calls.map((c) => c[0])).toEqual([
+      MAX_RETRY_AFTER_SECONDS * 1000, MAX_RETRY_AFTER_SECONDS * 1000,
+    ])
+  })
+
+  it('Retry-After ที่ต่ำกว่าเพดานยังถูกเคารพตามค่าจริง', async () => {
+    server.use(http.post('https://api.line.me/v2/bot/richmenu', () =>
+      new HttpResponse(null, { status: 429, headers: { 'retry-after': '5' } })))
+    const { client, sleep } = makeClient()
+    await expect(client.createRichMenu(payload)).rejects.toBeInstanceOf(LineRateLimitError)
+    expect(sleep.mock.calls.map((c) => c[0])).toEqual([5000, 5000])
   })
 
   it('fetchImpl ที่ฉีดเข้ามาต้องชนะ globalThis.fetch เสมอ แม้ global จะถูกสลับทีหลัง', async () => {
