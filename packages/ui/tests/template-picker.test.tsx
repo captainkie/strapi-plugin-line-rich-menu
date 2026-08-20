@@ -10,7 +10,7 @@ function setup(overrides: Partial<React.ComponentProps<typeof TemplatePicker>> =
   render(
     <PortProvider value={createStubPort({ t: (key) => key })}>
       <TemplatePicker
-        open currentKey={null} hasConfiguredActions={false}
+        open currentKey={null} hasConfiguredActions={false} hasImage={false}
         onApply={onApply} onClose={onClose} {...overrides}
       />
     </PortProvider>,
@@ -50,7 +50,7 @@ describe('TemplatePicker', () => {
     render(
       <PortProvider value={createStubPort({ t })}>
         <TemplatePicker
-          open currentKey={null} hasConfiguredActions={false}
+          open currentKey={null} hasConfiguredActions={false} hasImage={false}
           onApply={vi.fn()} onClose={vi.fn()}
         />
       </PortProvider>,
@@ -102,11 +102,31 @@ describe('TemplatePicker', () => {
     expect(onApply).not.toHaveBeenCalled()
   })
 
+  // A1 — สเปก §5.6.3: เปลี่ยนขนาดผืนผ้าใบ (large ↔ compact) ทำให้รูปเดิมไม่พอดีอีกต่อไป
+  // ต้องถามยืนยันเหมือนตอนมี action ที่จะเสีย แม้ไม่มี action ให้เสียเลยก็ตาม
+  it('ถามยืนยันก่อน เมื่อมีรูปอยู่แล้วและ template ใหม่เปลี่ยนขนาดผืนผ้าใบ', () => {
+    const { onApply } = setup({ hasImage: true, currentKey: 'RICH_MENU_TEMPLATE_201' })
+    fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_101'))
+    fireEvent.click(screen.getByTestId('template-apply'))
+    expect(onApply).not.toHaveBeenCalled()
+    expect(screen.getByTestId('template-confirm')).toBeInTheDocument()
+    expect(screen.getByTestId('discard-image-warning')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('template-confirm'))
+    expect(onApply).toHaveBeenCalledWith('RICH_MENU_TEMPLATE_101')
+  })
+
+  it('ไม่ถามเมื่อมีรูปอยู่แล้ว แต่ template ใหม่ขนาดผืนผ้าใบเท่าเดิม', () => {
+    const { onApply } = setup({ hasImage: true, currentKey: 'RICH_MENU_TEMPLATE_201' })
+    fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_205'))
+    fireEvent.click(screen.getByTestId('template-apply'))
+    expect(onApply).toHaveBeenCalledWith('RICH_MENU_TEMPLATE_205')
+  })
+
   it('ทุกข้อความที่ผู้ใช้เห็นผ่าน port.t ไม่มี hardcode', () => {
     const t = vi.fn((key: string) => `T:${key}`)
     render(
       <PortProvider value={createStubPort({ t })}>
-        <TemplatePicker open currentKey={null} hasConfiguredActions={false}
+        <TemplatePicker open currentKey={null} hasConfiguredActions={false} hasImage={false}
           onApply={vi.fn()} onClose={vi.fn()} />
       </PortProvider>,
     )

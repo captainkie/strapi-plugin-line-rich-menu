@@ -79,14 +79,23 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
 
   const applyTemplate = (key: string) => {
     const next = TEMPLATES[key]!
-    setDraft((prev) => ({
-      ...prev,
-      templateKey: key,
-      sizeName: next.sizeName,
-      bounds: [...next.bounds],
-      // เปลี่ยน template = ช่องเปลี่ยนทั้งชุด action เดิมจึงผูกกับช่องเดิมไม่ได้อีก
-      areas: next.bounds.map(() => emptyActionForm()),
-    }))
+    setDraft((prev) => {
+      const prevTemplate = prev.templateKey === null ? null : TEMPLATES[prev.templateKey] ?? null
+      const sizeChanged = prevTemplate === null
+        || prevTemplate.size.width !== next.size.width
+        || prevTemplate.size.height !== next.size.height
+      return {
+        ...prev,
+        templateKey: key,
+        sizeName: next.sizeName,
+        bounds: [...next.bounds],
+        // เปลี่ยน template = ช่องเปลี่ยนทั้งชุด action เดิมจึงผูกกับช่องเดิมไม่ได้อีก
+        areas: next.bounds.map(() => emptyActionForm()),
+        // เปลี่ยนขนาดผืนผ้าใบ (large ↔ compact) = พิกัดเปลี่ยนทั้งชุด รูปเดิมจึงไม่พอดีกับผืนผ้าใบใหม่
+        // อีกต่อไป (สเปก §5.6.3) — ต่างจาก action ตรงที่ถ้าขนาดเท่าเดิม รูปยังใช้ต่อได้ ไม่ต้องเสียของเดิม
+        image: sizeChanged ? null : prev.image,
+      }
+    })
     setActive(null)
     setAreaErrors({})
     setPicking(false)
@@ -265,6 +274,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
         open={picking}
         currentKey={draft.templateKey}
         hasConfiguredActions={draft.areas.some(hasAnyActionConfigured)}
+        hasImage={draft.image !== null}
         onApply={applyTemplate}
         onClose={() => setPicking(false)}
       />
