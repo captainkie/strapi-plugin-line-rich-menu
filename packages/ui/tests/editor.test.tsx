@@ -32,6 +32,17 @@ describe('RichMenuEditor', () => {
     expect(screen.getByText('chatBar.title')).toBeInTheDocument()
   })
 
+  // หน้านี้เคยไม่มี <h1>/<h2> สักตัว เพราะ Typography ของ port วาดเป็น <span> เสมอ — คนที่ไล่หน้า
+  // ด้วยรายการหัวข้อของ screen reader (วิธีปกติที่สุดในการสำรวจหน้ายาว ๆ) จึงได้หน้าเปล่า
+  // ทั้งที่ตาเห็นหัวข้ออยู่หลายอัน เทสต์นี้ยึดทั้งการมีอยู่และ "ระดับ" ไม่ใช่แค่ว่ามีข้อความนั้นบนจอ
+  it('หัวข้อของแต่ละส่วนเป็นหัวข้อจริงและมีลำดับชั้นถูกต้อง ไม่ใช่ span ที่แค่ตัวโต', () => {
+    setup()
+    expect(screen.getByRole('heading', { level: 1, name: 'editor.heading' })).toBeInTheDocument()
+    for (const name of ['editor.mainSettings', 'editor.actions', 'chatBar.title']) {
+      expect(screen.getByRole('heading', { level: 2, name })).toBeInTheDocument()
+    }
+  })
+
   it('มีปุ่มบันทึกทั้งบนหัวและท้ายฟอร์ม', () => {
     setup()
     expect(screen.getAllByTestId('save-draft')).toHaveLength(2)

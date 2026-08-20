@@ -114,7 +114,8 @@ const primitives: UIPrimitives = {
         <button type="button" onClick={onClose}>close</button>
       </div>
     ) : null,
-  Typography: ({ children }) => <span>{children}</span>,
+  // 'span' เป็นค่าเริ่มต้นเพื่อให้จุดเรียกเดิมที่ไม่ได้ระบุ `as` ออกมาเหมือนเดิมทุกประการ
+  Typography: ({ as: Tag = 'span', children }) => <Tag>{children}</Tag>,
   // ต้องวาด alignItems/justifyContent/wrap ให้ครบ ไม่ใช่รับมาแล้วทิ้ง — ตอนที่ทิ้ง ผังสองคอลัมน์
   // ของสเปก §5.7 ไม่เคยถูกวาดเป็นสองคอลัมน์เลยสักครั้ง ทั้งในเทสต์และใน playground ที่เปิดดูด้วยตา
   // ทุกอย่างที่เราตรวจกันมาคือคอลัมน์เดียวที่ทำท่าเหมือนสองคอลัมน์

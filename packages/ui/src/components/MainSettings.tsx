@@ -20,7 +20,7 @@ export function MainSettings({ value, onChange, errors }: MainSettingsProps) {
 
   return (
     <ui.Flex direction="column" gap={3}>
-      <ui.Typography variant="delta">{t('editor.mainSettings')}</ui.Typography>
+      <ui.Typography as="h2" variant="delta">{t('editor.mainSettings')}</ui.Typography>
       <ui.Flex direction="column" gap={1}>
         <ui.TextInput
           name="title"

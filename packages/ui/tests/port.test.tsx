@@ -72,6 +72,18 @@ describe('UIPort', () => {
     expect(screen.getByTestId('my-button')).toBeDisabled()
   })
 
+  it('ui.Typography วาด element ตาม `as` ที่ระบุ และเป็น span เมื่อไม่ได้ระบุ', () => {
+    const port = createStubPort()
+    render(
+      <>
+        <port.ui.Typography as="h2">หัวข้อ</port.ui.Typography>
+        <port.ui.Typography>ข้อความ</port.ui.Typography>
+      </>,
+    )
+    expect(screen.getByRole('heading', { level: 2, name: 'หัวข้อ' })).toBeInTheDocument()
+    expect(screen.getByText('ข้อความ').tagName).toBe('SPAN')
+  })
+
   // stub เคยรับ alignItems/justifyContent/wrap มาแล้วทิ้ง — ผังสองคอลัมน์ของสเปก §5.7 จึงไม่เคย
   // ถูกวาดเป็นสองคอลัมน์เลย ทั้งในเทสต์และใน playground เทสต์นี้ยึด prop ทั้งสามไว้กับ style จริง
   it('ui.Flex วาด alignItems/justifyContent/wrap ที่รับมาจริง ไม่ใช่รับแล้วทิ้ง', () => {
