@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">fosivo labs square logo</title>
+  <desc id="desc">Square brand lockup for fosivo labs with a modular F mark.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0B1020"/><stop offset="1" stop-color="#151C34"/></linearGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#65F6D2"/><stop offset="1" stop-color="#6E8CFF"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="154" fill="url(#bg)"/>
+  <path d="M304 164h362c28 0 50 22 50 50v92H416v89h247c28 0 50 22 50 50v92c0 28-22 50-50 50H416v110h-112c-28 0-50-22-50-50V214c0-28 22-50 50-50Z" fill="url(#g)"/>
+  <path d="M339 216h279c7 0 13 6 13 13v35c0 7-6 13-13 13H339c-7 0-13-6-13-13v-35c0-7 6-13 13-13Zm0 230h279c7 0 13 6 13 13v35c0 7-6 13-13 13H339c-7 0-13-6-13-13v-35c0-7 6-13 13-13Zm0 229h5c7 0 13 6 13 13v35c0 7-6 13-13 13h-5c-7 0-13-6-13-13v-35c0-7 6-13 13-13Z" fill="#0B1020"/>
+  <text x="512" y="820" text-anchor="middle" fill="#F6F8FF" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="105" font-weight="700" letter-spacing="-5">fosivo</text>
+  <text x="518" y="883" text-anchor="middle" fill="#8FA2C9" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="27" font-weight="650" letter-spacing="10">LABS</text>
+</svg>
