@@ -106,6 +106,17 @@ describe('ChannelSettings', () => {
     expect(screen.getByLabelText('channel.accessToken')).toHaveAttribute('type', 'password')
   })
 
+  // มาสก์อย่างเดียวไม่พอ — ช่อง type="password" ที่ไม่ได้บอกอะไรไว้ จะถูกเบราว์เซอร์เสนอให้
+  // "บันทึกรหัสผ่าน" แล้ว bearer token ของ LINE จะไปอยู่ใน credential store ของผู้ใช้และซิงก์
+  // ข้ามเครื่องเขาไปด้วย ทั้งที่ไม่มีอะไรในหน้านี้เป็นการล็อกอินเลย
+  it('ไม่ยื่น credential ให้ password manager ของเบราว์เซอร์เก็บ', async () => {
+    setup()
+    await waitFor(() => expect(screen.getByTestId('add-channel')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('add-channel'))
+    expect(screen.getByLabelText('channel.channelSecret')).toHaveAttribute('autocomplete', 'off')
+    expect(screen.getByLabelText('channel.accessToken')).toHaveAttribute('autocomplete', 'off')
+  })
+
   // token ที่พิมพ์ไว้ไม่มีเหตุผลต้องค้างใน state หลังส่งให้เซิร์ฟเวอร์ไปแล้ว — เปิดฟอร์มซ้ำต้องไม่เห็นของเก่า
   it('เคลียร์ token ที่พิมพ์ไว้ออกจากฟอร์มหลังบันทึกสำเร็จ', async () => {
     const post = vi.fn(async () => ({}))

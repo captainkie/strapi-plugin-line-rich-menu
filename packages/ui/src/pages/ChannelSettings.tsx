@@ -83,10 +83,15 @@ export function ChannelSettings() {
           <ui.TextInput name="channelId" label={t('channel.channelId')} value={draft.channelId}
             onChange={(v) => set('channelId', v)} />
           {/* bearer credential — ใครอ่านค่านี้ได้จากจอก็โพสต์แทนธุรกิจนี้ได้ทันที (สเปก §11.2) หน้านี้
-              ถูก demo/screen-share จริง ไม่ใช่ความเสี่ยงทางทฤษฎี จึงต้อง mask ทั้งสองช่องเสมอ */}
-          <ui.TextInput name="channelSecret" type="password" label={t('channel.channelSecret')} value={draft.channelSecret}
+              ถูก demo/screen-share จริง ไม่ใช่ความเสี่ยงทางทฤษฎี จึงต้อง mask ทั้งสองช่องเสมอ
+
+              autoComplete="off" มาคู่กับ type="password" เสมอ: ช่องรหัสผ่านที่ไม่ได้บอกอะไรไว้
+              จะถูกเบราว์เซอร์เสนอให้ "บันทึกรหัสผ่าน" แล้ว token ของ LINE จะไปนอนอยู่ใน credential
+              store ของผู้ใช้และซิงก์ข้ามเครื่องเขา — ในหน้านี้ไม่มีอะไรเป็นการล็อกอินเลย จึงมีแต่เสีย
+              ไม่มีได้ (ถ้าวันไหนตัดสินใจเอา type="password" ออก ต้องคิดเรื่องนี้ใหม่ทั้งคู่พร้อมกัน) */}
+          <ui.TextInput name="channelSecret" type="password" autoComplete="off" label={t('channel.channelSecret')} value={draft.channelSecret}
             onChange={(v) => set('channelSecret', v)} />
-          <ui.TextInput name="accessToken" type="password" label={t('channel.accessToken')} value={draft.accessToken}
+          <ui.TextInput name="accessToken" type="password" autoComplete="off" label={t('channel.accessToken')} value={draft.accessToken}
             onChange={(v) => set('accessToken', v)} />
           <ui.Flex gap={2}>
             <ui.Button variant="secondary" onClick={() => setAdding(false)}>{t('common.cancel')}</ui.Button>

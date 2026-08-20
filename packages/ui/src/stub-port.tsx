@@ -25,7 +25,7 @@ const primitives: UIPrimitives = {
   IconButton: ({ onClick, label, disabled, children, testId }) => (
     <button type="button" onClick={onClick} disabled={disabled} aria-label={label} data-testid={testId}>{children}</button>
   ),
-  TextInput: ({ name, value, onChange, label, hint, error, maxLength, disabled, placeholder, type = 'text' }) => (
+  TextInput: ({ name, value, onChange, label, hint, error, maxLength, disabled, placeholder, type = 'text', autoComplete }) => (
     // hint/error อยู่นอก <label> โดยตั้งใจ — ถ้าอยู่ข้างในด้วย textContent ของ <label> จะกลาย
     // เป็น "label + hint" รวมกัน ทำให้ getByLabelText(label) หา element ไม่เจอ (ต้อง exact match)
     // การ implicit-wrap (label ครอบ input) ยังทำงานได้เหมือนเดิม แค่ครอบเฉพาะ label กับ input
@@ -39,6 +39,7 @@ const primitives: UIPrimitives = {
           maxLength={maxLength}
           disabled={disabled}
           placeholder={placeholder}
+          autoComplete={autoComplete}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? `${name}-error` : undefined}
           onChange={(e) => onChange(e.target.value)}
