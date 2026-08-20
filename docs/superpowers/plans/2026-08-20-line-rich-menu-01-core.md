@@ -1679,7 +1679,9 @@ const payload = {
   areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 843 }, action: { type: 'message' as const, text: 'hi' } }],
 }
 
-function makeClient(sleep = vi.fn(async () => {})) {
+// ระบุ type ให้ vi.fn ตรง ๆ เพราะ noUncheckedIndexedAccess ทำให้ inference ได้ empty tuple
+// แล้ว sleep.mock.calls.map(c => c[0]) จะไม่ผ่าน tsc
+function makeClient(sleep = vi.fn<(ms: number) => Promise<void>>(async () => {})) {
   return { client: new LineClient({ accessToken: 'secret-token-value', sleep }), sleep }
 }
 
@@ -1771,6 +1773,17 @@ Expected: PASS ทั้งหมดถ้า Task 7 เขียนถูก �
 git add packages/core/tests/line/retry.test.ts packages/core/src/line/client.ts
 git commit -m "test(core): cover retry, backoff, error mapping and token-leak guard"
 ```
+
+---
+
+
+**เพิ่มจากผลรีวิว Task 7** (commit แยกอีกสองตัวในงานเดียวกัน):
+
+- `maxAttempts` เป็น public option แต่ค่า `0` ทำให้ loop ไม่รันเลยแล้วตกไป `throw lastError` ที่ยังเป็น `undefined`
+  คือ client โยนสิ่งที่ไม่ใช่ Error ออกมา ซึ่งทำสัญญา typed error ที่ทั้ง library ยึดถือพังทันที
+  แก้ด้วย `this.#maxAttempts = Math.max(1, options.maxAttempts ?? 3)` พร้อมเทสต์ที่ยืนยันว่าได้ `LineServerError` ไม่ใช่ `undefined`
+- `fetchImpl` เป็น public option ที่ไม่มีเทสต์แตะเลย เพิ่มเทสต์ว่าตัวที่ฉีดเข้ามาชนะ `globalThis.fetch` เสมอ
+  แม้ global จะถูกสลับหลังสร้าง object แล้ว
 
 ---
 
