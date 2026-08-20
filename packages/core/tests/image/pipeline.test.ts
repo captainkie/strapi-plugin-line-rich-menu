@@ -51,13 +51,12 @@ describe('normalize', () => {
 
   it('โยน ImageTooLargeError พร้อมขนาดจริง เมื่อบีบทุกทางแล้วยังไม่ผ่าน', async () => {
     // จำลองโดยตั้งเพดานต่ำมากผ่าน option ภายใน
-    await expect(
-      normalize(await noisePng(3000, 2000), 'large', { maxBytes: 500 }),
-    ).rejects.toBeInstanceOf(ImageTooLargeError)
     try {
       await normalize(await noisePng(3000, 2000), 'large', { maxBytes: 500 })
+      expect.unreachable('normalize ต้องโยน ImageTooLargeError')
     } catch (e) {
+      expect(e).toBeInstanceOf(ImageTooLargeError)
       expect((e as ImageTooLargeError).actualBytes).toBeGreaterThan(500)
     }
-  }, 20_000)
+  })
 })
