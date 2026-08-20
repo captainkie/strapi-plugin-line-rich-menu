@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="640" viewBox="0 0 1600 640" role="img" aria-labelledby="title desc">
+  <title id="title">fosivo labs logo</title>
+  <desc id="desc">A modern developer tools logo featuring a modular F mark and the fosivo labs wordmark.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B1020"/>
+      <stop offset="1" stop-color="#151C34"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#65F6D2"/>
+      <stop offset="1" stop-color="#6E8CFF"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1600" height="640" rx="64" fill="url(#bg)"/>
+  <g transform="translate(120 120)">
+    <path d="M40 0h252c22.1 0 40 17.9 40 40v70H120v60h170c22.1 0 40 17.9 40 40v70c0 22.1-17.9 40-40 40H120v80H40c-22.1 0-40-17.9-40-40V40C0 17.9 17.9 0 40 0Z" fill="#222C4B"/>
+    <path d="M40 0h252c22.1 0 40 17.9 40 40v70H120v60h170c22.1 0 40 17.9 40 40v70c0 22.1-17.9 40-40 40H120v80H40c-22.1 0-40-17.9-40-40V40C0 17.9 17.9 0 40 0Z" fill="none" stroke="#33415F" stroke-width="2"/>
+    <path d="M40 0h252c22.1 0 40 17.9 40 40v70H120v60h170c22.1 0 40 17.9 40 40v70c0 22.1-17.9 40-40 40H120v80H40c-22.1 0-40-17.9-40-40V40C0 17.9 17.9 0 40 0Z" fill="url(#signal)" filter="url(#glow)" opacity=".93"/>
+    <path d="M77 42h205c5 0 9 4 9 9v24c0 5-4 9-9 9H77c-5 0-9-4-9-9V51c0-5 4-9 9-9Zm0 170h205c5 0 9 4 9 9v24c0 5-4 9-9 9H77c-5 0-9-4-9-9v-24c0-5 4-9 9-9Zm0 170h3c5 0 9 4 9 9v24c0 5-4 9-9 9h-3c-5 0-9-4-9-9v-24c0-5 4-9 9-9Z" fill="#0B1020"/>
+  </g>
+  <g fill="#F6F8FF">
+    <text x="560" y="298" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="164" font-weight="700" letter-spacing="-8">fosivo</text>
+    <text x="571" y="385" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="38" font-weight="650" letter-spacing="12" fill="#8FA2C9">LABS</text>
+  </g>
+  <circle cx="1292" cy="242" r="12" fill="#65F6D2"/>
+</svg>

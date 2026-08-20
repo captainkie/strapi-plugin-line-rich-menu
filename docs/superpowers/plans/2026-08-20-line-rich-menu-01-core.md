@@ -23,6 +23,8 @@
 - URI scheme ที่อนุญาต: `https`, `http`, `tel`, `line` เท่านั้น
 - **ห้าม log ค่า access token / secret ในทุกกรณี** และห้ามใส่ลงใน error message
 - ทุก commit ใช้ Conventional Commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`)
+- **`packages/core/src/index.ts` ถูกแก้โดยหลาย task** — แต่ละ task ให้ **เพิ่มบรรทัด `export * from './<ไฟล์ของตัวเอง>.js'` ต่อท้าย** ไม่ใช่เขียนทับทั้งไฟล์ Task 13 มีรายการ export ฉบับสมบูรณ์ไว้ตรวจทานตอนท้าย
+- `tsconfig.base.json` เปิด `noUncheckedIndexedAccess` — การเข้าถึง array/record ด้วย index ต้องใช้ `!` หรือ narrow ก่อน
 
 ---
 
@@ -111,7 +113,7 @@ packages:
   "name": "line-rich-menu",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20 <21" },
+  "engines": { "node": ">=20" },
   "scripts": {
     "build": "pnpm -r build",
     "test": "vitest run",
@@ -124,9 +126,11 @@ packages:
     "typescript": "^5.6.0",
     "vitest": "^2.1.0",
     "@vitest/coverage-v8": "^2.1.0",
-    "tsup": "^8.3.0"
+    "tsup": "^8.3.0",
+    "eslint": "^9.12.0",
+    "typescript-eslint": "^8.8.0"
   },
-  "packageManager": "pnpm@9.12.0"
+  "packageManager": "pnpm@11.5.2"
 }
 ```
 
@@ -140,7 +144,6 @@ packages:
     "moduleResolution": "Bundler",
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
     "declaration": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -151,8 +154,29 @@ packages:
 
 `vitest.workspace.ts`
 ```ts
-export default ['packages/*/vitest.config.ts']
+export default ['packages/*/vitest.config.ts', 'tools/*/vitest.config.ts']
 ```
+
+`eslint.config.js` — CI ใน Task 15 เรียก `pnpm lint` จริง จึงต้องมี config จริง
+```js
+import js from '@eslint/js'
+import tseslint from 'typescript-eslint'
+
+export default tseslint.config(
+  // docs/ เก็บสเปก แผน และโค้ดอ้างอิงจากโปรเจกต์อื่น — ไม่ใช่ซอร์สของแพ็กเกจนี้
+  { ignores: ['**/dist/**', '**/coverage/**', '**/.stryker-tmp/**', 'docs/**'] },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    rules: {
+      '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/no-non-null-assertion': 'off',
+    },
+  },
+)
+```
+
+ติดตั้งเพิ่ม: `pnpm add -D -w @eslint/js`
 
 - [ ] **Step 2: สร้าง package `core`**
 
@@ -162,14 +186,14 @@ export default ['packages/*/vitest.config.ts']
   "name": "@fosivo/line-rich-menu-core",
   "version": "0.0.0",
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     }
   },
   "files": ["dist"],
@@ -560,7 +584,7 @@ const defs: TemplateDef[] = [
     key: 'RICH_MENU_TEMPLATE_101',
     sizeName: 'compact',
     size: COMPACT,
-    bounds: [b(0, 0, 833, 843), b(833, 0, 834, 843), b(1666, 0, 833, 843)],
+    bounds: [b(0, 0, 833, 843), b(833, 0, 834, 843), b(1667, 0, 833, 843)],
   },
   {
     key: 'RICH_MENU_TEMPLATE_102',
@@ -963,7 +987,7 @@ export function validateRichMenu(input: unknown): RichMenuPayload {
 - [ ] **Step 4: รัน test ให้ผ่าน**
 
 Run: `pnpm vitest run packages/core/tests/schema.test.ts`
-Expected: PASS ทุกเคส (รวม `describe.each` = 20 tests)
+Expected: PASS ทุกเคส รวมทั้ง block ที่กระจายด้วย `describe.each` (อย่ายึดตัวเลขจำนวนเทสต์ ให้ดูว่าไม่มีตัวไหนแดง)
 
 - [ ] **Step 5: เพิ่ม property test กันเคสที่คิดไม่ถึง**
 
@@ -1289,7 +1313,7 @@ Run: `pnpm add -D -w msw@^2.4.0`
 ```ts
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { LineClient } from '../../src/line/client.js'
 
 const server = setupServer()
@@ -1297,6 +1321,8 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 afterEach(() => server.resetHandlers())
 afterAll(() => server.close())
 
+// จงใจสร้างที่ module scope ไม่ใช่ใน beforeAll — ถ้า LineClient กลับไปจับ globalThis.fetch
+// ตอน constructor เมื่อไหร่ เทสต์ชุดนี้จะแดงทันที แทนที่จะหลุดไปยิง LINE ของจริงเงียบ ๆ
 const client = new LineClient({ accessToken: 'test-token' })
 
 const payload = {
@@ -1392,6 +1418,19 @@ describe('LineClient เส้นทางปกติ', () => {
     expect((await client.getBotInfo()).displayName).toBe('ร้านทดสอบ')
   })
 
+  it('ใช้ globalThis.fetch ตอนเรียก ไม่ใช่ตอนสร้าง — ไม่งั้น interceptor ที่ติดตั้งทีหลังจะถูกข้าม', async () => {
+    const original = globalThis.fetch
+    const stub = vi.fn(async () => HttpResponse.json({ richMenuId: 'rm-stub' }))
+    try {
+      globalThis.fetch = stub as unknown as typeof fetch
+      // client ตัวนี้ถูกสร้างไปตั้งแต่ module scope ก่อนที่ stub จะถูกติดตั้ง
+      expect(await client.createRichMenu(payload)).toBe('rm-stub')
+      expect(stub).toHaveBeenCalledOnce()
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
   it('ชี้ base URL ไป line-mock ได้', async () => {
     const local = new LineClient({ accessToken: 't', apiBaseUrl: 'http://127.0.0.1:4010' })
     server.use(http.post('http://127.0.0.1:4010/v2/bot/richmenu', () =>
@@ -1456,7 +1495,7 @@ export class LineClient {
   readonly #token: string
   readonly #base: string
   readonly #dataBase: string
-  readonly #fetch: typeof fetch
+  readonly #fetch: typeof fetch | undefined
   readonly #sleep: (ms: number) => Promise<void>
   readonly #maxAttempts: number
 
@@ -1464,7 +1503,8 @@ export class LineClient {
     this.#token = options.accessToken
     this.#base = options.apiBaseUrl ?? DEFAULT_API_BASE
     this.#dataBase = options.apiDataBaseUrl ?? DEFAULT_API_DATA_BASE
-    this.#fetch = options.fetchImpl ?? globalThis.fetch
+    // เก็บเฉพาะตัวที่ถูกฉีดเข้ามา — ห้ามจับ globalThis.fetch ตรงนี้ ดูเหตุผลใน #send
+    this.#fetch = options.fetchImpl
     this.#sleep = options.sleep ?? defaultSleep
     this.#maxAttempts = options.maxAttempts ?? 3
   }
@@ -1539,7 +1579,12 @@ export class LineClient {
       const headers: Record<string, string> = { authorization: `Bearer ${this.#token}` }
       if (spec.contentType) headers['content-type'] = spec.contentType
 
-      const res = await this.#fetch(spec.url, {
+      // หา fetch ตอนเรียก ไม่ใช่ตอนสร้าง object
+      // ถ้าจับไว้ตั้งแต่ constructor ตัว interceptor ที่ติดตั้งทีหลัง (msw, undici MockAgent,
+      // OpenTelemetry, proxy agent ที่ตั้งใน bootstrap ของ Strapi) จะถูกข้ามทั้งหมด
+      // ซึ่งแปลว่า client ที่ควรถูกดักไว้จะหลุดออกไปยิง LINE ของจริงเงียบ ๆ
+      const fetchImpl = this.#fetch ?? globalThis.fetch
+      const res = await fetchImpl(spec.url, {
         method: spec.method,
         headers,
         ...(spec.body === undefined ? {} : { body: spec.body }),
@@ -1634,7 +1679,9 @@ const payload = {
   areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 843 }, action: { type: 'message' as const, text: 'hi' } }],
 }
 
-function makeClient(sleep = vi.fn(async () => {})) {
+// ระบุ type ให้ vi.fn ตรง ๆ เพราะ noUncheckedIndexedAccess ทำให้ inference ได้ empty tuple
+// แล้ว sleep.mock.calls.map(c => c[0]) จะไม่ผ่าน tsc
+function makeClient(sleep = vi.fn<(ms: number) => Promise<void>>(async () => {})) {
   return { client: new LineClient({ accessToken: 'secret-token-value', sleep }), sleep }
 }
 
@@ -1729,6 +1776,17 @@ git commit -m "test(core): cover retry, backoff, error mapping and token-leak gu
 
 ---
 
+
+**เพิ่มจากผลรีวิว Task 7** (commit แยกอีกสองตัวในงานเดียวกัน):
+
+- `maxAttempts` เป็น public option แต่ค่า `0` ทำให้ loop ไม่รันเลยแล้วตกไป `throw lastError` ที่ยังเป็น `undefined`
+  คือ client โยนสิ่งที่ไม่ใช่ Error ออกมา ซึ่งทำสัญญา typed error ที่ทั้ง library ยึดถือพังทันที
+  แก้ด้วย `this.#maxAttempts = Math.max(1, options.maxAttempts ?? 3)` พร้อมเทสต์ที่ยืนยันว่าได้ `LineServerError` ไม่ใช่ `undefined`
+- `fetchImpl` เป็น public option ที่ไม่มีเทสต์แตะเลย เพิ่มเทสต์ว่าตัวที่ฉีดเข้ามาชนะ `globalThis.fetch` เสมอ
+  แม้ global จะถูกสลับหลังสร้าง object แล้ว
+
+---
+
 ## Task 9: ยามความปลอดภัยของรูป — magic byte และ decompression bomb
 
 **Files:**
@@ -1748,6 +1806,7 @@ git commit -m "test(core): cover retry, backoff, error mapping and token-leak gu
 
 `packages/core/tests/fixtures/make-fixtures.ts`
 ```ts
+import zlib from 'node:zlib'
 import sharp from 'sharp'
 
 /** รูปทึบสีเดียว — บีบง่ายมาก */
@@ -1775,11 +1834,38 @@ export async function transparentPng(width: number, height: number): Promise<Buf
     .toBuffer()
 }
 
-/** PNG สีเดียวขนาดมหึมา — ไฟล์เล็กมากแต่ประกาศพิกเซลมหาศาล (decompression bomb) */
-export async function pngBomb(): Promise<Buffer> {
-  return sharp({ create: { width: 20000, height: 20000, channels: 3, background: { r: 0, g: 0, b: 0 } } })
-    .png({ compressionLevel: 9 })
-    .toBuffer()
+/**
+ * PNG ที่ประกาศพิกเซลมหาศาลใน IHDR แต่ไฟล์เล็กนิดเดียว — decompression bomb ของจริง
+ *
+ * ห้ามสร้างด้วย sharp เพราะการสั่ง sharp วาดผืนผ้าใบ 25000x25000 จะจองหน่วยความจำ
+ * ระดับกิกะไบต์ในเครื่องที่รันเทสต์เอง ซึ่งคือสิ่งที่เรากำลังจะทดสอบว่าต้องไม่เกิด
+ * จึงประกอบ chunk เองให้ IHDR ประกาศขนาดใหญ่ ส่วน IDAT มีข้อมูลไม่กี่ไบต์
+ */
+export function pngBomb(width = 25000, height = 25000): Buffer {
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const length = Buffer.alloc(4)
+    length.writeUInt32BE(data.length)
+    const typeBuf = Buffer.from(type, 'ascii')
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(zlib.crc32(Buffer.concat([typeBuf, data])) >>> 0)
+    return Buffer.concat([length, typeBuf, data, crc])
+  }
+
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(width, 0)
+  ihdr.writeUInt32BE(height, 4)
+  ihdr[8] = 8   // bit depth
+  ihdr[9] = 0   // colour type: greyscale
+  ihdr[10] = 0  // compression
+  ihdr[11] = 0  // filter
+  ihdr[12] = 0  // interlace
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', zlib.deflateSync(Buffer.alloc(16))),
+    chunk('IEND', Buffer.alloc(0)),
+  ])
 }
 
 /** ไฟล์ที่อ้างว่าเป็นรูปแต่เนื้อในไม่ใช่ */
@@ -1825,11 +1911,11 @@ describe('ยามความปลอดภัยของรูป', () => {
   })
 
   it('ปฏิเสธ decompression bomb ก่อนที่จะ decode พิกเซล', async () => {
-    await expect(inspectImage(await pngBomb())).rejects.toBeInstanceOf(ImageBombError)
+    await expect(inspectImage(pngBomb())).rejects.toBeInstanceOf(ImageBombError)
   })
 
   it('bomb ต้องถูกปฏิเสธเร็ว ไม่ใช่ค้างจน process ตาย', async () => {
-    const bomb = await pngBomb()
+    const bomb = pngBomb()
     const started = process.hrtime.bigint()
     await expect(inspectImage(bomb)).rejects.toBeInstanceOf(ImageBombError)
     const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6
@@ -1907,7 +1993,8 @@ git commit -m "feat(core): add image guards for magic-byte and decompression-bom
 - Consumes: `guards.ts` (Task 9), `templates.ts` (Task 2 → `SIZE_LADDER`), `errors.ts` (Task 3)
 - Produces:
   - `interface NormalizedImage { buffer: Buffer; mime: 'image/jpeg' | 'image/png'; width: number; height: number; bytes: number }`
-  - `async function normalize(input: Buffer, sizeName: RichMenuSizeName): Promise<NormalizedImage>`
+  - `interface NormalizeOptions { maxBytes?: number }`
+  - `async function normalize(input: Buffer, sizeName: RichMenuSizeName, options?: NormalizeOptions): Promise<NormalizedImage>` — พารามิเตอร์ที่สามมีไว้ให้เทสต์บังคับเส้นทางที่บีบไม่ลง
 
 - [ ] **Step 1: เขียน test ที่ต้องล้มเหลว**
 
@@ -2142,10 +2229,13 @@ Expected: FAIL — `compose is not exported`
 
 - [ ] **Step 3: เพิ่ม `compose` ลงใน `pipeline.ts`**
 
-เพิ่มท้าย `packages/core/src/image/pipeline.ts`
+เพิ่ม `Bounds` และ `RichMenuSize` เข้าไปในบล็อก import ที่**ด้านบนของไฟล์** (ไม่ใช่ท้ายไฟล์):
 ```ts
-import type { Bounds, RichMenuSize } from '../types.js'
+import type { Bounds, RichMenuSize, RichMenuSizeName } from '../types.js'
+```
 
+แล้วเพิ่มส่วนนี้ท้าย `packages/core/src/image/pipeline.ts`
+```ts
 export interface AreaImage {
   bounds: Bounds
   image: Buffer
@@ -2491,7 +2581,9 @@ export * from './publish/machine.js'
 ```
 
 Run: `pnpm --filter @fosivo/line-rich-menu-core typecheck && pnpm --filter @fosivo/line-rich-menu-core build`
-Expected: ไม่มี error และมี `dist/index.mjs`, `dist/index.js`, `dist/index.d.ts`
+Expected: ไม่มี error และมี `dist/index.js` (ESM), `dist/index.cjs` (CJS), `dist/index.d.ts`
+
+เพราะ package เป็น `"type": "module"` tsup จะออก `.js` เป็น ESM และ `.cjs` เป็น CJS — ไม่ใช่ `.mjs`
 
 - [ ] **Step 6: Commit**
 
@@ -2505,7 +2597,8 @@ git commit -m "feat(core): render template thumbnails as SVG derived from bounds
 ## Task 14: `tools/line-mock` — เซิร์ฟเวอร์จำลอง LINE
 
 **Files:**
-- Create: `tools/line-mock/package.json`, `tools/line-mock/src/server.ts`, `tools/line-mock/src/store.ts`
+- Create: `tools/line-mock/package.json`, `tools/line-mock/tsconfig.json`, `tools/line-mock/vitest.config.ts`
+- Create: `tools/line-mock/src/server.ts`, `tools/line-mock/src/store.ts`
 - Test: `tools/line-mock/tests/server.test.ts`
 
 **Interfaces:**
@@ -2528,8 +2621,38 @@ git commit -m "feat(core): render template thumbnails as SVG derived from bounds
     "typecheck": "tsc --noEmit"
   },
   "dependencies": { "fastify": "^5.0.0" },
-  "devDependencies": { "tsx": "^4.19.0" }
+  "devDependencies": {
+    "@fosivo/line-rich-menu-core": "workspace:*",
+    "tsx": "^4.19.0"
+  }
 }
+```
+
+`tools/line-mock/tsconfig.json`
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["src", "tests"]
+}
+```
+
+`tools/line-mock/vitest.config.ts` — เทสต์ยิงด้วย `LineClient` ตัวจริงจาก source
+จึงต้อง alias ไปที่ `src` ไม่ใช่ `dist` ไม่งั้นต้อง build core ก่อนทุกครั้งที่รันเทสต์
+```ts
+import { fileURLToPath } from 'node:url'
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  test: { name: 'line-mock', include: ['tests/**/*.test.ts'] },
+  resolve: {
+    alias: {
+      '@fosivo/line-rich-menu-core': fileURLToPath(
+        new URL('../../packages/core/src/index.ts', import.meta.url),
+      ),
+    },
+  },
+})
 ```
 
 Run: `pnpm install`
@@ -2669,8 +2792,10 @@ export function createServer(): FastifyInstance {
 
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.headers.authorization?.startsWith('Bearer ')) {
-      await reply.code(401).send({ message: 'Authorization header required' })
+      // ต้อง return reply เพื่อตัดวงจร ไม่งั้น Fastify จะเดินต่อไป handler
+      return reply.code(401).send({ message: 'Authorization header required' })
     }
+    return undefined
   })
 
   app.get('/v2/bot/info', async () => ({
@@ -2923,6 +3048,240 @@ git push
 
 ---
 
+---
+
+## Task 16: หน้า preview ในเบราว์เซอร์ (รันหลัง Task 13)
+
+**Files:**
+- Create: `tools/preview/package.json`, `tools/preview/tsconfig.json`, `tools/preview/vitest.config.ts`
+- Create: `tools/preview/src/server.ts`, `tools/preview/src/page.ts`
+- Test: `tools/preview/tests/page.test.ts`
+
+**Interfaces:**
+- Consumes: `TEMPLATES`, `renderTemplateSvg`, `areaLabel` จาก `@fosivo/line-rich-menu-core` (Task 2, 13)
+- Produces:
+  - `function renderPage(): string` — HTML ทั้งหน้า
+  - `function createServer(): http.Server`
+  - script `pnpm --filter @fosivo/preview start` เปิดที่ `http://127.0.0.1:4020`
+
+`core` ไม่มี UI แต่ thumbnail เป็น SVG ที่ดูได้ หน้านี้ทำให้ตรวจสายตาได้ว่าพิกัดที่พอร์ตมาถูกต้องจริง
+ซึ่งตาเห็นได้เร็วกว่าอ่าน assertion และเป็นฐานให้ CanvasEditor ใน Plan 02
+
+- [ ] **Step 1: สร้าง package**
+
+`tools/preview/package.json`
+```json
+{
+  "name": "@fosivo/preview",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": { "@fosivo/line-rich-menu-core": "workspace:*" },
+  "devDependencies": { "tsx": "^4.19.0" }
+}
+```
+
+`tools/preview/tsconfig.json`
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["src", "tests"]
+}
+```
+
+`tools/preview/vitest.config.ts`
+```ts
+import { fileURLToPath } from 'node:url'
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  test: { name: 'preview', include: ['tests/**/*.test.ts'] },
+  resolve: {
+    alias: {
+      '@fosivo/line-rich-menu-core': fileURLToPath(
+        new URL('../../packages/core/src/index.ts', import.meta.url),
+      ),
+    },
+  },
+})
+```
+
+Run: `pnpm install`
+
+- [ ] **Step 2: เขียน test ที่ต้องล้มเหลว**
+
+`tools/preview/tests/page.test.ts`
+```ts
+import { describe, expect, it } from 'vitest'
+import { TEMPLATES } from '@fosivo/line-rich-menu-core'
+import { renderPage } from '../src/page.js'
+
+describe('หน้า preview', () => {
+  const html = renderPage()
+
+  it('เป็นเอกสาร HTML ที่สมบูรณ์', () => {
+    expect(html.startsWith('<!doctype html>')).toBe(true)
+    expect(html).toContain('</html>')
+  })
+
+  it('แสดงครบทั้ง 12 template', () => {
+    for (const key of Object.keys(TEMPLATES)) expect(html).toContain(key)
+    expect(html.match(/<svg/g)?.length).toBeGreaterThanOrEqual(13)
+  })
+
+  it('บอกจำนวนช่องของแต่ละ template', () => {
+    const t = TEMPLATES['RICH_MENU_TEMPLATE_201']!
+    expect(html).toContain(`${t.bounds.length} areas`)
+  })
+
+  it('มีตัวอย่าง custom layout เพื่อพิสูจน์ว่า renderer ตัวเดียวกันวาดได้', () => {
+    expect(html).toContain('Custom layout')
+  })
+
+  it('ไม่มี script tag — หน้านี้เป็น static ล้วน ไม่ต้องมี JS', () => {
+    expect(html).not.toMatch(/<script/i)
+  })
+
+  it('รองรับทั้งธีมสว่างและมืดของเบราว์เซอร์', () => {
+    expect(html).toContain('prefers-color-scheme: dark')
+  })
+})
+```
+
+- [ ] **Step 3: รัน test ให้เห็นว่าล้มเหลว**
+
+Run: `pnpm vitest run tools/preview/tests/page.test.ts`
+Expected: FAIL — `Cannot find module '../src/page.js'`
+
+- [ ] **Step 4: เขียน `page.ts`**
+
+`tools/preview/src/page.ts`
+```ts
+import { TEMPLATES, renderTemplateSvg, type TemplateDef } from '@fosivo/line-rich-menu-core'
+
+const CUSTOM = {
+  size: { width: 2500, height: 1686 },
+  bounds: [
+    { x: 0, y: 0, width: 2500, height: 500 },
+    { x: 0, y: 500, width: 900, height: 1186 },
+    { x: 900, y: 500, width: 800, height: 1186 },
+    { x: 1700, y: 500, width: 800, height: 1186 },
+  ],
+}
+
+function card(title: string, subtitle: string, svg: string): string {
+  return `<figure class="card">
+  <div class="canvas">${svg}</div>
+  <figcaption><strong>${title}</strong><span>${subtitle}</span></figcaption>
+</figure>`
+}
+
+function section(heading: string, items: TemplateDef[]): string {
+  const cards = items
+    .map((t) => card(t.key, `${t.size.width}x${t.size.height} - ${t.bounds.length} areas`, renderTemplateSvg(t.bounds, t.size)))
+    .join('\n')
+  return `<section><h2>${heading}</h2><div class="grid">${cards}</div></section>`
+}
+
+export function renderPage(): string {
+  const all = Object.values(TEMPLATES)
+  const large = all.filter((t) => t.sizeName === 'large')
+  const compact = all.filter((t) => t.sizeName === 'compact')
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LINE rich menu templates</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fbfbfd; --fg: #16161a; --muted: #6b6b76; --line: #d5d5de; --card: #ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #131316; --fg: #ececf1; --muted: #9a9aa6; --line: #35353f; --card: #1c1c21; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 2.5rem 1.5rem 4rem; background: var(--bg); color: var(--fg);
+         font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+  p.lede { color: var(--muted); margin: 0 0 2.5rem; }
+  h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+       margin: 2.5rem 0 1rem; }
+  .grid { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  .card { margin: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+  .canvas { color: #10b981; background: repeating-conic-gradient(var(--line) 0% 25%, transparent 0% 50%) 50%/16px 16px; }
+  .canvas svg { display: block; width: 100%; height: auto; }
+  figcaption { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline;
+               padding: .7rem .9rem; border-top: 1px solid var(--line); font-size: .82rem; }
+  figcaption span { color: var(--muted); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<main>
+  <h1>LINE rich menu templates</h1>
+  <p class="lede">Thumbnails are SVG rendered from the bounds data in <code>@fosivo/line-rich-menu-core</code>. No bundled images.</p>
+  ${section('Large - 2500x1686', large)}
+  ${section('Compact - 2500x843', compact)}
+  <section><h2>Custom layout</h2><div class="grid">
+    ${card('Custom layout', `${CUSTOM.size.width}x${CUSTOM.size.height} - ${CUSTOM.bounds.length} areas`, renderTemplateSvg(CUSTOM.bounds, CUSTOM.size))}
+  </div></section>
+</main>
+</body>
+</html>`
+}
+```
+
+- [ ] **Step 5: รัน test ให้ผ่าน**
+
+Run: `pnpm vitest run tools/preview/tests/page.test.ts`
+Expected: PASS 6 tests
+
+- [ ] **Step 6: เขียน `server.ts`**
+
+`tools/preview/src/server.ts`
+```ts
+import http from 'node:http'
+import { renderPage } from './page.js'
+
+export function createServer(): http.Server {
+  return http.createServer((req, res) => {
+    if (req.url !== '/' && req.url !== '/index.html') {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('not found')
+      return
+    }
+    // สร้างใหม่ทุกครั้งที่โหลด เพื่อให้แก้ bounds แล้วรีเฟรชเห็นผลทันที
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+    res.end(renderPage())
+  })
+}
+
+if (process.argv[1]?.endsWith('server.ts')) {
+  const port = Number(process.env['PORT'] ?? 4020)
+  createServer().listen(port, '127.0.0.1', () => {
+    console.log(`preview: http://127.0.0.1:${port}`)
+  })
+}
+```
+
+- [ ] **Step 7: เปิดดูในเบราว์เซอร์จริง**
+
+Run: `pnpm --filter @fosivo/preview start`
+Expected: log `preview: http://127.0.0.1:4020` และเปิดหน้าในเบราว์เซอร์เห็น template ครบ 13 การ์ด
+(12 แบบมาตรฐาน + custom layout) โดยกรอบแต่ละช่องตรงกับสัดส่วนจริงของ LINE
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add tools/preview
+git commit -m "feat(preview): serve SVG template gallery for visual verification"
+```
+
 ## Self-Review
 
 **1. Spec coverage** — เทียบกับ spec ทีละหัวข้อ:
@@ -2955,7 +3314,7 @@ Plan 01 นี้จบแล้วได้ **library ที่ทำงาน�
 
 | Plan | ขอบเขต | ทำไมยังไม่เขียนตอนนี้ |
 |---|---|---|
-| **02 — `ui`** | UIPort contract, CanvasEditor, 4 หน้าจอ, stub-port tests | ต้องรู้ก่อนว่า API จริงของ `core` หน้าตาเป็นยังไงหลังลงมือ ถ้าเขียน step-level ตอนนี้แล้ว `core` ขยับนิดเดียวก็ต้องรื้อทั้งแผน |
+| **02 — `ui`** | UIPort contract, CanvasEditor, 4 หน้าจอ, stub-port tests (มี dev server ให้เปิดดูในเบราว์เซอร์) | ต้องรู้ก่อนว่า API จริงของ `core` หน้าตาเป็นยังไงหลังลงมือ ถ้าเขียน step-level ตอนนี้แล้ว `core` ขยับนิดเดียวก็ต้องรื้อทั้งแผน |
 | **03 — adapter v4** | entry files, entityService repo, DS v1 port, content-types, RBAC, cron lock, audit log | ขึ้นกับ UIPort ที่จะนิ่งหลัง Plan 02 |
 | **04 — adapter v5 + release** | DS v2 port, documents() repo, i18n, docs, demo deploy, publish 1.0.0 | ขึ้นกับ Plan 03 |
 

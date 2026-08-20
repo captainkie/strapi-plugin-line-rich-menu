@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # มิวเทชันเทสต์ (ดู job `mutation` ด้านล่าง) ช้าเกินจะรันทุก push/PR แต่ยังต้องรันสม่ำเสมอ
+    # ตามสเปก 13.4 ("mutation (core, nightly)") — 02:00 UTC ทุกคืน ไม่ใช่ required check ของ PR ใด ๆ
+    # (ดู .github/rulesets/main.json — "mutation" ไม่อยู่ใน required_status_checks)
+    - cron: '0 2 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test:coverage
+      - run: pnpm build
+      - name: ตรวจว่า dist/browser.{js,cjs} ไม่มี sharp หลุดเข้ามา
+        # ตรวจ import/require จริงเท่านั้น ไม่ใช่คำว่า "sharp" ลอย ๆ — .d.ts มีคำนี้ใน
+        # JSDoc comment (browser.d.ts) ซึ่งเป็น false positive ถ้า grep ทั้งไฟล์ จึงเช็คแค่
+        # .js/.cjs ที่รันจริง เทียบกับ tests/browser.test.ts ที่ตรวจแค่ที่ต้นทาง (src) —
+        # ด่านนี้ตรวจที่ dist (สิ่งที่ผู้บริโภคแพ็กเกจได้จริง) และจับได้ทั้งการ import sharp
+        # กลับเข้ามาซ้ำและโมดูลผูก Node ใหม่ ๆ ที่เพิ่มเข้า src/browser.ts ในอนาคต
+        run: |
+          if grep -nE "from ['\"]sharp['\"]|require\(['\"]sharp['\"]\)" \
+            packages/core/dist/browser.js packages/core/dist/browser.cjs; then
+            echo "::error::sharp ถูก import เข้า packages/core/dist/browser.{js,cjs} — subpath \"./browser\" ต้องรันในเบราว์เซอร์ได้โดยไม่มี sharp"
+            exit 1
+          fi
+
+  mutation:
+    runs-on: ubuntu-latest
+    # เดิมรันเฉพาะ push (ซึ่ง trigger แค่ตอน merge เข้า main แล้ว) เท่ากับ ruleset ของ main
+    # (.github/rulesets/main.json) บังคับให้เป็น required check ไม่ได้เพราะ Stryker รันหลัง merge
+    # เสมอ — ช้าเกินจะเป็น required check ของ PR ตั้งใจไว้แบบนั้น (ดูสเปก 13.4) แต่ก็ต้องมีทางรัน
+    # แบบ nightly เพื่อให้ยังจับ mutant ที่ตกหล่นได้สม่ำเสมอ ไม่ใช่แค่ตอน push เข้า main เท่านั้น
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:mutation
+
+  secrets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
+        with:
+          scan-args: |-
+            --lockfile=./pnpm-lock.yaml
+
+  codeql:
+    # CodeQL ต้องมี GitHub Advanced Security ซึ่งเป็นสินค้าระดับ organization
+    # repo นี้เป็นของบัญชีส่วนตัวและยัง private อยู่ จึงเปิดใช้ไม่ได้เชิงโครงสร้าง ไม่ใช่แค่ยังไม่เปิดสวิตช์
+    # ปล่อย job ไว้แบบมีเงื่อนไข เพื่อให้มันเริ่มทำงานเองวันที่ repo เปิด public ตอนปล่อย 1.0.0
+    # ไม่ลบทิ้ง เพราะจะลืม และไม่ปล่อยให้แดงค้าง เพราะ CI ที่แดงตลอดสอนให้คนเลิกอ่าน CI
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with: { languages: javascript-typescript }
+      - uses: github/codeql-action/analyze@v3

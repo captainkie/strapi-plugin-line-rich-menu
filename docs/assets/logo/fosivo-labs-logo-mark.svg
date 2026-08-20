@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">fosivo labs mark</title>
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#65F6D2"/><stop offset="1" stop-color="#6E8CFF"/></linearGradient></defs>
+  <rect width="512" height="512" rx="96" fill="#0B1020"/>
+  <path d="M108 72h248c22 0 40 18 40 40v64H188v64h205c22 0 40 18 40 40v64c0 22-18 40-40 40H188v56H108c-22 0-40-18-40-40V112c0-22 18-40 40-40Z" fill="url(#g)"/>
+  <path d="M138 113h189c5 0 9 4 9 9v23c0 5-4 9-9 9H138c-5 0-9-4-9-9v-23c0-5 4-9 9-9Zm0 169h189c5 0 9 4 9 9v23c0 5-4 9-9 9H138c-5 0-9-4-9-9v-23c0-5 4-9 9-9Zm0 169h3c5 0 9 4 9 9v23c0 5-4 9-9 9h-3c-5 0-9-4-9-9v-23c0-5 4-9 9-9Z" fill="#0B1020"/>
+</svg>
