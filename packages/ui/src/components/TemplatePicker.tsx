@@ -10,6 +10,8 @@ export interface TemplatePickerProps {
   currentKey: string | null
   /** ผู้ใช้ตั้ง action ไว้แล้วหรือยัง — ถ้าตั้งแล้วการเปลี่ยน template จะทิ้งมันไป */
   hasConfiguredActions: boolean
+  /** มีรูปอัปโหลดไว้แล้วหรือยัง — ถ้ามีและ template ใหม่เปลี่ยนขนาดผืนผ้าใบ รูปเดิมจะไม่พอดีอีกต่อไป (สเปก §5.6.3) */
+  hasImage: boolean
   onApply(key: string): void
   onClose(): void
 }
@@ -23,7 +25,7 @@ function sizesLabel(name: RichMenuSizeName): string {
 }
 
 export function TemplatePicker({
-  open, currentKey, hasConfiguredActions, onApply, onClose,
+  open, currentKey, hasConfiguredActions, hasImage, onApply, onClose,
 }: TemplatePickerProps) {
   const { ui, t } = usePort()
   const [selected, setSelected] = useState<string | null>(currentKey)
@@ -31,10 +33,16 @@ export function TemplatePicker({
 
   if (!open) return null
 
+  // เปลี่ยนขนาดผืนผ้าใบ (large ↔ compact) = พิกัดเปลี่ยนทั้งชุด รูปเดิมจึงไม่พอดีกับผืนผ้าใบใหม่อีกต่อไป
+  // (สเปก §5.6.3) ต่างจาก action ตรงที่ถ้าขนาดเท่าเดิม รูปยังใช้ต่อได้ ไม่ต้องเสียของเดิม
+  const sizeChanged = selected !== null && currentKey !== null
+    && TEMPLATES[currentKey]?.sizeName !== TEMPLATES[selected]?.sizeName
+  const willDropImage = hasImage && sizeChanged
+
   const apply = () => {
     if (selected === null) return
-    // เปลี่ยน template = ทิ้ง action ที่ตั้งไว้ทั้งหมด ถามก่อนเสมอถ้ามีอะไรจะเสีย
-    if (hasConfiguredActions && selected !== currentKey) {
+    // เปลี่ยน template = ทิ้ง action ที่ตั้งไว้ทั้งหมด และอาจทิ้งรูปเดิมด้วยถ้าขนาดเปลี่ยน — ถามก่อนเสมอถ้ามีอะไรจะเสีย
+    if (selected !== currentKey && (hasConfiguredActions || willDropImage)) {
       setConfirming(true)
       return
     }
@@ -106,8 +114,11 @@ export function TemplatePicker({
       }
     >
       {confirming ? (
+        // สเปก §5.6.2 ต้องการให้แจ้งครบว่าอะไรถูกทิ้งไปบ้าง ไม่ใช่แค่ action เสมอ — ข้อความจึงแยกเป็น
+        // สองย่อหน้าตามสิ่งที่จะเสียจริง โชว์เฉพาะย่อหน้าที่เกี่ยวข้อง อาจโชว์พร้อมกันทั้งคู่ก็ได้
         <ui.Alert variant="warning" title={t('template.picker.discardTitle')}>
-          {t('template.picker.discardBody')}
+          {hasConfiguredActions ? <p>{t('template.picker.discardBody')}</p> : null}
+          {willDropImage ? <p data-testid="discard-image-warning">{t('template.picker.discardImageBody')}</p> : null}
         </ui.Alert>
       ) : (
         <>{renderGroup('large')}{renderGroup('compact')}</>

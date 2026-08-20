@@ -1,8 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { TEMPLATES } from '@fosivo/line-rich-menu-core/browser'
 import { describe, expect, it, vi } from 'vitest'
+import { emptyActionForm } from '../src/action-form.js'
 import { PortProvider } from '../src/port.js'
 import { createStubPort } from '../src/stub-port.js'
-import { RichMenuEditor, emptyDraft } from '../src/pages/RichMenuEditor.js'
+import { RichMenuEditor, emptyDraft, type RichMenuDraft } from '../src/pages/RichMenuEditor.js'
 
 function setup(overrides: Partial<React.ComponentProps<typeof RichMenuEditor>> = {}) {
   const onSave = vi.fn(async () => {})
@@ -147,5 +149,41 @@ describe('RichMenuEditor', () => {
     expect(screen.getByLabelText('editor.title')).toHaveValue('เมนูเดิม')
     expect(screen.getByLabelText('chatBar.text')).toHaveValue('ร้านค้า')
     expect(screen.getByLabelText('chatBar.behavior.collapsed')).toBeChecked()
+  })
+
+  // A1 — applyTemplate เปลี่ยน bounds/areas/sizeName ทุกครั้งแต่ไม่เคยแตะ draft.image เลย
+  // ถ้าขนาดผืนผ้าใบเปลี่ยน (large ↔ compact) รูปเดิมค้างอยู่กับ canvas ใหม่ที่ไม่พอดี (สเปก §5.6.3)
+  describe('เปลี่ยน template แล้วรูปเดิมที่อัปโหลดไว้', () => {
+    function initialWithImage(templateKey: string): RichMenuDraft {
+      const template = TEMPLATES[templateKey]!
+      return {
+        ...emptyDraft(),
+        templateKey,
+        sizeName: template.sizeName,
+        bounds: [...template.bounds],
+        areas: template.bounds.map(() => emptyActionForm()),
+        image: { id: 1, url: '/uploads/a.png', width: template.size.width, height: template.size.height },
+      }
+    }
+
+    it('ขนาดผืนผ้าใบเท่าเดิม (large → large อีกแบบ) — รูปเดิมยังอยู่ ไม่ต้องถาม', () => {
+      setup({ initial: initialWithImage('RICH_MENU_TEMPLATE_207') })
+      expect(screen.getByTestId('image-remove')).toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('open-template-picker'))
+      fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_201'))
+      fireEvent.click(screen.getByTestId('template-apply'))
+      expect(screen.queryByTestId('template-confirm')).not.toBeInTheDocument()
+      expect(screen.getByTestId('image-remove')).toBeInTheDocument()
+    })
+
+    it('ขนาดผืนผ้าใบเปลี่ยน (large → compact) — ต้องถามก่อน แล้วทิ้งรูปเดิม', () => {
+      setup({ initial: initialWithImage('RICH_MENU_TEMPLATE_207') })
+      fireEvent.click(screen.getByTestId('open-template-picker'))
+      fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_101'))
+      fireEvent.click(screen.getByTestId('template-apply'))
+      expect(screen.getByTestId('template-confirm')).toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('template-confirm'))
+      expect(screen.queryByTestId('image-remove')).not.toBeInTheDocument()
+    })
   })
 })
