@@ -76,6 +76,17 @@ describe('ImageField', () => {
     expect(post).not.toHaveBeenCalled()
   })
 
+  // measure() คืน naturalWidth = naturalHeight = 0 ได้จริงถ้ารูปยังโหลดไม่เสร็จตอน onload ยิง
+  // — 0/0 = NaN และ `NaN > 0.01` เป็น false เสมอ ทำให้ guard เดิมปล่อยผ่านแทนที่จะปฏิเสธ
+  it('ปฏิเสธรูปที่วัดขนาดไม่ได้ (NaN) แทนที่จะปล่อยผ่านเข้าอัปโหลด', async () => {
+    stubImageSize(0, 0)
+    const post = vi.fn()
+    setup(createStubPort({ t: (k) => k, http: { ...createStubPort().http, post } }))
+    fireEvent.change(screen.getByTestId('image-input'), { target: { files: [file()] } })
+    await waitFor(() => expect(screen.getByText('image.error.ratio')).toBeInTheDocument())
+    expect(post).not.toHaveBeenCalled()
+  })
+
   it('อัปโหลดผ่าน POST /upload เมื่อรูปผ่านเกณฑ์ และคืนไฟล์ที่ได้กลับไป', async () => {
     stubImageSize(2500, 1686)
     const post = vi.fn(async () => [{ id: 7, url: '/uploads/menu.png', width: 2500, height: 1686 }])
