@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ImageTooLargeError } from '../../src/errors.js'
 import { MAX_OUTPUT_BYTES } from '../../src/image/guards.js'
 import { normalize } from '../../src/image/pipeline.js'
 import { noisePng, solidJpeg, transparentPng } from '../fixtures/make-fixtures.js'
+
+// เทสต์นี้ทำ mozjpeg บีบไฟล์ noise ที่บีบยากจริง ~4s บนเครื่องนี้ และ CI runner ช้ากว่านี้
+// 5000ms default ของ Vitest จึงเป็น false-positive hang detector ไม่ใช่ performance bar —
+// ยกเฉพาะไฟล์นี้เป็น 15000ms ด้วย vi.setConfig (per-file, ไม่กระทบเทสต์อื่นที่เร็วอยู่แล้ว ~100 ตัว)
+vi.setConfig({ testTimeout: 15_000 })
 
 describe('normalize', () => {
   it('ย่อรูปมือถือใหญ่ให้เป็น 2500x1686 และไม่เกิน 1 MB', async () => {
