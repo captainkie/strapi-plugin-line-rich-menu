@@ -39,10 +39,35 @@ export interface UIPrimitives {
   Tooltip: ComponentType<{ label: string; children?: ReactNode }>
 }
 
+/**
+ * ตัว client ต้องคงที่ข้าม render (referentially stable) — `RichMenuList` ใส่ `http` ไว้ใน
+ * dependency array ของ `useEffect` adapter ที่ประกอบ port ขึ้นใหม่กลางฟังก์ชัน component
+ * (เช่น `{ http: { get: (u) => useFetchClient().get(u) ... } }` เขียนสด ๆ ใน JSX) จะได้ object
+ * ใหม่ทุกรอบ render ทำให้ effect ยิงซ้ำไม่รู้จบ รายการเมนูกะพริบเป็นค่าว่างทุกครั้งที่ parent
+ * re-render — สร้างครั้งเดียวไว้นอก component หรือห่อด้วย `useMemo` เสมอ
+ *
+ * ข้อกำหนดของแต่ละเมธอดอยู่ที่ตัวเมธอดเอง — ทั้งสี่ตัวใช้กติกา "ไม่ใช่ 2xx ต้อง reject" ร่วมกัน
+ */
 export interface HttpClient {
+  /**
+   * ต้อง reject เมื่อ HTTP status ไม่ใช่ 2xx — component ทุกตัวในแพ็กเกจนี้แสดงความล้มเหลวผ่าน
+   * promise ที่ reject อย่างเดียว ไม่มีที่ไหนอ่าน status code เอง (ดู `ChannelSettings`,
+   * `RichMenuList`, `ImageField`) adapter ที่เขียนทับด้วย `fetch()` เปล่า ๆ โดยไม่เช็ค `res.ok`
+   * จะ resolve ให้กับ 403/500 ด้วย ผลคือผู้ใช้เห็นรายการ channel ว่าง รายการเมนูว่าง และการอัปโหลด
+   * ที่ "สำเร็จ" ทั้งที่ไม่มีอะไรถูกอัปเลย — ทั้งหมดนี้ไม่มี error ให้เห็นสักจุดเดียว
+   */
   get<T>(url: string): Promise<T>
+  /**
+   * `body` ที่เป็น `FormData` ต้องส่งต่อให้ transport ตามเดิม ห้าม `JSON.stringify` และห้ามตั้ง
+   * `Content-Type` เอง (ต้องปล่อยให้เบราว์เซอร์ใส่ boundary ให้) — `ImageField` อัปรูปด้วย FormData
+   * ทางนี้ทางเดียว adapter ที่ stringify ทุก body เหมือนกันหมดจะส่ง `{}` ออกไป การอัปรูปจึงล้มทุกครั้ง
+   * โดยผู้ใช้เห็นแค่ "อัปโหลดไม่สำเร็จ" ไม่มีอะไรชี้ว่าสาเหตุอยู่ที่ adapter — `body?: unknown`
+   * ไม่ได้บอกเรื่องนี้ด้วยตัวมันเอง
+   */
   post<T>(url: string, body?: unknown): Promise<T>
+  /** กติกาเดียวกับ `post` ทั้งเรื่อง non-2xx และการส่ง `FormData` ต่อโดยไม่แปลง */
   put<T>(url: string, body?: unknown): Promise<T>
+  /** กติกาเดียวกับ `get` — non-2xx ต้อง reject ไม่ใช่ resolve เป็นค่าว่าง */
   del<T>(url: string): Promise<T>
 }
 

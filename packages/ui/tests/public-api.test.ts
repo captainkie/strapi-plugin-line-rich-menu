@@ -20,6 +20,7 @@ const EXPECTED_EXPORTS = [
 
   // stub-port.tsx
   'createStubPort',
+  'createRejectingHttpClient',
 
   // action-form.ts
   'emptyActionForm',

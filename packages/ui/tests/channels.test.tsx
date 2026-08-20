@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ENDPOINTS } from '../src/api.js'
 import { PortProvider } from '../src/port.js'
-import { createStubPort } from '../src/stub-port.js'
+import { createRejectingHttpClient, createStubPort } from '../src/stub-port.js'
 import { ChannelSettings } from '../src/pages/ChannelSettings.js'
 
 const channels = [
@@ -71,6 +71,29 @@ describe('ChannelSettings', () => {
     await waitFor(() => expect(screen.getByTestId('test-c1')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('test-c1'))
     await waitFor(() => expect(screen.getByText('channel.testFailed')).toBeInTheDocument())
+  })
+
+  // port.ts กำหนดว่า http client ต้อง reject เมื่อ status ไม่ใช่ 2xx — ข้อกำหนดที่ไม่มีเทสต์ไหน
+  // มองเห็นได้ก็เป็นแค่คอมเมนต์ ไม่ใช่สัญญา สองเทสต์นี้คือจุดที่ทำให้มันมีผลจริง: ถ้า adapter ตัวไหน
+  // resolve ให้กับ 403 หน้านี้จะเงียบสนิท (ได้รายการว่าง / บันทึกที่ "สำเร็จ") แทนที่จะบอกผู้ใช้
+  it('โหลดรายการ channel ล้มเหลว ต้องขึ้น error ไม่ใช่แสดงรายการว่างเหมือนไม่มีข้อมูล', async () => {
+    const port = createStubPort({ t: (k) => k, http: createRejectingHttpClient() })
+    render(<PortProvider value={port}><ChannelSettings /></PortProvider>)
+    await waitFor(() => expect(screen.getByText('channel.loadFailed')).toBeInTheDocument())
+  })
+
+  // ใช้ client ที่ reject เฉพาะ post (ไม่ใช่ทั้งก้อน) เพราะกรณีจริงคือ "รายการโหลดมาได้ปกติ
+  // แต่การบันทึกล้ม" — ถ้าให้ get reject ด้วย error ของการโหลดจะมาทับ error ของการบันทึกทีหลัง
+  // แล้วเทสต์จะเขียว/แดงด้วยเหตุผลของ fixture ไม่ใช่ของสิ่งที่มันอ้างว่าพิสูจน์
+  it('บันทึก channel ล้มเหลว ต้องขึ้น error และไม่ล้างฟอร์มทิ้งเหมือนบันทึกสำเร็จ', async () => {
+    setup({ post: createRejectingHttpClient().post })
+    await waitFor(() => expect(screen.getByTestId('add-channel')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('add-channel'))
+    fireEvent.change(screen.getByLabelText('channel.name'), { target: { value: 'ร้านใหม่' } })
+    fireEvent.click(screen.getByTestId('save-channel'))
+    await waitFor(() => expect(screen.getByText('channel.saveFailed')).toBeInTheDocument())
+    // ค่าที่พิมพ์ไว้ต้องยังอยู่ให้แก้ต่อ ไม่ใช่ถูกล้างแบบเดียวกับตอนบันทึกสำเร็จ
+    expect(screen.getByLabelText('channel.name')).toHaveValue('ร้านใหม่')
   })
 
   // channelSecret/accessToken เป็น bearer credential — ใครอ่านค่านี้ได้จากจอก็โพสต์แทนธุรกิจได้ทันที
