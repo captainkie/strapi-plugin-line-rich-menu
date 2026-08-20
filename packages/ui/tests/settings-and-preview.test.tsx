@@ -107,4 +107,16 @@ describe('Preview', () => {
     wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
     expect(screen.getByTestId('preview-menu')).toBeInTheDocument()
   })
+
+  it('ข้อความแถบแชทว่าง ใช้ label default แทน', () => {
+    wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="" expanded />)
+    expect(screen.getByTestId('preview-chat-bar').textContent).toContain('chatBar.defaultLabel')
+  })
+
+  it('ข้อความแถบแชทไม่ว่าง แสดงข้อความนั้น ไม่ใช่ label default', () => {
+    wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
+    const text = screen.getByTestId('preview-chat-bar').textContent
+    expect(text).toContain('เมนู')
+    expect(text).not.toContain('chatBar.defaultLabel')
+  })
 })
