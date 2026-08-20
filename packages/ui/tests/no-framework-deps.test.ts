@@ -45,12 +45,23 @@ describe('ui ไม่ผูกกับ framework ใด ๆ', () => {
   })
 
   // manifest อย่างเดียวไม่พอ — ไฟล์อาจ import ชื่อที่ hoist มาจาก root ของ workspace ได้
+  //
+  // จับทั้ง static import (`from '<banned>'`), side-effect import (`import '<banned>'`
+  // ที่ไม่มี `from`) และ `require('<banned>')` — ไม่ใช่แค่รูปแบบที่มี `from` เท่านั้น
   it('ไม่มีไฟล์ไหน import ของต้องห้าม', () => {
     const offenders: string[] = []
     for (const file of walk(join(uiRoot, 'src'))) {
       const source = readFileSync(file, 'utf8')
       for (const banned of BANNED) {
-        if (source.includes(`from '${banned}`) || source.includes(`from "${banned}`)) {
+        const patterns = [
+          `from '${banned}`,
+          `from "${banned}`,
+          `import '${banned}`,
+          `import "${banned}`,
+          `require('${banned}`,
+          `require("${banned}`,
+        ]
+        if (patterns.some((pattern) => source.includes(pattern))) {
           offenders.push(`${file.replace(uiRoot, '')} → ${banned}`)
         }
       }
