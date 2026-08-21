@@ -40,7 +40,7 @@ const uriString = z.string().min(1).max(1000).refine((value) => {
 
 const label = z.string().min(1).max(20).optional()
 
-const actionSchema = z.discriminatedUnion('type', [
+export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('postback'), label, data: z.string().min(1).max(300), displayText: z.string().max(300).optional() }).strict(),
   z.object({ type: z.literal('message'), label, text: z.string().min(1).max(300) }).strict(),
   z.object({ type: z.literal('uri'), label, uri: uriString, altUri: z.object({ desktop: uriString }).strict().optional() }).strict(),
@@ -56,7 +56,7 @@ const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('clipboard'), label, clipboardText: z.string().min(1).max(1000) }).strict(),
 ])
 
-const boundsSchema = z.object({
+export const boundsSchema = z.object({
   x: z.number().int().min(0),
   y: z.number().int().min(0),
   width: z.number().int().positive(),
