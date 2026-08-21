@@ -35,7 +35,7 @@ export function ChannelSettings() {
       .catch(() => setError(t('channel.loadFailed')))
   }
 
-  useEffect(reload, [])
+  useEffect(reload, [http, t])
 
   const save = async () => {
     setError(null)
