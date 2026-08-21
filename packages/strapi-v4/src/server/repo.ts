@@ -53,12 +53,20 @@ function define<TRow extends { id: string }>(
       const entity = await strapi.entityService.findOne(uid, Number(id), populate)
       return entity === null || entity === undefined ? null : shape.toRow(entity as Entity)
     },
+    // `populate` ต้องส่งไปกับขาเขียนด้วย ไม่ใช่แค่ขาอ่าน — `entityService.create/update` ของ v4
+    // คืน entity ที่ **ไม่มี relation ติดมา** ถ้าไม่ขอ ผลคือแถวในฐานข้อมูลถูกต้องทุกอย่าง
+    // แต่ object ที่คืนกลับมามี `channel`/`image` เป็น undefined แล้ว `toRow` แปลงเป็น
+    // `channelId: "null"` กับ `imageFileId: null`
+    //
+    // ไม่ใช่แค่เรื่องหน้าตาของ response: `saveMenu` ตัดสินใจว่าจะ normalize รูปหรือไม่จากค่าที่
+    // `create` คืนมา พอ `imageFileId` เป็น null เสมอ `prepareImage` จึงไม่เคยถูกเรียกเลย
+    // สักครั้ง เมนูทุกอันจึงมี `normalizedFileId` เป็น null ตลอดกาลและ publish ส่งรูปไม่ได้
     async create(data) {
-      const created = await strapi.entityService.create(uid, { data: shape.toData(data) })
+      const created = await strapi.entityService.create(uid, { ...populate, data: shape.toData(data) })
       return shape.toRow(created as Entity)
     },
     async update(id, data) {
-      const updated = await strapi.entityService.update(uid, Number(id), { data: shape.toData(data) })
+      const updated = await strapi.entityService.update(uid, Number(id), { ...populate, data: shape.toData(data) })
       return shape.toRow(updated as Entity)
     },
     async delete(id) {

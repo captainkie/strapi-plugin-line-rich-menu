@@ -4,24 +4,47 @@ import { readDisplayPeriod, writeDisplayPeriod } from '../src/server/menu-write.
 import { createAuditRepo, createChannelRepo, createMenuRepo, createScheduleRepo } from '../src/server/repo.js'
 import type { StrapiV4 } from '../src/server/strapi.js'
 
+type PopulateParams = { populate?: unknown } | undefined
+
+/**
+ * `entityService` ของ Strapi 4 คืน relation มาก็ต่อเมื่อถูกขอด้วย `populate` เท่านั้น
+ * และกติกานี้ใช้กับ **ขาเขียนด้วย** ไม่ใช่แค่ขาอ่าน
+ *
+ * ของปลอมตัวเดิมคืน relation ให้เสมอไม่ว่าจะขอหรือไม่ — เทสต์ทุกตัวที่ผ่านมันจึงพิสูจน์ได้แค่ว่า
+ * `toRow` แปลงรูปทรงถูก ไม่ได้พิสูจน์ว่า repo ขอ populate จริง นั่นคือช่องที่ปล่อยให้
+ * `create`/`update` ที่ลืมขอ populate ผ่าน 608 เทสต์ไปได้ทั้งชุด แล้วไปโผล่บน Strapi ตัวจริง
+ * เป็น `channelId: "null"`, `imageFileId: null` และเมนูที่ไม่เคยถูก normalize เลยสักอัน
+ */
+function applyPopulate(entity: unknown, params: PopulateParams): unknown {
+  if (entity === null || typeof entity !== 'object' || Array.isArray(entity)) return entity
+  const asked = Array.isArray(params?.populate) ? params!.populate as string[] : []
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(entity as Record<string, unknown>)) {
+    const isRelation = value !== null && typeof value === 'object' && !Array.isArray(value) && 'id' in value
+    if (isRelation && !asked.includes(key)) continue
+    out[key] = value
+  }
+  return out
+}
+
 function fakeStrapi(responses: Record<string, unknown>) {
   const calls: { method: string; uid: string; args: unknown[] }[] = []
   const entityService = {
-    findMany: vi.fn(async (uid: string, params?: unknown) => {
+    findMany: vi.fn(async (uid: string, params?: PopulateParams) => {
       calls.push({ method: 'findMany', uid, args: [params] })
-      return (responses['findMany'] as unknown[]) ?? []
+      return ((responses['findMany'] as unknown[]) ?? []).map((row) => applyPopulate(row, params))
     }),
-    findOne: vi.fn(async (uid: string, id: number | string, params?: unknown) => {
+    findOne: vi.fn(async (uid: string, id: number | string, params?: PopulateParams) => {
       calls.push({ method: 'findOne', uid, args: [id, params] })
-      return responses['findOne'] ?? null
+      return applyPopulate(responses['findOne'] ?? null, params)
     }),
-    create: vi.fn(async (uid: string, params: { data: unknown }) => {
+    create: vi.fn(async (uid: string, params: { data: unknown } & { populate?: unknown }) => {
       calls.push({ method: 'create', uid, args: [params] })
-      return responses['create'] ?? responses['findOne']
+      return applyPopulate(responses['create'] ?? responses['findOne'], params)
     }),
-    update: vi.fn(async (uid: string, id: number | string, params: { data: unknown }) => {
+    update: vi.fn(async (uid: string, id: number | string, params: { data: unknown } & { populate?: unknown }) => {
       calls.push({ method: 'update', uid, args: [id, params] })
-      return responses['update'] ?? responses['findOne']
+      return applyPopulate(responses['update'] ?? responses['findOne'], params)
     }),
     delete: vi.fn(async (uid: string, id: number | string) => {
       calls.push({ method: 'delete', uid, args: [id] })
@@ -106,7 +129,7 @@ describe('createMenuRepo', () => {
     expect(calls[0]!.args[1]).toMatchObject({ populate: ['channel', 'image', 'normalizedImage'] })
   })
 
-  it('เขียนกลับด้วยชื่อฟิลด์ของฐานข้อมูล', async () => {
+  it('เขียนกลับด้วยชื่อฟิลด์ของฐานข้อมูล และขอ populate มาพร้อมกัน', async () => {
     const { strapi, calls } = fakeStrapi({ findOne: menuEntity })
     await createMenuRepo(strapi).update('7', {
       channelId: '10',
@@ -116,6 +139,7 @@ describe('createMenuRepo', () => {
       status: 'published',
     })
     expect(calls[0]!.args[1]).toEqual({
+      populate: ['channel', 'image', 'normalizedImage'],
       data: {
         channel: 10,
         normalizedImage: 900,
@@ -125,6 +149,28 @@ describe('createMenuRepo', () => {
         status: 'published',
       },
     })
+  })
+
+  /**
+   * สองข้อนี้ดูค่าที่ **คืนกลับมา** ไม่ใช่ค่าที่ส่งเข้าไป เพราะนั่นคือจุดที่บั๊กจริงอยู่:
+   * `saveMenu` ตัดสินใจว่าจะ normalize รูปหรือไม่จาก row ที่ `create`/`update` คืนมา
+   * ถ้า relation ไม่ติดมา `imageFileId` จะเป็น null เสมอ แล้ว `prepareImage` จะไม่ถูกเรียกเลย
+   * เมนูทุกอันจึงมี `normalizedFileId` เป็น null ตลอดกาลและ publish ส่งรูปไม่ได้ —
+   * ทั้งหมดนี้เกิดขึ้นโดยที่แถวในฐานข้อมูลถูกต้องทุกฟิลด์ จึงไม่มีอะไรใน log บอกเลย
+   * (เจอบน Strapi ตัวจริงใน examples/v4-app ไม่ใช่ที่นี่ — ของปลอมตัวเดิมคืน relation ให้เสมอ)
+   */
+  it('create คืน row ที่มี relation ครบ ไม่ใช่ channelId "null" กับ imageFileId null', async () => {
+    const { strapi } = fakeStrapi({ create: menuEntity })
+    const row = await createMenuRepo(strapi).create({ name: 'เมนูหลัก', channelId: '10', imageFileId: 11 })
+    expect({ channelId: row.channelId, imageFileId: row.imageFileId, normalizedFileId: row.normalizedFileId })
+      .toEqual({ channelId: '10', imageFileId: 11, normalizedFileId: 900 })
+  })
+
+  it('update คืน row ที่มี relation ครบเช่นกัน', async () => {
+    const { strapi } = fakeStrapi({ update: menuEntity })
+    const row = await createMenuRepo(strapi).update('7', { imageFileId: 11 })
+    expect({ channelId: row.channelId, imageFileId: row.imageFileId, normalizedFileId: row.normalizedFileId })
+      .toEqual({ channelId: '10', imageFileId: 11, normalizedFileId: 900 })
   })
 
   it('filter ด้วย channelId ถูกแปลงเป็น filter บน relation', async () => {
@@ -157,6 +203,7 @@ describe('createScheduleRepo', () => {
 
     await repo.create({ richMenuId: '7', runAt: '2026-08-21T11:00:00.000Z', op: 'clear-default', state: 'pending' })
     expect(calls[1]!.args[0]).toEqual({
+      populate: ['richMenu'],
       data: { richMenu: 7, runAt: '2026-08-21T11:00:00.000Z', op: 'clear-default', state: 'pending' },
     })
   })
@@ -202,33 +249,40 @@ function statefulScheduleStrapi() {
   // ค่อยห่อเป็น `{ id }` เลียนแบบผลลัพธ์ตอน populate จริง
   const rows = new Map<number, { id: number; richMenu: number; [key: string]: unknown }>()
 
-  function toEntity(row: { id: number; richMenu: number; [key: string]: unknown }) {
-    return { ...row, richMenu: { id: row.richMenu } }
+  // ห่อ FK เป็น `{ id }` ให้ **เฉพาะตอนที่ถูกขอด้วย populate** เหมือน entityService จริง —
+  // ถ้าไม่ขอ คีย์นั้นหายไปเลย ไม่ใช่โผล่มาเป็นเลขดิบ
+  function toEntity(
+    row: { id: number; richMenu: number; [key: string]: unknown },
+    params?: { populate?: unknown },
+  ) {
+    const asked = Array.isArray(params?.populate) ? params!.populate as string[] : []
+    const { richMenu, ...rest } = row
+    return asked.includes('richMenu') ? { ...rest, richMenu: { id: richMenu } } : rest
   }
 
   const entityService = {
-    findMany: async (_uid: string, params?: { filters?: Record<string, unknown> }) => {
+    findMany: async (_uid: string, params?: { filters?: Record<string, unknown>; populate?: unknown }) => {
       const filters = params?.filters ?? {}
       return [...rows.values()]
         .filter((row) => Object.entries(filters).every(([key, value]) => row[key] === value))
-        .map(toEntity)
+        .map((row) => toEntity(row, params))
     },
-    findOne: async (_uid: string, id: number | string) => {
+    findOne: async (_uid: string, id: number | string, params?: { populate?: unknown }) => {
       const row = rows.get(Number(id))
-      return row === undefined ? null : toEntity(row)
+      return row === undefined ? null : toEntity(row, params)
     },
-    create: async (_uid: string, params: { data: Record<string, unknown> }) => {
+    create: async (_uid: string, params: { data: Record<string, unknown>; populate?: unknown }) => {
       const id = autoId++
       const row = { id, ...params.data } as { id: number; richMenu: number; [key: string]: unknown }
       rows.set(id, row)
-      return toEntity(row)
+      return toEntity(row, params)
     },
-    update: async (_uid: string, id: number | string, params: { data: Record<string, unknown> }) => {
+    update: async (_uid: string, id: number | string, params: { data: Record<string, unknown>; populate?: unknown }) => {
       const existing = rows.get(Number(id))
       if (existing === undefined) throw new Error(`no row ${String(id)}`)
       const next = { ...existing, ...params.data } as typeof existing
       rows.set(Number(id), next)
-      return toEntity(next)
+      return toEntity(next, params)
     },
     delete: async (_uid: string, id: number | string) => {
       rows.delete(Number(id))
