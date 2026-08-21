@@ -270,6 +270,19 @@ async function shellShot(page: Page, path: string, contentBottom: number): Promi
     }
   }
 
+  // `page.screenshot()` แบบไม่มี `clip`/`fullPage` ถ่ายเฉพาะสิ่งที่อยู่ในตำแหน่ง scroll ปัจจุบัน —
+  // ถ้าก่อนหน้านี้มีการคลิกอะไรที่อยู่ไกลจากด้านบน (เช่น area-header-0 ตอนถ่าย editor.png)
+  // เบราว์เซอร์จะเลื่อนให้องค์ประกอบนั้นเข้าเฟรมให้เอง แก้ด้วย `window.scrollTo(0,0)` เฉย ๆ ไม่พอ
+  // (ลองแล้วไม่ได้ผล) — เพจของ Strapi admin ไม่ได้ scroll ที่ `window`/`document` แต่มี container
+  // ด้านในของมันเองที่ตั้ง `overflow: auto` แยกต่างหาก (นั่นคือเหตุผลที่แถบเมนูซ้ายลอยนิ่งเต็มความสูง
+  // จอเสมอในทุกภาพ — ดูคอมเมนต์ของ shellShot เอง) ต้องรีเซ็ต `scrollTop` ของ**ทุก**องค์ประกอบที่
+  // scroll อยู่จริง ไม่ใช่แค่ window ถึงจะเห็นหัวข้อ "Rich menu"/Title กลับมาที่บนสุดของภาพแน่นอน
+  await page.evaluate(() => {
+    window.scrollTo(0, 0)
+    for (const el of document.querySelectorAll<HTMLElement>('*')) {
+      if (el.scrollTop !== 0) el.scrollTop = 0
+    }
+  })
   await page.screenshot({ path })
 }
 
@@ -300,6 +313,15 @@ test('ถ่ายภาพสี่ภาพที่ README ใช้', async 
   // ถ่าย editor.png จากเมนูที่ seed ไว้ (ตั้งค่าครบแล้ว) ไม่ใช่จากฟอร์มเปล่า /rich-menus/new
   // เหมือนรอบก่อน — นั่นคือสาเหตุที่ editor.png รอบก่อนโชว์ฟอร์มว่างเปล่าทั้งที่ปลั๊กอินมีของจริง
   await page.goto(`/admin/plugins/line-rich-menu/rich-menus/${menuId}`)
+  // list.png ข้างบนอาจย่อ viewport ลงเหลือแค่ 445px (ดู shellShot) แล้ว navigate ไปหน้านี้ไม่ได้
+  // รีเซ็ตความสูงให้เอง — ถ้าปล่อยไว้ การคลิก area-header-0 ด้านล่าง (ซึ่งอยู่นอกวิวพอร์ต 445px)
+  // จะบังคับเบราว์เซอร์ scroll หน้าให้เอง แล้ว `.boundingBox()` ของ Playwright วัดค่าสัมพัทธ์กับ
+  // ตำแหน่ง scroll **ปัจจุบัน** เสมอ (เหมือน getBoundingClientRect ไม่ใช่พิกัดสัมบูรณ์ของเอกสาร
+  // อย่างที่คิดตอนแรก) ทำให้ตัวเลขที่ shellShot ใช้คำนวณความสูงเพี้ยนไปเท่ากับระยะที่ scroll ไปแล้ว
+  // — พบจริงตอนรันครั้งแรกของรอบนี้: ภาพที่ได้ความสูงถูกเผงแต่เนื้อหาเริ่มจากกลางฟอร์ม ไม่มีหัวข้อ
+  // "Rich menu"/Title อยู่เลย ตั้ง viewport ให้สูงเผื่อไว้มาก ๆ ก่อนคลิกอะไรทั้งนั้นจึงกันได้ตรงจุด
+  // (ไม่ใช่แค่ scroll กลับ 0 ก่อนถ่ายภาพ ซึ่งแก้ปลายทางไม่ได้ ตัวเลขที่วัดไปแล้วเพี้ยนไปก่อนหน้านั้น)
+  await page.setViewportSize({ width: SHELL_WIDTH, height: 2200 })
   await expect(page.getByRole('heading', { level: 1, name: 'Rich menu' })).toBeVisible()
   await expect(page.getByTestId('open-template-picker')).toBeVisible()
   // รอให้ฟอร์มโหลดค่าจริงจาก GET /menus/:id เสร็จก่อน (ไม่ใช่แค่หัวข้อหน้าที่ render ได้เร็วกว่า
@@ -318,6 +340,20 @@ test('ถ่ายภาพสี่ภาพที่ README ใช้', async 
     name: 'menu.jpg', mimeType: 'image/jpeg', buffer: demoImage,
   })
   await expect(page.getByTestId('image-remove')).toBeVisible()
+  // "Show template outlines" วาดกรอบโปร่งใสพร้อมป้าย A–F ทับบนรูปเสมอ (ค่าเริ่มต้นของ toggle นี้
+  // เป็น ON) มีไว้ให้เห็นตำแหน่งช่องตอน "ไม่มี" รูป — ตอนนี้มีรูปจริงที่แยกช่องด้วยสีและ label ของ
+  // ตัวเองอยู่แล้ว (Shop/About/…) การซ้อนป้าย A–F ทับข้อความในรูปเลยอ่านเป็นฟอนต์เพี้ยนสองชั้น
+  // ไม่ใช่ overlay ที่ตั้งใจ — ปิด toggle นี้ก่อนถ่ายเหมือนที่ผู้ใช้จริงจะทำทันทีที่มีรูปแล้ว
+  // แนวคิด A–F ถูกโชว์อยู่แล้วใน templates.png จึงไม่จำเป็นต้องซ้ำที่นี่ (พบจากรีวิวจริง — ภาพก่อน
+  // หน้านี้ทับกันจนอ่านไม่ออกว่า "Shop" หรือ "A" กันแน่)
+  await page.locator('input[name="outlines"]').click()
+  await expect(page.locator('input[name="outlines"]')).not.toBeChecked()
+  // Actions แบบพับ (list view) โชว์แค่ป้าย A–F ที่หัวแถว (areaLabel(index) ตายตัว ไม่ใช่ label ของ
+  // action จริง — ดู AreaList.tsx) หกแถวแบบนี้ไม่บอกอะไรเลยว่าปลั๊กอินทำอะไรได้บ้าง กางช่องแรกช่อง
+  // เดียวให้เห็น ActionForm จริงหนึ่งชุด (type/label/uri) แทน — ไม่ใช้ปุ่ม "กางทั้งหมด" เพราะหกฟอร์ม
+  // กางพร้อมกันจะทำให้ภาพยาวเกินจำเป็นโดยไม่ได้ข้อมูลเพิ่มจากห้าแถวที่เหลือ
+  await page.getByTestId('area-header-0').click()
+  await expect(page.getByTestId('area-body-0')).toBeVisible()
   // ปุ่ม Cancel/Save อยู่สองชุด (บนสุดกับล่างสุดของฟอร์ม) — ใช้ชุดล่างสุดเป็นจุดสิ้นสุดของเนื้อหาจริง
   const bottomActions = page.getByTestId('save-publish').last()
   await expect(bottomActions).toBeVisible()
