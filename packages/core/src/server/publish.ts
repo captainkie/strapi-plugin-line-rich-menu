@@ -4,12 +4,29 @@ import { compensate, plan } from '../publish/machine.js'
 import type { Step } from '../publish/machine.js'
 import { errorCodeOf, type AuditWriter } from './audit.js'
 import { capturePriorState, restorePriorState } from './compensation.js'
-import { MenuNotFoundError, MenuNotReadyError } from './errors.js'
+import { MenuNotFoundError, MenuNotReadyError, PublishAlreadyRunningError } from './errors.js'
 import type { ImageStore } from './images.js'
 import { buildPayload, publishedAliasesOf } from './payload.js'
 import type { RateLimiter } from './rate-limit.js'
 import type { LoggerLike } from './scrub.js'
 import type { MenuStatus, Repo, RichMenuRow } from './types.js'
+
+/**
+ * เวลาสูงสุดที่ publish หนึ่งครั้งควรใช้จริง ๆ — เกินนี้แปลว่า process ก่อนหน้าตายไปแล้วกลางทาง
+ * ไม่ใช่ยังทำงานอยู่จริง แนวคิดเดียวกับ TTL ของ schedule lock (`lock.ts` §10): สถานะที่ค้างเกินเวลา
+ * ที่เป็นไปได้จริงต้องถูกมองว่า "ตายแล้ว" ไม่งั้น publish ที่ crash กลางทางจะบล็อกเมนูนั้นทุก publish
+ * ในอนาคตตลอดไป เพราะไม่มีใครมาเขียน status ให้พ้นจาก 'publishing' อีกเลย (catch block ที่ปกติ
+ * เขียน 'failed' ไม่มีโอกาสรันถ้า process ตายไปก่อนถึงมัน)
+ *
+ * ใช้ `updatedAt` ของแถวเมนูเป็นตัวจับเวลา ไม่ใช่คอลัมน์ใหม่ — Strapi เขียนให้เองทุกครั้งที่มีการ
+ * `update` (รวมถึงตอนเขียน `status: 'publishing'` ตอนเริ่ม) จึงมีอยู่แล้วในทั้ง v4 และ v5 โดยไม่ต้อง
+ * เพิ่ม schema ใหม่
+ */
+const PUBLISHING_STALE_AFTER_MS = 5 * 60 * 1000
+
+function isStalePublish(menu: RichMenuRow, at: Date): boolean {
+  return at.getTime() - Date.parse(menu.updatedAt) > PUBLISHING_STALE_AFTER_MS
+}
 
 export interface PublishDeps {
   client: LineClient
@@ -49,6 +66,13 @@ export async function publishMenu(deps: PublishDeps, request: PublishRequest): P
   if (menu === null) throw new MenuNotFoundError(`rich menu ${request.menuId} does not exist`)
   if (menu.normalizedFileId === null || menu.normalizedMime === null) {
     throw new MenuNotReadyError('no_image')
+  }
+
+  // I4 — status: 'publishing' ที่ยังไม่หมดอายุคือหลักฐานว่ามี publish ของเมนูนี้ทำงานอยู่จริง
+  // (หรืออย่างน้อยก็ยังไม่นานพอจะฟันธงว่ามันตายไปแล้ว) เช็คนี้อยู่นอก audit.around ด้วยเหตุผล
+  // เดียวกับ rate limit ข้างล่าง — คำขอที่ถูกปฏิเสธตรงนี้ไม่ได้แตะ LINE เลย
+  if (menu.status === 'publishing' && !isStalePublish(menu, now())) {
+    throw new PublishAlreadyRunningError(menu.id)
   }
 
   // rate limit อยู่ **นอก** audit.around โดยตั้งใจ — คำขอที่ถูกปฏิเสธตรงนี้ไม่ได้แตะ LINE เลย

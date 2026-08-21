@@ -1,7 +1,9 @@
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { LineAuthError, PublishRateLimitedError, ValidationError } from '@fosivo/line-rich-menu-core'
+import {
+  LineAuthError, PublishAlreadyRunningError, PublishRateLimitedError, ValidationError,
+} from '@fosivo/line-rich-menu-core'
 import { controllers } from '../src/server/controllers/index.js'
 import { toHttpError } from '../src/server/http-error.js'
 import type { AdminContext } from '../src/server/http-error.js'
@@ -249,6 +251,7 @@ describe('toHttpError', () => {
     const cases: [unknown, number, string][] = [
       [new ValidationError('x', [{ path: 'name', code: 'too_small', message: 'too small' }]), 400, 'validation_failed'],
       [new PublishRateLimitedError(1500), 429, 'publish_rate_limited'],
+      [new PublishAlreadyRunningError('7'), 409, 'publish_already_running'],
       [new LineAuthError('LINE ปฏิเสธ credential'), 502, 'line_auth_failed'],
       [new Error('unexpected'), 500, 'internal_error'],
     ]

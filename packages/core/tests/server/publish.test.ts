@@ -2,7 +2,9 @@ import fc from 'fast-check'
 import { describe, expect, it, vi } from 'vitest'
 import { LineNotFoundError, LineServerError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
-import { MenuNotFoundError, MenuNotReadyError, PublishRateLimitedError } from '../../src/server/errors.js'
+import {
+  MenuNotFoundError, MenuNotReadyError, PublishAlreadyRunningError, PublishRateLimitedError,
+} from '../../src/server/errors.js'
 import { createRateLimiter } from '../../src/server/rate-limit.js'
 import { reconcileChannel } from '../../src/server/menu-ops.js'
 import { publishMenu } from '../../src/server/publish.js'
@@ -489,6 +491,75 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
 
     expect(line.calls).toEqual([])
     expect(audit.rows).toEqual([])
+  })
+})
+
+/**
+ * I4 — `status: 'publishing'` เดิมถูกเขียนแล้วไม่มีใครอ่านมันอีกเลย สองคำขอ publish ของเมนูเดียวกัน
+ * จึงเดินพร้อมกันได้เต็มที่ ตัวที่สอง `create` ทับ `lineRichMenuId` ที่ตัวแรกเพิ่งเขียนไว้ แล้วเมนู
+ * ของตัวแรกกลายเป็นขยะที่ไม่มีแถวไหนอ้างถึงอีกเลยบน LINE — rate limiter ที่มี capacity 3 ก็ไม่ได้
+ * serialise อะไร และปุ่มฝั่ง editor ปิดตัวเองได้ แต่ route ไม่มีการ์ดเลย
+ */
+describe('publishMenu — กันการ publish ซ้อนของเมนูเดียวกัน (I4)', () => {
+  it('เมนูที่ status publishing อยู่แล้วและยังไม่หมดเวลา → ปฏิเสธทันที ไม่แตะ LINE ไม่มีแถว audit', async () => {
+    const line = fakeLine()
+    // now() ของ deps() คือ 2026-08-21T00:00:00.000Z — ห่างจาก updatedAt แค่ 1 นาที ยังไม่หมดเวลา (TTL 5 นาที)
+    const menus = menuRepo([menuRow({ status: 'publishing', updatedAt: '2026-08-20T23:59:00.000Z' })])
+    const { deps: d, audit } = deps(line, menus)
+
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false }))
+      .rejects.toBeInstanceOf(PublishAlreadyRunningError)
+
+    expect(line.calls).toEqual([])
+    expect(audit.rows).toEqual([])
+    // สถานะเดิมต้องไม่ถูกแตะเลย — คำขอที่ถูกปฏิเสธไม่ควรมีผลข้างเคียงอะไรกับแถวนี้
+    expect(menus.rows[0]!.status).toBe('publishing')
+  })
+
+  it('เมนูที่ status publishing ค้างนานเกิน TTL (process เดิมตายไปแล้ว) → publish ใหม่ต้องผ่านได้ตามปกติ', async () => {
+    const line = fakeLine()
+    // ห่างจาก now() ทั้งวัน — เกิน TTL 5 นาทีไปมาก แปลว่า publish รอบก่อนตายไปแล้วแน่ ๆ
+    const menus = menuRepo([menuRow({ status: 'publishing', updatedAt: '2026-08-20T00:00:00.000Z' })])
+    const { deps: d } = deps(line, menus)
+
+    const outcome = await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })
+
+    expect(outcome.status).toBe('published')
+    expect(menus.rows[0]!.status).toBe('published')
+  })
+
+  it('publish ตัวที่สองมาถึงระหว่างที่ตัวแรกยังไม่จบ → ถูกปฏิเสธ ไม่ใช่ทับ id ของตัวแรก', async () => {
+    const line = fakeLine()
+    let releaseGate: (() => void) | null = null
+    const originalValidate = line.client.validateRichMenu
+    // กันให้ตัวแรกค้างอยู่ที่ขั้น validate (หลังเขียน status: 'publishing' ไปแล้ว) จนกว่าเทสต์
+    // จะปล่อยเอง — จำลอง "publish ตัวแรกยังไม่จบ" แบบกำหนดจังหวะได้เป๊ะ ไม่ใช่เดา race
+    line.client.validateRichMenu = () => new Promise((resolve) => {
+      releaseGate = () => { resolve(originalValidate()) }
+    })
+    // `updatedAt` ต้องอยู่ใกล้ now() ของ deps() (ห่างกันไม่ถึง TTL 5 นาที) ไม่ใช่ค่า default ของ
+    // menuRow() ที่เก่ากว่าหนึ่งวัน — of ปลอมตัวนี้ไม่ได้จำลองพฤติกรรมจริงของ Strapi ที่แตะ
+    // `updatedAt` ทุกครั้งที่ `update()` จึงต้องตั้งค่าตั้งต้นให้ "สด" เอง ไม่งั้น publish ตัวที่สอง
+    // จะเห็น status: 'publishing' ที่ดูเหมือนค้างมานานเกิน TTL แล้วเดินผ่านการ์ดไปเงียบ ๆ
+    const menus = menuRepo([menuRow({ updatedAt: '2026-08-20T23:59:30.000Z' })])
+    const { deps: d } = deps(line, menus)
+
+    const first = publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })
+    // ไม่ใช้ sleep เดาเวลา — รอจนกว่า repo จะเห็นสถานะ publishing ที่ตัวแรกเขียนจริง ๆ ด้วย vi.waitFor
+    await vi.waitFor(() => {
+      if (menus.rows[0]!.status !== 'publishing') throw new Error('ยังไม่ถึงสถานะ publishing')
+    })
+
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false }))
+      .rejects.toBeInstanceOf(PublishAlreadyRunningError)
+    // ตัวที่สองต้องไม่แตะ LINE เลย — ตัวแรกยังค้างอยู่ที่ validate หนึ่งครั้งเท่านั้น
+    expect(line.calls).toEqual([])
+
+    releaseGate!()
+    const outcome = await first
+    expect(outcome.status).toBe('published')
+    expect(menus.rows[0]!.status).toBe('published')
+    expect(menus.rows[0]!.lineRichMenuId).toBe('richmenu-new-1')
   })
 })
 
