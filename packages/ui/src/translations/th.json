@@ -64,7 +64,7 @@
   "common.remove": "ลบ",
   "common.save": "บันทึก",
   "common.select": "เลือก",
-  "editor.actions": "Action",
+  "editor.actions": "การทำงานของช่อง",
   "editor.displayPeriod.end": "แสดงถึง",
   "editor.displayPeriod.start": "แสดงตั้งแต่",
   "editor.error.emptyChatBarText": "กรอกป้ายที่กำหนดเอง หรือเปลี่ยนกลับไปใช้ค่าเริ่มต้น",

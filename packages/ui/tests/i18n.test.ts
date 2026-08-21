@@ -158,6 +158,36 @@ describe('i18n', () => {
     })
   })
 
+  /**
+   * ยามคำทับศัพท์ที่มีอยู่จับได้แค่ค่าที่เหมือนกัน **ทุกไบต์** — `"editor.actions": "Action"`
+   * ในไทย เทียบกับ `"Actions"` ในอังกฤษ คือภาษาอังกฤษที่ยังไม่ได้แปล ซึ่งลอดผ่านไปได้ด้วย
+   * ตัวอักษรเดียว ยามตัวนี้ถามคำถามที่ตรงกว่า: ค่าภาษาไทยที่ไม่มีอักษรไทยอยู่เลยแม้แต่ตัวเดียว
+   */
+  it('คำแปลไทยทุกตัวมีอักษรไทยอยู่จริง เว้นแต่เป็นคำทับศัพท์ที่ประกาศไว้', () => {
+    const DELIBERATE_LOANWORDS: readonly string[] = [
+      'action.field.uri', 'action.type.postback', 'action.type.uri',
+      'channel.accessToken', 'channel.channelId', 'channel.channelSecret',
+      'editor.heading', 'editor.template', 'plugin.name',
+      'template.picker.group.compact', 'template.picker.group.large',
+    ]
+    const suspicious = Object.entries(MESSAGES.th)
+      .filter(([key, value]) => !/[฀-๿]/.test(value) && !DELIBERATE_LOANWORDS.includes(key))
+      .map(([key]) => key)
+      .sort()
+    expect(suspicious).toEqual([])
+  })
+
+  /**
+   * `chatBar.defaultLabel` ไหลลงช่องที่ถูก schema จำกัดไว้ที่ 14 ตัวอักษร (ข้อจำกัดของ LINE)
+   * แอป Strapi ทับคำแปลของปลั๊กอินได้เป็นเรื่องปกติ — คำแปลทับที่ยาว 20 ตัวจะทำให้ผู้ใช้ได้
+   * error `too_big` ที่ชี้ไปยังช่องที่เขาแก้ไม่ได้ เพราะมันถูก disable ไว้ในโหมด default
+   */
+  it('chatBar.defaultLabel ยาวไม่เกิน 14 ตัวทั้งสองภาษา — เพดานของ LINE เอง', () => {
+    for (const locale of ['en', 'th'] as const) {
+      expect(MESSAGES[locale]['chatBar.defaultLabel']!.length, locale).toBeLessThanOrEqual(14)
+    }
+  })
+
   describe('translations/{en,th}.json เรียงตามคีย์ (spec §12 — source of truth ที่ adapter จะ copy ไป)', () => {
     it('en.json เรียงตามคีย์', () => {
       const raw = JSON.parse(readFileSync(join(translationsRoot, 'en.json'), 'utf8')) as Record<string, string>

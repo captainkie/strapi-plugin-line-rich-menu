@@ -152,4 +152,18 @@ describe('TemplatePicker', () => {
     )
     expect(t).toHaveBeenCalledWith('template.picker.title')
   })
+
+  /**
+   * `<span data-testid>` ที่อยู่ **ข้างใน** `ui.Button` คือรูปแบบต้องห้ามที่ตั้งอยู่ข้าง ๆ
+   * รูปแบบที่ถูกต้อง (`testId` บนตัว Button เอง) — วันนี้ไม่มีอะไรผิดเพราะไม่มีเทสต์ไหน
+   * `toBeDisabled()` กับสองปุ่มนั้น แต่นั่นคือวิธีที่รูปแบบผิดแพร่กระจาย
+   */
+  it('testid ทุกตัวอยู่บนปุ่มที่กดได้จริง ไม่ใช่บน span ข้างใน', () => {
+    setup({ hasConfiguredActions: true, currentKey: 'RICH_MENU_TEMPLATE_201' })
+    fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_205'))
+    fireEvent.click(screen.getByTestId('template-apply'))
+    for (const id of ['template-confirm', 'template-cancel-confirm']) {
+      expect(screen.getByTestId(id).tagName, id).toBe('BUTTON')
+    }
+  })
 })

@@ -110,11 +110,11 @@ export function TemplatePicker({
       footer={
         confirming ? (
           <>
-            <ui.Button variant="secondary" onClick={() => setConfirming(false)}>
-              <span data-testid="template-cancel-confirm">{t('common.cancel')}</span>
+            <ui.Button variant="secondary" testId="template-cancel-confirm" onClick={() => setConfirming(false)}>
+              {t('common.cancel')}
             </ui.Button>
-            <ui.Button variant="danger" onClick={() => onApply(selected!)}>
-              <span data-testid="template-confirm">{t('template.picker.confirmDiscard')}</span>
+            <ui.Button variant="danger" testId="template-confirm" onClick={() => onApply(selected!)}>
+              {t('template.picker.confirmDiscard')}
             </ui.Button>
           </>
         ) : (

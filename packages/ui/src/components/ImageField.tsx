@@ -16,6 +16,15 @@ export interface ImageFieldProps {
   /** ปิดไว้จนกว่าจะเลือก template — เหมือนปุ่ม Image ของ LINE OA Manager */
   disabled: boolean
   onChange(next: UploadedImage | null): void
+  /**
+   * error ถูกถือไว้โดยผู้เรียก ไม่ใช่โดย component นี้ — เหมือนพี่น้องทุกตัวในโฟลเดอร์เดียวกัน
+   *
+   * เหตุผลไม่ใช่ความสม่ำเสมอเชิงสไตล์: `applyTemplate` ในหน้า editor ต้องล้างมันได้เมื่อขนาด
+   * ผืนผ้าใบเปลี่ยน ถ้า component ถือไว้เอง แบนเนอร์ "ต้องเป็นสัดส่วน 2500×1686" จะค้างอยู่
+   * ทั้งที่ template ปัจจุบันเป็น 2500×843 ไปแล้ว ซึ่งเป็นข้อมูลที่ผิดจริง ไม่ใช่แค่เก่า
+   */
+  error?: string
+  onErrorChange?(message: string | null): void
 }
 
 const ACCEPTED = ['image/jpeg', 'image/png']
@@ -38,9 +47,9 @@ function measure(file: File): Promise<{ width: number; height: number }> {
   })
 }
 
-export function ImageField({ value, size, disabled, onChange }: ImageFieldProps) {
+export function ImageField({ value, size, disabled, onChange, error, onErrorChange }: ImageFieldProps) {
   const { ui, http, t } = usePort()
-  const [error, setError] = useState<string | null>(null)
+  const setError = (message: string | null) => { onErrorChange?.(message) }
   const [busy, setBusy] = useState(false)
 
   const handle = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -113,7 +122,7 @@ export function ImageField({ value, size, disabled, onChange }: ImageFieldProps)
         </ui.Flex>
       )}
       {busy ? <ui.Loader>{t('common.loading')}</ui.Loader> : null}
-      {error === null ? null : <ui.Alert variant="danger">{error}</ui.Alert>}
+      {error === undefined ? null : <ui.Alert variant="danger">{error}</ui.Alert>}
     </ui.Flex>
   )
 }
