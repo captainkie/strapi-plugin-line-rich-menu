@@ -1,0 +1,199 @@
+// @vitest-environment jsdom
+import type { ReactNode } from 'react'
+import { cleanup, render, screen, within } from '@testing-library/react'
+import { DesignSystemProvider } from '@strapi/design-system'
+import { PortProvider, createStubPort } from '@fosivo/line-rich-menu-ui'
+import { afterEach, describe, expect, it } from 'vitest'
+import '@testing-library/jest-dom/vitest'
+import { primitives } from '../../admin/src/primitives.js'
+
+afterEach(cleanup)
+
+/**
+ * ต่างจาก v4 ที่ใช้ `renderToStaticMarkup` — DS v2 วางอยู่บน Radix ซึ่ง `Modal` และ `Tooltip`
+ * วาดผ่าน portal และ `Select`/`Radio` อาศัย pointer/ResizeObserver การ render บนเซิร์ฟเวอร์
+ * จึงคืน markup ว่างสำหรับตัวที่สำคัญที่สุด testing-library บน jsdom เป็นวิธีเดียวที่มองเห็น
+ * ของจริง (polyfill ที่ Radix ต้องการอยู่ที่ tests/setup-dom.ts)
+ */
+function draw(node: ReactNode) {
+  return render(
+    <DesignSystemProvider>
+      <PortProvider value={createStubPort({ t: (key) => `TH:${key}` })}>{node}</PortProvider>
+    </DesignSystemProvider>,
+  )
+}
+
+/**
+ * ชุดคีย์ที่ต้องมีอ่านจาก stub ของ packages/ui ไม่ได้พิมพ์ไว้ที่นี่ — `createStubPort().ui`
+ * ถูกประกาศเป็น `UIPrimitives` ตรง ๆ จึงขาดคีย์ไม่ได้และเกินคีย์ก็ไม่ได้ รายการที่ hand-copy
+ * เคยพังเงียบมาแล้วรอบหนึ่งตอน Plan 02 เปลี่ยน `Radio` เดี่ยวเป็น `RadioGroup` + `Radio`
+ */
+const REQUIRED = Object.keys(createStubPort().ui).sort()
+
+describe('primitives', () => {
+  it('จับคู่ครบทุกตัวที่ UIPrimitives ประกาศ', () => {
+    expect(Object.keys(primitives).sort()).toEqual(REQUIRED)
+  })
+
+  it('ทุกตัวเป็น component ที่เรียกได้จริง ไม่ใช่ undefined', () => {
+    for (const key of REQUIRED) {
+      expect(primitives[key as keyof typeof primitives], key).toBeTypeOf('function')
+    }
+  })
+})
+
+describe('Typography', () => {
+  // DS v2 เปลี่ยนพร็อพ polymorphic จาก `as` เป็น `tag` — ส่ง `as` ต่อไปตรง ๆ จะไม่มี error
+  // แต่ element ที่ออกมาเป็น span เสมอ แปลว่าหน้าจอไม่มีหัวข้อเลยทั้งหน้า
+  it('`as` ของ port ออกมาเป็น element จริงผ่าน `tag` ของ DS v2', () => {
+    const { container } = draw(<primitives.Typography as="h2" variant="delta">หัวข้อ</primitives.Typography>)
+    expect(container.querySelector('h2')).toHaveTextContent('หัวข้อ')
+  })
+
+  it('ไม่ระบุ `as` ก็ยังเป็น span เหมือน stub', () => {
+    const { container } = draw(<primitives.Typography>ข้อความ</primitives.Typography>)
+    expect(container.querySelector('span')).toHaveTextContent('ข้อความ')
+  })
+})
+
+describe('TextInput', () => {
+  it('type กับ autoComplete ไปถึง <input> จริง', () => {
+    draw(
+      <primitives.TextInput
+        name="accessToken" value="secret" onChange={() => {}}
+        label="Access token" type="password" autoComplete="off"
+      />,
+    )
+    const input = screen.getByLabelText('Access token')
+    expect(input).toHaveAttribute('type', 'password')
+    expect(input).toHaveAttribute('autocomplete', 'off')
+    expect(input).toHaveValue('secret')
+  })
+
+  it('ไม่ระบุ type ก็ยังเป็น text', () => {
+    draw(<primitives.TextInput name="name" value="" onChange={() => {}} label="ชื่อ" />)
+    expect(screen.getByLabelText('ชื่อ')).toHaveAttribute('type', 'text')
+  })
+
+  // DS v2 ถอด label/error/hint ออกจากตัวอินพุตแล้วย้ายไป Field.* — ช่องที่ไม่ถูกครอบด้วย
+  // Field.Root จะไม่มีชื่อใน accessibility tree เลย ไม่ใช่แค่ "ไม่สวย"
+  it('ไม่มี label ก็ยังมีชื่อ — ใช้ name เป็นชื่อสำรอง', () => {
+    draw(<primitives.TextInput name="startAt" value="" onChange={() => {}} />)
+    expect(screen.getByLabelText('startAt')).toBeInTheDocument()
+  })
+
+  it('error ที่ส่งมาถูกวาดออกมาให้อ่านได้ ไม่ใช่ถูกกลืน', () => {
+    draw(<primitives.TextInput name="name" value="" onChange={() => {}} label="ชื่อ" error="ห้ามว่าง" />)
+    expect(screen.getByText('ห้ามว่าง')).toBeInTheDocument()
+  })
+
+  it('hint ที่ส่งมาถูกวาดออกมาเช่นกัน', () => {
+    draw(<primitives.TextInput name="name" value="" onChange={() => {}} label="ชื่อ" hint="ใช้ภายในเท่านั้น" />)
+    expect(screen.getByText('ใช้ภายในเท่านั้น')).toBeInTheDocument()
+  })
+})
+
+describe('RadioGroup + Radio', () => {
+  const group = (
+    <primitives.RadioGroup name="mode" value="custom" onChange={() => {}} label="ป้ายแถบเมนู">
+      <primitives.Radio value="default">ค่าเริ่มต้น</primitives.Radio>
+      <primitives.Radio value="custom">กำหนดเอง</primitives.Radio>
+    </primitives.RadioGroup>
+  )
+
+  it('label เป็นชื่อของกลุ่มใน accessibility tree ไม่ใช่ข้อความลอย ๆ ข้าง ๆ', () => {
+    draw(group)
+    expect(screen.getByRole('radiogroup', { name: 'ป้ายแถบเมนู' })).toBeInTheDocument()
+  })
+
+  it('มีสมาชิกสองตัวและตัวที่ตรงกับ value ของกลุ่มถูกเลือกอยู่ตัวเดียว', () => {
+    draw(group)
+    const items = screen.getAllByRole('radio')
+    expect(items).toHaveLength(2)
+    expect(items.filter((item) => item.getAttribute('aria-checked') === 'true')).toHaveLength(1)
+    expect(screen.getByRole('radio', { checked: true })).toHaveAttribute('value', 'custom')
+  })
+
+  it('Radio ที่วางไว้นอกกลุ่มพังทันที ไม่ใช่กลายเป็นปุ่มที่กดแล้วไม่มีอะไรเกิดขึ้น', () => {
+    // DS v2 คือ Radix — `Radio.Item` นอก `Radio.Group` โยน error ของตัวเองอยู่แล้ว
+    // ยามของเราทำให้ข้อความบอกทางแก้แทนที่จะบอกชื่อ context ภายในของ Radix
+    expect(() => draw(<primitives.Radio value="a">A</primitives.Radio>)).toThrow(/RadioGroup/)
+  })
+})
+
+describe('Select', () => {
+  it('มีชื่อจาก label และแสดงค่าที่เลือกอยู่', () => {
+    draw(
+      <primitives.Select name="type" value="message" onChange={() => {}} label="ชนิด">
+        <primitives.Option value="message">ข้อความ</primitives.Option>
+        <primitives.Option value="uri">ลิงก์</primitives.Option>
+      </primitives.Select>,
+    )
+    const trigger = screen.getByRole('combobox', { name: 'ชนิด' })
+    expect(trigger).toHaveTextContent('ข้อความ')
+  })
+})
+
+describe('Button / IconButton', () => {
+  it('testId ลงบน <button> ที่กดได้จริง พร้อม disabled และ type', () => {
+    draw(<primitives.Button testId="save" disabled type="submit" variant="danger">บันทึก</primitives.Button>)
+    const button = screen.getByTestId('save')
+    expect(button.tagName).toBe('BUTTON')
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('type', 'submit')
+  })
+
+  // `AreaList` ของ Plan 02 ส่ง glyph เป็นสตริงล้วน (`☰`, `⛶`) มาเป็นลูก — DS v1 ต้องห่อให้ก่อน
+  // เพราะมัน cloneElement ส่วน v2 รับสตริงได้ตรง ๆ เทสต์นี้ตรึงไว้ว่ามันยังรับได้จริง
+  it('รับลูกที่เป็นสตริงล้วนได้ และชื่อของปุ่มมาจาก label', () => {
+    draw(<primitives.IconButton label="รายการ" testId="view-list" onClick={() => {}}>☰</primitives.IconButton>)
+    const button = screen.getByTestId('view-list')
+    expect(button).toHaveAccessibleName('รายการ')
+    expect(within(button).getByText('☰')).toBeInTheDocument()
+  })
+})
+
+describe('Modal', () => {
+  it('เปิดแล้ววาดหัวข้อเป็น heading จริงใน dialog', () => {
+    draw(
+      <primitives.Modal open onClose={() => {}} title="เลือก template" footer={<span>ท้าย</span>}>
+        เนื้อหา
+      </primitives.Modal>,
+    )
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: 'เลือก template' })).toBeInTheDocument()
+    expect(within(dialog).getByText('เนื้อหา')).toBeInTheDocument()
+    expect(within(dialog).getByText('ท้าย')).toBeInTheDocument()
+  })
+
+  it('ปิดอยู่แล้วไม่มี dialog ใน DOM เลย', () => {
+    draw(<primitives.Modal open={false} onClose={() => {}} title="เลือก template">เนื้อหา</primitives.Modal>)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
+describe('ข้อความที่ผู้ใช้เห็นซึ่ง DS v2 บังคับให้ adapter เป็นคนตั้ง', () => {
+  // สเปก §12 — ห้าม hardcode ข้อความที่ผู้ใช้เห็น แม้แต่ aria-label ของปุ่มปิด Alert
+  // `closeLabel` ของ Alert ใน DS v2 เป็นพร็อพ **บังคับ** ไม่ใช่ optional เหมือน v1
+  /**
+   * ถามด้วย `getByRole(..., { name })` ไม่ใช่ `getByLabelText` — DS v2 ไม่ได้ตั้งชื่อปุ่มปิด
+   * ด้วย `aria-label` แบบ v1 แต่วางข้อความไว้ใน `VisuallyHidden` ข้างในปุ่ม ซึ่ง `getByLabelText`
+   * มองไม่เห็นเพราะมันดูแค่ label/aria-label/aria-labelledby/title ไม่ได้คำนวณ accessible name
+   * จริง ๆ การถามด้วย role + name จึงตรงกับสิ่งที่ screen reader อ่านออกมามากกว่า
+   */
+  it('closeLabel ของ Alert มาจาก port.t ไม่ใช่สตริงอังกฤษที่ฝังไว้', () => {
+    draw(<primitives.Alert variant="danger" title="พัง">รายละเอียด</primitives.Alert>)
+    expect(screen.getByRole('button', { name: 'TH:common.close' })).toBeInTheDocument()
+  })
+
+  it('ป้าย on/off ของ Toggle มาจาก port.t เช่นกัน', () => {
+    draw(<primitives.Toggle name="outlines" checked onChange={() => {}} label="แสดงกรอบ" />)
+    expect(screen.getByText('TH:common.on')).toBeInTheDocument()
+    expect(screen.getByText('TH:common.off')).toBeInTheDocument()
+  })
+
+  it('closeLabel ของ Modal ก็มาจาก port.t', () => {
+    draw(<primitives.Modal open onClose={() => {}} title="หัวข้อ">เนื้อหา</primitives.Modal>)
+    expect(screen.getByRole('button', { name: 'TH:common.close' })).toBeInTheDocument()
+  })
+})
