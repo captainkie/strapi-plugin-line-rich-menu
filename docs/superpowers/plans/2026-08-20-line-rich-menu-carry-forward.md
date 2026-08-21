@@ -161,3 +161,35 @@ fail outright for a scoped package.
 
 `pnpm -r build` was never in the verified set for Plan 02. It is the only command that exercises
 `resolveJsonModule` through tsup's `dts: true`. Run it before tagging.
+
+---
+
+## From Plan 03 — per-file coverage is not currently enforceable
+
+`perFile: true` works only in the **top-level** `thresholds` object. Inside a glob-keyed
+threshold Vitest accepts the key and silently ignores it — verified by placing a file at 40%
+lines / 50% branches under `packages/core/src/server/` and watching the gate stay green.
+
+So a weak file can still hide behind strong ones inside a glob. It already happened once:
+`server/channels.ts` sat at 87% branch while its glob showed 95%, and the untested branches
+were the "only one default channel" business rule.
+
+Turning it on at the top level requires `packages/ui` to pass per-file first. As of Plan 03's
+start these files fall short, most by one or two points:
+
+| File | Short on |
+|---|---|
+| `api.ts` | functions 20% |
+| `components/ActionForm.tsx` | lines 88%, statements 88%, functions 33% |
+| `components/CanvasEditor.tsx` | branches 89.58% |
+| `components/ChatBarSettings.tsx` | branches 88.88% |
+| `components/ImageField.tsx` | branches 89.65% |
+| `components/MainSettings.tsx` | functions 66.66% |
+| `components/Preview.tsx` | functions 50% |
+| `pages/RichMenuEditor.tsx` | branches 87.67% |
+| `styles.ts` | branches 75% |
+
+The function metric is structurally low for React components, since every inline handler prop
+counts as a function — a realistic `functions` floor for `packages/ui` is nearer 70 than 90,
+which the current glob threshold already reflects. The branch gaps are genuine and worth
+closing.
