@@ -46,7 +46,7 @@ async function makeImage(): Promise<Buffer> {
  * ใช้ `request` ยิง API ตรง ๆ (เหมือน acceptance.spec.ts) แทนกรอกฟอร์มทีละช่องผ่าน `page` —
  * เร็วกว่าและเชื่อถือได้กว่า ส่วนภาพที่ถ่ายจริงยังมาจาก `page` เสมอ
  */
-async function seedPublishedMenu(request: APIRequestContext): Promise<void> {
+async function seedPublishedMenu(request: APIRequestContext): Promise<{ menuId: string }> {
   const login_ = await request.post('/admin/login', { data: ADMIN })
   expect(login_.ok(), await login_.text()).toBe(true)
   const token = (await login_.json()).data.token as string
@@ -92,6 +92,7 @@ async function seedPublishedMenu(request: APIRequestContext): Promise<void> {
     data: { setAsDefault: true },
   })
   expect(published.ok(), await published.text()).toBe(true)
+  return { menuId: menu.id as string }
 }
 
 test('ถ่ายภาพสี่ภาพที่ README ใช้', async ({ page, request }) => {
@@ -99,7 +100,7 @@ test('ถ่ายภาพสี่ภาพที่ README ใช้', async 
   // ขนาดคงที่เพื่อให้ภาพชุดถัดไปเทียบกับชุดนี้ได้ตรง ๆ ใน diff
   await page.setViewportSize({ width: 1440, height: 900 })
 
-  await seedPublishedMenu(request)
+  const { menuId } = await seedPublishedMenu(request)
   await login(page)
 
   await page.goto('/admin/plugins/line-rich-menu')
@@ -107,7 +108,19 @@ test('ถ่ายภาพสี่ภาพที่ README ใช้', async 
   // รอให้ channel ถูกเลือกและเมนูที่ seed ไว้โหลดเสร็จจริง ไม่ใช่แค่หัวข้อของหน้าที่ยังว่างอยู่
   await expect(page.getByText('Welcome menu')).toBeVisible()
   await expect(page.getByText('Published')).toBeVisible()
-  await page.screenshot({ path: `${OUT}list.png` })
+  // เต็มจอ 1440×900 มีเนื้อหาจริงอยู่แค่ ~1/3 บนของภาพ ที่เหลือคือพื้นหลังเทาว่างเปล่า (พบจากการดู
+  // ภาพจริงหลัง commit แรก) — ตัด clip ให้จบตรงแถวเมนูสุดท้าย (แถวของเมนูที่ seed ไว้) แทนที่จะ
+  // ปล่อยความสูงตามวิวพอร์ต ส่วน "LINE Official Accounts" ที่อยู่ถัดไปมี channel.png ของตัวเองแล้ว
+  // ไม่จำเป็นต้องซ้ำอยู่ใน list.png ด้วย
+  const lastMenuRow = page.getByTestId(`edit-${menuId}`)
+  await expect(lastMenuRow).toBeVisible()
+  const rowBox = await lastMenuRow.boundingBox()
+  if (rowBox === null) throw new Error('หา bounding box ของแถวเมนูสุดท้ายไม่เจอ')
+  const BOTTOM_PAD = 24
+  await page.screenshot({
+    path: `${OUT}list.png`,
+    clip: { x: 0, y: 0, width: 1440, height: Math.ceil(rowBox.y + rowBox.height + BOTTOM_PAD) },
+  })
 
   await page.goto('/admin/plugins/line-rich-menu/rich-menus/new')
   await expect(page.getByTestId('open-template-picker')).toBeVisible()
