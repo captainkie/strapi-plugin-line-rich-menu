@@ -27,6 +27,55 @@ below is automated or verifiable ahead of time.
    nightly result is therefore a release gate, not background noise:
    `gh run list --workflow ci.yml --json conclusion,name -q '.[] | select(.name=="mutation")' | head -1`
 
+## Pre-public checklist
+
+Each line below is phrased as the failure it prevents, not the task it names — a checklist
+that just names tasks gets skimmed and ticked; one that says what breaks reads slower, on
+purpose. `docs/tests/release.test.ts` enforces the ones that can be checked mechanically;
+the rest need a human because the failure mode itself requires judgment or an external
+system (npm, GitHub, DNS) that the test suite has no read access to.
+
+- [ ] **Branch merged.** A published artifact that corresponds to no commit on `main` cannot
+      be reproduced or audited afterwards.
+- [ ] **`changeset version` run.** Both packages sit at `0.0.0` today. Publishing that is not
+      recoverable — the version number is part of what npm will never let you overwrite.
+- [ ] **README present inside the `npm pack` output — checked against a real tarball, not
+      assumed.** `files` in both `package.json`s lists `README.md`, but `npm pack` only
+      includes it if the copy step in `release.yml` actually ran first; a `cp` to the wrong
+      file or the wrong path would still make the workflow's text look correct.
+      `docs/tests/release.test.ts` runs this exact check today as part of the normal test
+      suite. To repeat it by hand:
+
+      ```sh
+      cp README.md packages/strapi-v5/README.md
+      cd packages/strapi-v5 && npm pack --pack-destination /tmp && cd -
+      tar tzf /tmp/strapi-plugin-line-rich-menu-*.tgz | grep -qx package/README.md
+      ```
+
+      `npm pack --workspace strapi-plugin-line-rich-menu` from the repo root does **not**
+      work here and will not work — this repo is a pnpm workspace (`pnpm-workspace.yaml`),
+      and the root `package.json` declares no npm `"workspaces"` key, so npm reports
+      "No workspaces found" instead of packing anything. `cd` into the package directory
+      first, as above.
+- [ ] **Screenshots final.** npm renders the README it ships, images included — a stale
+      screenshot becomes part of the published artifact, not just of the repo.
+- [ ] **`security@fosivo.com` spelled correctly in `SECURITY.md`.** The routing rule's
+      destination is already verified through an existing address on the same zone, so a
+      typo in the local part is the one failure mode left, and it is cheap to eyeball.
+- [ ] **Repository is public before the first publish.** npm provenance attestation requires
+      it; a private repo fails at the attestation step, after every other gate above has
+      already passed — the most expensive place for this to fail.
+- [ ] **Full-history secret scan is clean.** Going public exposes every commit ever made, not
+      just the tip of `main`; a secret committed and later deleted is still reachable through
+      `git log`. `docs/tests/release.test.ts` asserts no `.env*` file other than
+      `.env.example` was ever committed, in any commit. That check is necessary but not
+      sufficient — separately run `gitleaks detect --log-opts=--all` from the repo root and
+      **read** the finding list rather than trusting the exit code: `.gitleaksignore` records
+      the specific, already-reviewed matches (test fixtures that happen to look like keys),
+      so "zero findings" and "only the recorded findings" are different outcomes, and only
+      the second one is a pass. A new, unrecorded finding means stop and look at it — it is
+      not automatically a real secret, but it is not automatically safe either.
+
 ## Publishing (owner only)
 
 ```sh
@@ -59,3 +108,16 @@ Three things start working on their own or with one command:
   Read `.github/rulesets/README.md` first — it explains why zero required approvals is
   correct for a sole maintainer and why `mutation` must never be a required check.
 - **npm provenance** — see above.
+
+## What is prepared but deliberately not done
+
+Two things in this repository are one command away and stay that way until the owner runs
+them. Neither is an oversight; both are decisions that belong to a person.
+
+| Action | Command | Why it waits |
+|---|---|---|
+| Publish 1.0.0 to npm | `git tag v1.0.0 && git push --follow-tags` | Publishing a name is irreversible in practice — `npm unpublish` works for 72 hours and leaves the version as a permanent hole |
+| Make the repository public | GitHub → Settings → Danger Zone | It turns on CodeQL, unblocks rulesets and is what npm provenance requires — and it exposes every commit in the history at once |
+
+Everything that can be checked ahead of either one is checked by `.github/workflows/release.yml`,
+which runs the same gates as CI and then stops at `changeset publish`.
