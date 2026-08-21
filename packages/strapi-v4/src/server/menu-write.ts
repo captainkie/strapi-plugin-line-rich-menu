@@ -109,9 +109,19 @@ export async function saveMenu(
     || imageFingerprint(sourceOf(existing)) !== imageFingerprint(sourceOf(saved))
 
   let result = saved
-  if (changed && (saved.imageFileId !== null || saved.areaImages.length > 0)) {
-    const prepared = await prepareImage({ store: services.store }, sourceOf(saved), saved.id)
-    result = await services.menus.update(saved.id, prepared)
+  if (changed) {
+    if (saved.imageFileId !== null || saved.areaImages.length > 0) {
+      const prepared = await prepareImage({ store: services.store }, sourceOf(saved), saved.id)
+      result = await services.menus.update(saved.id, prepared)
+    } else {
+      // (I5) ผู้ใช้เพิ่งลบรูปทิ้ง (`changed` เป็น true เพราะ fingerprint รวม imageFileId ด้วย) แต่ไม่มี
+      // แหล่งรูปเหลือให้ normalize เลย — ผลลัพธ์ normalize เดิมต้องถูกล้างไปด้วย ไม่ใช่ค้างไว้เฉย ๆ
+      // ไม่งั้น publish จะยังส่งรูปที่ผู้ใช้เพิ่งลบไป และ `no_image` guard ใน publish.ts ก็ไม่มีทาง
+      // ทำงานเพราะ normalizedFileId ยังไม่ใช่ null
+      result = await services.menus.update(saved.id, {
+        normalizedFileId: null, normalizedMime: null, normalizedSize: null,
+      })
+    }
   }
 
   await writeDisplayPeriod(services.schedules, saved.id, input)
