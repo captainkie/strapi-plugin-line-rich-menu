@@ -1,5 +1,5 @@
 import {
-  LineAuthError, LineRateLimitError, LineServerError, LineValidationError,
+  LineAuthError, LineNotFoundError, LineRateLimitError, LineServerError, LineValidationError,
 } from '../errors.js'
 import type { RichMenuPayload } from '../types.js'
 import { DEFAULT_API_BASE, DEFAULT_API_DATA_BASE, endpoints } from './endpoints.js'
@@ -97,6 +97,27 @@ export class LineClient {
     await this.#send({ method: 'DELETE', url: endpoints.clearDefault(this.#base) })
   }
 
+  /** `null` = ยังไม่เคยตั้ง default บน channel นี้ */
+  async getDefault(): Promise<string | null> {
+    return this.#readRichMenuId(endpoints.defaultRichMenu(this.#base))
+  }
+
+  /** `null` = ยังไม่มี alias ชื่อนี้ */
+  async getAlias(aliasId: string): Promise<string | null> {
+    return this.#readRichMenuId(endpoints.aliasById(this.#base, aliasId))
+  }
+
+  async #readRichMenuId(url: string): Promise<string | null> {
+    try {
+      const res = await this.#send({ method: 'GET', url })
+      const json = (await res.json()) as { richMenuId?: string }
+      return json.richMenuId ?? null
+    } catch (error) {
+      if (error instanceof LineNotFoundError) return null
+      throw error
+    }
+  }
+
   async getRichMenu(richMenuId: string): Promise<RichMenuSummary> {
     const res = await this.#send({ method: 'GET', url: endpoints.richMenu(this.#base, richMenuId) })
     return (await res.json()) as RichMenuSummary
@@ -175,6 +196,10 @@ export class LineClient {
       return new LineRateLimitError(Number.isFinite(seconds) ? seconds : 1)
     }
     if (res.status >= 500) return new LineServerError(res.status)
+
+    // 404 มีความหมายเฉพาะ — "ยังไม่มีของชิ้นนี้" ซึ่ง getDefault/getAlias ถือเป็นคำตอบ
+    // ถ้าเหมารวมเป็น LineValidationError จะแยกไม่ออกจาก payload ผิด
+    if (res.status === 404) return new LineNotFoundError('LINE ไม่พบทรัพยากรที่ขอ')
 
     // 4xx อื่น ๆ ถือเป็น payload ผิด — เก็บรายละเอียดไว้ใน details ไม่โยนข้อความดิบขึ้น UI
     let details: string[] = []

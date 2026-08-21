@@ -1,0 +1,126 @@
+import type { Action, Bounds, RichMenuSize, RichMenuSizeName } from '../types.js'
+
+/**
+ * seam ของสเปก §6.2 — ชั้น service มองเห็น `id: string` เสมอ
+ * v5 คืน `documentId` เป็น string อยู่แล้ว ส่วน v4 คืน `id` เป็น number แล้วแปลงที่ขอบ (Task 15)
+ */
+export interface ListParams {
+  filters?: Record<string, string | number | boolean | null>
+  sort?: string
+  limit?: number
+  start?: number
+  populate?: readonly string[]
+}
+
+export interface Repo<T> {
+  findMany(params?: ListParams): Promise<T[]>
+  findOne(id: string): Promise<T | null>
+  create(data: Partial<T>): Promise<T>
+  update(id: string, data: Partial<T>): Promise<T>
+  delete(id: string): Promise<void>
+}
+
+export type MenuStatus = 'draft' | 'publishing' | 'published' | 'failed'
+export type ScheduleOp = 'set-default' | 'clear-default' | 'swap-alias'
+export type ScheduleState = 'pending' | 'running' | 'done' | 'failed'
+export type AuditAction =
+  | 'publish' | 'set-default' | 'clear-default' | 'swap-alias' | 'delete' | 'channel-update'
+export type AuditResult = 'success' | 'failure'
+
+/** แถวดิบจาก DB — ฟิลด์ลับยังเป็น envelope `v1.<iv>.<tag>.<ct>` ที่ยังไม่ได้ถอด */
+export interface ChannelRow {
+  id: string
+  name: string
+  channelId: string
+  channelAccessToken: string
+  channelSecret: string | null
+  /**
+   * สี่ตัวท้ายของ access token เก็บเป็น plaintext แยกไว้ตั้งแต่ตอนเขียน
+   * เพื่อให้เส้นทาง list/get **ไม่ต้องถอดรหัสอะไรเลย** ก็แสดง `••••••••abcd` ได้
+   * ป้องกันแบบชั้นเดียวคือ "อย่าลืม redact" ส่วนแบบนี้คือ "ไม่มีอะไรให้ leak ตั้งแต่ต้น"
+   */
+  accessTokenLast4: string
+  isDefault: boolean
+}
+
+/** สิ่งที่ออกจาก service ได้ — ไม่มีฟิลด์ลับ ไม่ว่าจะเป็น plaintext หรือ ciphertext */
+export interface ChannelRecord {
+  id: string
+  name: string
+  channelId: string
+  /** `••••••••abcd` — สี่ตัวท้ายของ access token เท่านั้น (สเปก §11.2) */
+  accessTokenPreview: string
+  isDefault: boolean
+}
+
+export interface ChannelWithSecrets extends ChannelRecord {
+  channelAccessToken: string
+  channelSecret: string | null
+}
+
+export interface AreaRecord {
+  bounds: Bounds
+  action: Action
+}
+
+export interface RichMenuRow {
+  id: string
+  name: string
+  channelId: string
+  size: RichMenuSizeName
+  chatBarText: string
+  chatBarMode: 'default' | 'custom'
+  selected: boolean
+  templateKey: string | null
+  areas: AreaRecord[]
+  /** file id ของรูปที่ผู้ใช้อัปมาดิบ ๆ ผ่าน POST /upload */
+  imageFileId: number | null
+  areaImages: { index: number; fileId: number }[]
+  /**
+   * ผลของ normalize ที่ทำไว้ตอน save (design notes ข้อ 3) — publish อ่านตัวนี้อย่างเดียว
+   * ไม่เคยเรียก sharp เอง `normalizedSize` คือขั้นบันไดที่รูป *ลงจริง* ไม่ใช่ที่ฟอร์มเชื่อว่าจะลง
+   */
+  normalizedFileId: number | null
+  normalizedMime: 'image/jpeg' | 'image/png' | null
+  normalizedSize: RichMenuSize | null
+  aliasId: string | null
+  status: MenuStatus
+  lineRichMenuId: string | null
+  publishedAt: string | null
+  lastError: string | null
+  /** Strapi เขียนให้เอง — `RichMenuSummary` ใน packages/ui/src/api.ts ต้องการฟิลด์นี้ */
+  updatedAt: string
+}
+
+export interface ScheduleRow {
+  id: string
+  richMenuId: string
+  runAt: string
+  op: ScheduleOp
+  state: ScheduleState
+  lockedBy: string | null
+  lockedAt: string | null
+  lastError: string | null
+}
+
+export interface AuditRow {
+  id: string
+  actorId: string | null
+  action: AuditAction
+  richMenuId: string | null
+  channelId: string
+  before: unknown
+  after: unknown
+  result: AuditResult
+  errorCode: string | null
+}
+
+/** สเปก §7.2 — ค่าที่มาจาก config/plugins.js ของผู้ใช้ หลังผ่าน validator แล้ว */
+export interface PluginConfig {
+  encryptionKey: string | null
+  scheduler: { enabled: boolean; cron: string; lockTtlMs: number }
+  lineApiBaseUrl: string
+  lineApiDataBaseUrl: string
+  mockMode: boolean
+  publishRateLimit: { capacity: number; refillPerMinute: number }
+}
