@@ -1,0 +1,204 @@
+# Demo deployment
+
+The public demo runs **Strapi 5** (`examples/v5-app`) at **`line-rich-menu.fosivo.com`** —
+Render (free, Docker) for compute, Neon (free Postgres) for the database, and Cloudinary
+(free media) for uploads. Everything in this repository is prepared for that; connecting the
+pieces is one pass through three dashboards plus a short DNS sequence, and it is the owner's
+call, not CI's.
+
+## Why v5, not v4
+
+`SECURITY.md` states in public that Strapi 4 reached end of life on 30 April 2026 and that its
+dependency tree carries advisories nobody is going to patch. A public, internet-facing demo
+running that exact stack, under our own domain, would contradict that document while it is
+being published — the demo would *be* the known-vulnerable target the security policy warns
+about. The v4 adapter stays supported, tested and shipped; it just does not get a public URL.
+
+Both adapters share `packages/ui`, so a v5-only demo does not shortchange v4 users — the
+screenshots in the README (Task 14) already come from `examples/v5-app` for the same reason.
+
+## Why the demo talks to a mock, running in the same container
+
+`LINE_API_BASE_URL` and `LINE_API_DATA_BASE_URL` point at `tools/line-mock`, not at
+`api.line.me`. A public demo with a real LINE channel access token in it is a token anyone can
+take, and the mock behaves like the real API for everything the demo shows — including the
+failure paths that trigger compensation.
+
+The mock runs as a **second process inside the same container** as Strapi
+(`examples/v5-app/docker-entrypoint.sh`), bound to `127.0.0.1`, rather than as a second Render
+service. Two free Render services sleep *independently*: a visitor who wakes Strapi and clicks
+Publish would have their first outbound call reach a mock that is still cold — roughly a
+minute of nothing, then a timeout, which looks exactly like the plugin being broken. One
+container means one sleep/wake cycle and no cross-service race, and it is one fewer draw on
+the free-hour pool the next section explains is already shared with another project.
+
+The entrypoint starts the mock in the background and then `exec`s Strapi so Strapi becomes
+PID 1. If the mock dies, the container keeps running unaffected — only *publishing* a menu
+breaks, since that is the only thing that ever calls out to it. No process supervisor is built
+for this on purpose; a demo does not need one, and it would only be a second thing that could
+silently swallow a crash.
+
+Cold start on Render free is typically on the order of a minute. That is fine here: rich menu
+images are uploaded **from** us **to** `api-data.line.me` (via the mock), so nothing external
+ever needs to reach the demo to make the main flow work. A public URL only becomes necessary
+to demo LINE postback webhooks, which this demo does not — use `cloudflared tunnel` locally
+for that instead.
+
+## Why the image is built in CI
+
+`examples/v5-app` builds its admin panel with **Vite**, a different bundler than older Strapi 4
+demos used — so an older demo's memory reasoning does not transfer here, and this document
+does not repeat it unmeasured. The number below is measured on this exact stack instead.
+
+Peak resident set size of `npm run build` (`strapi build`) in `examples/v5-app`, with the
+plugin installed from a freshly packed tarball exactly as the Dockerfile does it:
+
+| Where measured | Peak RSS |
+| --- | --- |
+| macOS (Apple Silicon), `/usr/bin/time -l` | ≈ 1.70 GiB (1,820,852,224 bytes) |
+| `node:20.20.0-bookworm-slim` container (`/usr/bin/time -v`) — same base image and same `npm run build` command the Dockerfile runs | ≈ 1.79 GiB (1,879,672 KB) |
+
+Both are well over the 512 MB a Render free instance has. Vite's production build still runs
+Rollup under the hood, and bundling a full Strapi admin panel plus a plugin is memory-hungry
+regardless of how fast the *dev* server is — dev-server speed and production-bundle memory use
+are different things, and this project has been burned before by a justification nobody
+actually measured. So the same operational answer as ever applies, for a re-derived reason:
+`strapi build` still cannot run on the Render instance itself. It runs once, in
+`.github/workflows/demo-image.yml`, on a GitHub-hosted runner with several GB of RAM to spare,
+and Render only ever pulls and runs an image that is already finished. `render.yaml` has no
+`buildCommand` for exactly this reason — do not add one.
+
+Building in CI also has the two benefits that would matter even if the number above had come
+in under 512 MB: every deploy runs the exact bytes CI built and tested, and Render's cold start
+never has to wait behind a build — it only has to start a process.
+
+## Do not point an uptime pinger at this demo
+
+**No uptime pinger, cron ping, or "keep-alive" job may ever be pointed at
+`line-rich-menu.fosivo.com`.**
+
+Render's free tier gives a workspace 750 instance-hours a month, and that pool is **shared**
+with every service in the workspace — not just this one. This same Render workspace already
+runs `autoflow-demo-api` (plan `free`, region `singapore`), an unrelated project of the
+owner's, kept awake by its own traffic. Render free services spin down after roughly 15
+minutes idle and only burn hours while awake, so several mostly-idle services coexist fine
+inside 750 hours. What does **not** coexist is a service kept permanently awake — that alone
+can consume most or all of the shared pool.
+
+The instinct, once someone notices the roughly-a-minute cold start above, is to add a cron job
+that pings the demo every few minutes to keep it warm. Doing that here would burn the shared
+pool and could take `autoflow-demo-api` down with it — a failure in someone else's project that
+would look nothing like its actual cause. If the cold start needs to go away for a specific
+demo, that is a paid Render plan or a dedicated free-tier workspace, not a pinger on this one.
+
+### `render.yaml`'s `healthCheckPath` is not the pinger the section above forbids
+
+It is worth saying explicitly, because it is the line in `render.yaml` most likely to look like
+one. Render's own docs describe a configured health check as doing two things: gating whether a
+*newly deployed* instance starts receiving traffic, and detecting a hung *already-running*
+instance so Render stops routing to it. Free-tier spin-down, separately, is governed entirely by
+genuine external inbound HTTP/WebSocket traffic reaching the service — Render's own
+control-plane health probe is not that.
+
+Render's documentation does not spell out this interaction in one place, so this was checked
+against the wider evidence rather than assumed: if setting `healthCheckPath` kept a free
+instance permanently awake, that would be a well-known, zero-effort way to defeat free-tier
+spin-down — and it appears nowhere as one. Every documented workaround for keeping a free
+service awake is an *external* uptime monitor hitting a public endpoint on its own schedule
+(the thing this section forbids), never "just configure a health check." If that ever turns out
+to be wrong for this specific line, it will look like `autoflow-demo-api` running out of hours
+for no visible reason — the fix is to verify against Render support before assuming a different
+cause, not to delete the line reflexively.
+
+### The scheduler is off on this demo
+
+`LINE_RM_SCHEDULER` is `'false'` here, deliberately, even though the scheduler is a real and
+fully tested feature (the acceptance suite covers a scheduled job being claimed and completed).
+Two reasons, both about what an *unattended public demo on a sleep-cycling free instance* does
+to a feature that is otherwise fine:
+
+- The cron only runs while the container is awake. A schedule set for a specific time will
+  silently not fire if Render happens to be asleep at that minute, and "I scheduled a menu
+  change and it didn't happen" reads as a broken scheduler to anyone testing it — the same
+  hosting-causes-a-false-negative shape Ruling E already avoided once for the LINE mock.
+- A schedule that *does* fire mutates the demo's shared state — expiring a display period,
+  clearing the default menu — with no visitor watching and no way to attribute the change to
+  "the scheduler ran," which is confusing on a resource multiple strangers may be using at once.
+
+Scheduling is exercised by the automated test suite instead of the public demo. Set
+`LINE_RM_SCHEDULER` to `'true'` only if a future maintainer decides a live demonstration of
+scheduling is worth the false-negative risk above — that is a call to make deliberately, not a
+default to flip back without re-reading this paragraph.
+
+## One-time setup
+
+1. **Neon** — create a free project, copy the pooled connection string into `DATABASE_URL`.
+   `config/database.js` in `examples/v5-app` reads it as a single connection string with TLS
+   on (`DATABASE_SSL=true` by default) — it does not need separate host/port/user/password
+   fields the way the CI matrix's local Postgres service does.
+2. **Cloudinary** — create a free account, copy the cloud name, key and secret into
+   `CLOUDINARY_NAME` / `CLOUDINARY_KEY` / `CLOUDINARY_SECRET`. Required, not optional: Render
+   free's disk is ephemeral, so anything saved to `public/uploads` vanishes on the next deploy
+   or cold start, which would make the plugin look broken for a reason that has nothing to do
+   with it. `config/plugins.js` switches to the Cloudinary provider automatically as soon as
+   `CLOUDINARY_NAME` is set; local development and `pnpm e2e:v5` never set it, so they keep
+   using the local `strapi-provider-upload-absolute-url` provider unchanged.
+3. **Render** — New → Blueprint → point it at this repo. It reads `render.yaml`, pulls
+   `ghcr.io/captainkie/line-rich-menu-demo:latest` (built by
+   `.github/workflows/demo-image.yml` on every push to `main` that touches the plugin, the
+   demo app, or the mock), and asks for the `sync: false` values from steps 1–2 above plus
+   `APP_KEYS`.
+4. Open `/admin` once and create the first admin user through Strapi's normal bootstrap flow —
+   this demo does **not** run `scripts/seed.js` in production; that script exists for
+   `pnpm e2e:v5` and reads test-only `E2E_*` credentials that are never set on Render. Seed one
+   channel named **Demo LINE OA** with any fake channel access token — the in-container mock
+   accepts anything.
+
+## The public hostname and its Cloudflare protection
+
+The Cloudflare zone for `fosivo.com` already serves the publisher's other infrastructure
+(`grafana`, `portainer`, `siteops-api`, `autoflow-research`), so `line-rich-menu.fosivo.com` is
+the demo's address — Fosivo Labs' own subdomain, not a customer's.
+
+Getting from "Render service exists" to "hostname is live and protected" is a specific
+**order**, because reversing it is not cheap to undo:
+
+1. **Create the Render service first, and add `line-rich-menu.fosivo.com` as its custom domain
+   in Render — before any DNS record exists.** A CNAME pointing at a hostname Render does not
+   yet claim resolves to Render's generic 404 page, and that response caches.
+2. **Create the CNAME as `dns-only`** (grey cloud, not proxied), and wait for Render to report
+   the certificate issued. Render's TLS certificate comes from an ACME HTTP-01 challenge, and
+   Cloudflare's proxy would intercept `/.well-known/acme-challenge/` for its own purposes if
+   the record were already orange-clouded — so issuance has to happen with Cloudflare out of
+   the path.
+3. **Flip the record to proxied**, then put two Cloudflare custom rules in front of the
+   hostname: block the highest-volume scanner traffic a public host receives (`.php`, `.env`,
+   `.git`, `wp-*`, phpMyAdmin paths) before it ever reaches Render — which also means that
+   traffic never wakes the sleeping instance, protecting the free-hour pool from the section
+   above — and put a Managed Challenge in front of `/admin/login` and the auth API routes,
+   since this is a real Strapi admin with a real login and credential stuffing is the attack
+   that actually costs something. (A general per-IP rate limit was evaluated and dropped: the
+   zone's one Free-plan rate-limit slot already belongs to the owner's auth brute-force
+   protection for `siteops-api.fosivo.com`, and replacing it to make room for this demo would
+   have removed *their* defense to add a weaker version of the same protection Managed
+   Challenge already provides here.) Cloudflare's **Bot Fight Mode** is deliberately left off —
+   it is zone-wide with no per-hostname exception, and this zone also serves API hosts whose
+   callers are programs, not browsers; turning it on to protect the demo would start
+   challenging those callers too, breaking someone else's project days later in a way that
+   would not point back here.
+4. **Verify** by requesting the hostname and checking the response carries a `cf-ray` header —
+   that header is the proof Cloudflare is actually in the path; without it, every rule above is
+   deployed and inert. Then confirm the block rule by requesting `/wp-login.php` and getting a
+   `403` from Cloudflare rather than a `404` from Strapi.
+
+If Render's certificate ever fails to renew (it renews over the same HTTP-01 mechanism as step
+2), the remedy is the same sequence in miniature: flip the record back to `dns-only` for an
+hour, let the renewal complete, then flip it back to proxied. The symptom — a TLS error on a
+site that has worked for months — will not look like it points at Cloudflare's proxy setting,
+which is exactly why it is worth writing down here.
+
+## Rejected alternatives
+
+Fly.io no longer has a meaningful free tier (a 7-day, 2 VM-hour trial only). Koyeb closed
+free-tier signups after the Mistral acquisition in early 2026. If Render's free tier ever
+changes terms, Northflank, Zeabur and Back4App are the fallbacks worth evaluating first.

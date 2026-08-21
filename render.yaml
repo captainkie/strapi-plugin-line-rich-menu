@@ -20,6 +20,17 @@ services:
     region: singapore
     image:
       url: ghcr.io/captainkie/line-rich-menu-demo:latest
+    # NOT an uptime pinger, and does not conflict with the no-pinger rule below: Render's own
+    # docs describe this as (1) the readiness gate a new deploy must pass before traffic
+    # switches to it, and (2) a check against an *already-running* instance to detect a hung
+    # process and stop routing to it — not a standing poll issued on a schedule regardless of
+    # instance state. Free-tier spin-down is governed solely by genuine external inbound
+    # HTTP/WebSocket traffic (render.com/docs/free); this is Render's internal control-plane
+    # traffic, not that. If this line is ever found to keep the instance perpetually awake,
+    # that contradicts every account of Render's free-tier behavior — including the complete
+    # absence of "just set healthCheckPath" as a known keep-awake trick anywhere it would
+    # otherwise be documented — so verify before removing rather than assuming this is the
+    # cause. Full reasoning in docs/DEMO.md, next to the no-pinger section.
     healthCheckPath: /admin
     envVars:
       # ทุกตัวที่ sync: false ต้องกรอกในหน้า dashboard ครั้งเดียว — ห้ามมีค่าจริงในไฟล์นี้
@@ -30,6 +41,12 @@ services:
       - key: API_TOKEN_SALT
         generateValue: true
       - key: TRANSFER_TOKEN_SALT
+        generateValue: true
+      # Separate from ADMIN_JWT_SECRET above — this is users-permissions' own secret
+      # (config/plugins.js). Outside NODE_ENV=development its bootstrap throws hard without
+      # one; the image has no .env file to silently generate it into. Found by booting the
+      # built image locally, see task-15-report.md.
+      - key: JWT_SECRET
         generateValue: true
       - key: LINE_RM_ENCRYPTION_KEY
         generateValue: true
@@ -60,5 +77,11 @@ services:
         value: http://127.0.0.1:4011
       - key: LINE_API_DATA_BASE_URL
         value: http://127.0.0.1:4011
+      # Off, deliberately — the scheduler is a real, tested feature (see the acceptance suite's
+      # scheduler test, 35/35 green) but a bad fit for an unattended public demo on a
+      # sleep-cycling free instance: a cron set for a specific minute will not fire if the
+      # container happens to be asleep then, which reads as "the plugin's scheduler is broken"
+      # to anyone testing it — the exact failure shape Ruling E already avoided once for the
+      # mock. Reasoning in full in docs/DEMO.md, next to the no-pinger section.
       - key: LINE_RM_SCHEDULER
-        value: 'true'
+        value: 'false'
