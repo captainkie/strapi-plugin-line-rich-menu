@@ -115,3 +115,34 @@ export async function reconcileChannel(
       .sort(),
   }
 }
+
+/**
+ * สเปก §8 ข้อ 3 ท่อนที่สอง — "ให้ผู้ใช้กดลบเอง" เมนูกำพร้าไม่มีแถวใน DB ให้ผูก ตัวมันเองคือ
+ * lineRichMenuId เท่านั้น จึงลบด้วย id ฝั่ง LINE ตรง ๆ ไม่ผ่าน publishedMenuOrThrow เหมือน op อื่น
+ *
+ * ต้องเรียก reconcileChannel ใหม่แล้วตรวจว่า id ที่ขอมาอยู่ใน orphans จริง ห้ามเชื่อ id ที่ client
+ * ส่งมาเฉย ๆ — รายงานที่ผู้ใช้เห็นอาจเก่าไปหลายนาทีแล้ว (มีคนเพิ่ง publish ทับ id เดียวกัน หรือ
+ * เมนูที่เคยกำพร้าถูกลบไปแล้วจากที่อื่น) ถ้าไม่ตรวจซ้ำ ผู้ใช้ที่มีสิทธิ์ publish จะลบเมนูที่กำลัง
+ * ใช้งานอยู่จริงได้ด้วยการเดา id ซึ่งเป็นการยกระดับสิทธิ์ที่แผงหน้าจอไม่ได้ตั้งใจให้
+ */
+export async function deleteOrphan(
+  deps: MenuOpsDeps,
+  input: { channelId: string; lineRichMenuId: string; actorId: string | null },
+): Promise<void> {
+  const report = await reconcileChannel(deps, { channelId: input.channelId })
+  if (!report.orphans.includes(input.lineRichMenuId)) {
+    throw new MenuNotReadyError('not_published')
+  }
+
+  await deps.audit.around(
+    {
+      actorId: input.actorId,
+      action: 'delete',
+      // ไม่ผูกกับแถวเมนูตัวใดตัวหนึ่งใน DB — กำพร้าคือเมนูที่ไม่มีแถวให้ผูกอยู่แล้ว
+      richMenuId: null,
+      channelId: input.channelId,
+      before: { lineRichMenuId: input.lineRichMenuId },
+    },
+    async () => { await deps.client.deleteRichMenu(input.lineRichMenuId) },
+  )
+}

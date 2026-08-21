@@ -3,7 +3,7 @@ import { LineServerError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
 import { MenuNotReadyError } from '../../src/server/errors.js'
 import {
-  clearChannelDefault, reconcileChannel, setMenuAsDefault, swapMenuAlias,
+  clearChannelDefault, deleteOrphan, reconcileChannel, setMenuAsDefault, swapMenuAlias,
 } from '../../src/server/menu-ops.js'
 import type { AuditRow, Repo, RichMenuRow } from '../../src/server/types.js'
 
@@ -157,5 +157,74 @@ describe('reconcileChannel', () => {
     const report = await reconcileChannel({ client: line, menus, audit }, { channelId: '10' })
 
     expect(report).toEqual({ orphans: ['richmenu-stray'], missing: ['richmenu-gone'] })
+  })
+})
+
+describe('deleteOrphan', () => {
+  it('ยืนยันซ้ำว่ายังกำพร้าจริงก่อนลบ แล้วเขียน audit ว่าลบสำเร็จ', async () => {
+    const { menus, audit, auditRows } = repos([menuRow({ id: '1', lineRichMenuId: 'richmenu-a' })])
+    const line = client({
+      listRichMenus: vi.fn(async () => [{ richMenuId: 'richmenu-a' }, { richMenuId: 'richmenu-stray' }]),
+      deleteRichMenu: vi.fn(async () => {}),
+    })
+
+    await deleteOrphan(
+      { client: line, menus, audit },
+      { channelId: '10', lineRichMenuId: 'richmenu-stray', actorId: '3' },
+    )
+
+    expect((line as unknown as { deleteRichMenu: ReturnType<typeof vi.fn> }).deleteRichMenu)
+      .toHaveBeenCalledWith('richmenu-stray')
+    expect(auditRows[0]).toMatchObject({
+      action: 'delete', result: 'success', actorId: '3', channelId: '10',
+      before: { lineRichMenuId: 'richmenu-stray' }, after: null,
+    })
+  })
+
+  // หัวใจของ task นี้ — รายงานที่ผู้ใช้เห็นอาจเก่าไปหลายนาทีแล้ว เมนูนี้ "มีชีวิต" อยู่จริง
+  // (แถวใน DB อ้างถึงมัน) ถ้า deleteOrphan เชื่อ id ที่ client ส่งมาโดยไม่เรียก reconcileChannel
+  // ใหม่ ผู้ใช้ที่มีสิทธิ์ publish จะลบเมนูที่กำลังใช้งานอยู่ได้ด้วยการเดา id — เอาการตรวจซ้ำออกเมื่อไหร่
+  // เทสต์นี้ต้องแดงทันที
+  it('ปฏิเสธ id ที่ตรวจซ้ำแล้วไม่ใช่กำพร้า และไม่ยิง DELETE ให้ LINE เด็ดขาด', async () => {
+    const { menus, audit } = repos([menuRow({ id: '1', lineRichMenuId: 'richmenu-live' })])
+    const line = client({
+      listRichMenus: vi.fn(async () => [{ richMenuId: 'richmenu-live' }]),
+      deleteRichMenu: vi.fn(async () => {}),
+    })
+
+    await expect(deleteOrphan(
+      { client: line, menus, audit },
+      { channelId: '10', lineRichMenuId: 'richmenu-live', actorId: '3' },
+    )).rejects.toBeInstanceOf(MenuNotReadyError)
+
+    expect((line as unknown as { deleteRichMenu: ReturnType<typeof vi.fn> }).deleteRichMenu).not.toHaveBeenCalled()
+  })
+
+  it('id ที่ไม่เคยอยู่บน LINE เลยก็ถูกปฏิเสธเหมือนกัน', async () => {
+    const { menus, audit } = repos([])
+    const line = client({ listRichMenus: vi.fn(async () => []) })
+
+    await expect(deleteOrphan(
+      { client: line, menus, audit },
+      { channelId: '10', lineRichMenuId: 'richmenu-nowhere', actorId: null },
+    )).rejects.toBeInstanceOf(MenuNotReadyError)
+  })
+
+  it('LINE ล้ม → ยังมีแถว audit ที่บอกว่าล้มด้วย code อะไร', async () => {
+    const { menus, audit, auditRows } = repos([menuRow({ id: '1', lineRichMenuId: 'richmenu-a' })])
+    const line = client({
+      listRichMenus: vi.fn(async () => [{ richMenuId: 'richmenu-a' }, { richMenuId: 'richmenu-stray' }]),
+      deleteRichMenu: vi.fn(async () => { throw new LineServerError(503) }),
+    })
+
+    await expect(deleteOrphan(
+      { client: line, menus, audit },
+      { channelId: '10', lineRichMenuId: 'richmenu-stray', actorId: '3' },
+    )).rejects.toBeInstanceOf(LineServerError)
+
+    expect(auditRows[0]).toMatchObject({
+      action: 'delete', result: 'failure', errorCode: 'line_server_error',
+      before: { lineRichMenuId: 'richmenu-stray' },
+    })
   })
 })
