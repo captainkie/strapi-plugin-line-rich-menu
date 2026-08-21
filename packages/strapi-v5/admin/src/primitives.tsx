@@ -6,11 +6,12 @@ import {
   TextInput as DsTextInput, Toggle as DsToggle, Tooltip as DsTooltip, Typography as DsTypography,
 } from '@strapi/design-system'
 // `Page`/`Layouts` ไม่ได้อยู่ใน `@strapi/design-system` (ตรวจ 2.2.4 จริงแล้วไม่มี export ชื่อนี้)
-// แต่อยู่ใน `@strapi/admin/strapi-admin` — แพ็กเกจนี้ไม่ได้เป็น dependency ตรงของ strapi-v5
-// เอง (ดู package.json) จึง import ผ่าน `@strapi/strapi/admin` ที่เป็น peer dependency อยู่แล้ว
-// และ re-export ทุกอย่างจาก `@strapi/admin/strapi-admin` ตรง ๆ (`export * from …` ใน
-// dist/admin.d.ts ของ @strapi/strapi) — จุดเรียกอื่นในไฟล์ adapters.ts/port.tsx ก็ import
-// hook ของ Strapi ผ่าน path เดียวกันนี้อยู่แล้ว
+// แต่อยู่ใน `@strapi/admin/strapi-admin` — แพ็กเกจนี้ไม่ได้เป็น dependency ตรงของ strapi-v5 เอง
+// (ดู package.json) จึง import ผ่าน `@strapi/strapi/admin` ที่เป็น peer dependency อยู่แล้ว และ
+// re-export ทุกอย่างจาก `@strapi/admin/strapi-admin` ตรง ๆ (`export * from …` ใน dist/admin.d.ts
+// ของ @strapi/strapi) — `port.tsx` import hook ของ Strapi ผ่าน path เดียวกันนี้อยู่แล้ว
+// ชนิดของทั้งสองตัวอยู่ที่ strapi-admin.d.ts (shim เดียวกับที่ประกาศ useFetchClient/useNotification
+// ให้ไฟล์นั้น — @strapi/strapi ทั้งแพ็กเกจไม่ได้ถูกติดตั้งไว้ ไฟล์นี้จึงไม่มี type จริงให้พึ่ง)
 import { Layouts, Page as StrapiPage } from '@strapi/strapi/admin'
 import { usePort, type UIPrimitives } from '@fosivo/line-rich-menu-ui'
 

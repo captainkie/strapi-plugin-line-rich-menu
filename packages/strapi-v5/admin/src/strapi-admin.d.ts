@@ -12,6 +12,8 @@
  * เป็น "คืนอ็อบเจกต์ที่มี toggleNotification" และ `message` เป็นสตริงที่แปลแล้ว
  */
 declare module '@strapi/strapi/admin' {
+  import type { ComponentType, ReactNode } from 'react'
+
   export function useFetchClient(): {
     get<T>(url: string): Promise<{ data: T }>
     post<T>(url: string, body?: unknown): Promise<{ data: T }>
@@ -26,5 +28,23 @@ declare module '@strapi/strapi/admin' {
       title?: string
       timeout?: number
     }): void
+  }
+
+  /**
+   * Task 17 — `Page`/`Layouts` มาจาก `@strapi/admin/strapi-admin` จริง (re-export ผ่าน
+   * `@strapi/strapi/admin` — ตรวจ `dist/admin.d.ts`/`dist/admin.js` ของ @strapi/strapi แล้ว:
+   * `export * from '@strapi/admin/strapi-admin'`) รูปทรงด้านล่างอ่านจาก `dist/admin/**\/*.mjs`
+   * ของ @strapi/admin 5.52.1 ตรง ๆ เหมือนทุกบรรทัดอื่นในไฟล์นี้ — คำสัญญาที่เราเขียนเอง
+   * ไม่มีใครตรวจให้ ของจริงพิสูจน์ที่ examples/v5-app เหมือนสองตัวข้างบน
+   */
+  export const Page: {
+    Main: ComponentType<{ children?: ReactNode }>
+    /** ตั้ง document.title แล้วคืน null — ไม่มีอะไรขึ้นจอ */
+    Title: ComponentType<{ children: string }>
+  }
+
+  export const Layouts: {
+    Header: ComponentType<{ title: string; subtitle?: ReactNode; primaryAction?: ReactNode }>
+    Content: ComponentType<{ children?: ReactNode }>
   }
 }
