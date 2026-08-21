@@ -1,0 +1,65 @@
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { emptyActionForm } from '../src/action-form.js'
+import { PortProvider } from '../src/port.js'
+import { createStubPort } from '../src/stub-port.js'
+import { AreaList } from '../src/components/AreaList.js'
+
+const areas = [emptyActionForm(), emptyActionForm(), emptyActionForm()]
+
+function setup(overrides: Partial<React.ComponentProps<typeof AreaList>> = {}) {
+  const props = {
+    areas, activeIndex: null, view: 'list' as const,
+    onViewChange: vi.fn(), onSelect: vi.fn(), onChange: vi.fn(),
+    aliasOptions: [], ...overrides,
+  }
+  render(
+    <PortProvider value={createStubPort({ t: (k) => k })}>
+      <AreaList {...props} />
+    </PortProvider>,
+  )
+  return props
+}
+
+describe('AreaList', () => {
+  it('มีหัวข้อหนึ่งอันต่อหนึ่งช่อง ติดป้าย A B C', () => {
+    setup()
+    for (const letter of ['A', 'B', 'C']) {
+      expect(screen.getByRole('button', { name: new RegExp(letter) })).toBeInTheDocument()
+    }
+  })
+
+  it('โหมด list พับทุกช่องไว้ ยกเว้นช่องที่เลือกอยู่', () => {
+    setup({ activeIndex: 1 })
+    expect(screen.getAllByTestId(/^area-body-/)).toHaveLength(1)
+    expect(screen.getByTestId('area-body-1')).toBeInTheDocument()
+  })
+
+  it('โหมด expanded กางทุกช่องพร้อมกัน', () => {
+    setup({ view: 'expanded' })
+    expect(screen.getAllByTestId(/^area-body-/)).toHaveLength(3)
+  })
+
+  it('สลับโหมดได้จากหัวหมวด', () => {
+    const { onViewChange } = setup()
+    fireEvent.click(screen.getByTestId('view-expanded'))
+    expect(onViewChange).toHaveBeenCalledWith('expanded')
+  })
+
+  it('กดหัวข้อช่องแล้วแจ้ง index กลับไป', () => {
+    const { onSelect } = setup()
+    fireEvent.click(screen.getByTestId('area-header-2'))
+    expect(onSelect).toHaveBeenCalledWith(2)
+  })
+
+  // สเปก §5.6 ข้อ 4 — error ต้องอยู่ที่ช่องของมัน ไม่ใช่รวมบนหัวฟอร์ม
+  it('แสดง error ที่หัวข้อของช่องนั้น แม้ช่องจะพับอยู่', () => {
+    setup({ errors: { 2: 'ต้องกรอก URI' } })
+    expect(screen.getByTestId('area-header-2').textContent).toContain('ต้องกรอก URI')
+  })
+
+  it('ไม่มี error ก็ไม่มีเครื่องหมายอะไร', () => {
+    setup()
+    expect(screen.queryByTestId('area-error-0')).not.toBeInTheDocument()
+  })
+})
