@@ -417,6 +417,15 @@ test.describe('บันเดิลของ admin โหลดขึ้นจ�
     await expect(page.getByTestId('create-menu')).toBeVisible()
     await expect(page.getByText('เมนูหลัก')).toBeVisible()
 
+    // `toBeVisible()` เฉย ๆ ผ่านได้แม้ปุ่มถูก disabled อยู่ — `disabled={channelId === null}`
+    // ใน ListPage.tsx ต้องเจอ channel จริงที่ fetch เสร็จแล้วถึงจะเปิดปุ่ม ด่านเดิมจึงพิสูจน์แค่ว่า
+    // ปุ่มโผล่ ไม่ได้พิสูจน์ว่ามันกดได้ — คลิกจริงคือด่านเดียวที่ปุ่มที่ disabled ผ่านไม่ได้
+    // (Playwright ล้มด้วย timeout แทนที่จะเงียบเหมือน toBeVisible)
+    await expect(page.getByTestId('create-menu')).toBeEnabled()
+    await page.getByTestId('create-menu').click()
+    await expect(page).toHaveURL(/\/rich-menus\/new/)
+    await expect(page.getByTestId('open-template-picker')).toBeVisible()
+
     // บันเดิลที่ "ขึ้นแล้วพัง" อ่านเหมือนผ่านถ้าดูแค่ว่า element โผล่ — React จับ error ของ
     // ตัวเองไว้ได้ในบางกรณี ด่านนี้จึงดูที่ error ของหน้าจริง ๆ ด้วย
     expect(errors).toEqual([])
