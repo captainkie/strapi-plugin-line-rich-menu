@@ -3,7 +3,7 @@
 # docs/DEMO.md ("Why the image is built in CI") for the measured reason Render's own free
 # instance never runs `strapi build` itself.
 #
-# One service only (Ruling E, Amendment 2 of the v5-and-release plan): the LINE mock that the
+# One service only (see docs/DEMO.md): the LINE mock that the
 # demo talks to runs as a second process *inside* this same container
 # (examples/v5-app/docker-entrypoint.sh), not as a second Render service — two free services
 # sleep independently, so a visitor waking Strapi would hit a still-cold mock and see a
@@ -14,23 +14,24 @@ services:
     name: line-rich-menu-demo
     runtime: image
     plan: free
-    # Same region as `autoflow-demo-api`, an unrelated project already running in this Render
-    # workspace — it is the owner's own Thai-timezone infrastructure, and Ruling B in the
-    # amendment explains why the two share a free-hour pool rather than each getting one.
+    # Closest region to the maintainers. Note that Render's free instance-hours are pooled per
+    # *workspace*, not per service — if you deploy this into a workspace that already runs
+    # something, they share one 750-hour allowance. See docs/DEMO.md.
     region: singapore
     image:
       url: ghcr.io/captainkie/line-rich-menu-demo:latest
     # NOT an uptime pinger, and does not conflict with the no-pinger rule below: Render's own
     # docs describe this as (1) the readiness gate a new deploy must pass before traffic
     # switches to it, and (2) a check against an *already-running* instance to detect a hung
-    # process and stop routing to it — not a standing poll issued on a schedule regardless of
-    # instance state. Free-tier spin-down is governed solely by genuine external inbound
-    # HTTP/WebSocket traffic (render.com/docs/free); this is Render's internal control-plane
-    # traffic, not that. If this line is ever found to keep the instance perpetually awake,
-    # that contradicts every account of Render's free-tier behavior — including the complete
-    # absence of "just set healthCheckPath" as a known keep-awake trick anywhere it would
-    # otherwise be documented — so verify before removing rather than assuming this is the
-    # cause. Full reasoning in docs/DEMO.md, next to the no-pinger section.
+    # process — not a standing poll issued regardless of instance state. Confirmed empirically,
+    # not just by reading docs: a free-tier Render service with a health check configured,
+    # deployed once and then left alone for a month, still shows no quota suspension — had the
+    # health check counted as keep-alive traffic it would have run ~730 hours in that first
+    # month alone and been suspended for exceeding the 750-hour allowance. It was not. If this
+    # line is ever found to keep the instance perpetually awake, verify against Render support
+    # before assuming a different cause — do not delete it reflexively, since without it a hung
+    # instance keeps receiving traffic. Full reasoning in docs/DEMO.md, next to the no-pinger
+    # section.
     healthCheckPath: /admin
     envVars:
       # ทุกตัวที่ sync: false ต้องกรอกในหน้า dashboard ครั้งเดียว — ห้ามมีค่าจริงในไฟล์นี้
@@ -81,7 +82,7 @@ services:
       # scheduler test, 35/35 green) but a bad fit for an unattended public demo on a
       # sleep-cycling free instance: a cron set for a specific minute will not fire if the
       # container happens to be asleep then, which reads as "the plugin's scheduler is broken"
-      # to anyone testing it — the exact failure shape Ruling E already avoided once for the
+      # to anyone testing it — the same failure shape the in-container LINE mock already avoids for the
       # mock. Reasoning in full in docs/DEMO.md, next to the no-pinger section.
       - key: LINE_RM_SCHEDULER
         value: 'false'

@@ -10,7 +10,7 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
  * ไฟล์นี้ไม่ได้อยู่ในชุด acceptance (playwright.config.ts จับเฉพาะ acceptance.spec.ts ด้วย
  * `testMatch` ที่เพิ่มใน Step นี้) — มันถูกเรียกจาก scripts/screenshots.sh เท่านั้น
  *
- * Amendment 2 ย้ายภาพทั้งชุดจาก examples/v4-app มา examples/v5-app — DS v2 คือหน้าตาของ
+ * ย้ายภาพทั้งชุดจาก examples/v4-app มา examples/v5-app — DS v2 คือหน้าตาของ
  * Strapi admin วันนี้ ส่วน v4 ยังถูกทดสอบและจัดส่งเหมือนเดิม แค่ไม่มีภาพในหน้าร้านอีกต่อไป
  *
  * `__dirname` ไม่ใช่ `import.meta.url` — เหตุผลเดียวกับที่ playwright.config.ts ใช้ `__dirname`:

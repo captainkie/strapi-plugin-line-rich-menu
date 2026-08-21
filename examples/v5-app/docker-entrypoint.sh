@@ -1,12 +1,12 @@
 #!/usr/bin/env sh
 #
-# Ruling E (Amendment 2) — the LINE mock runs as a second process inside this same
+# The LINE mock runs as a second process inside this same
 # container, bound to 127.0.0.1, instead of as a second Render service. Two free Render
 # services sleep *independently*: a visitor wakes Strapi, clicks Publish, and Strapi's first
 # outbound call reaches a mock that is still cold — roughly a minute of nothing, then a
 # timeout. The visitor's reasonable conclusion is that the plugin is broken. One container,
 # one sleep/wake cycle, no cross-service race — and one fewer draw on the free-hour pool
-# docs/DEMO.md documents as already shared with `autoflow-demo-api`.
+# that Render shares across every service in a workspace (see docs/DEMO.md).
 #
 # The mock is started in the background first, then this script `exec`s Strapi so it becomes
 # PID 1. If the mock dies, PID 1 (Strapi) is untouched and the container keeps running —

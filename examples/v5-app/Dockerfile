@@ -4,8 +4,7 @@
 # examples/v5-app/scripts/e2e.sh uses for local development and CI.
 #
 # This stage's fully-installed pnpm workspace (/repo) is also carried into the runtime stage
-# below to run tools/line-mock as a second process — see Ruling E in
-# .superpowers/sdd/2026-08-20-line-rich-menu-04-v5-and-release/AMENDMENT-14-15-16.md and
+# below to run tools/line-mock as a second process — see
 # docs/DEMO.md ("Why the demo talks to a mock").
 FROM node:20.20.0-bookworm-slim AS plugin
 WORKDIR /repo
@@ -62,7 +61,7 @@ ENV NODE_ENV=production HOST=0.0.0.0 PORT=1337
 COPY --from=build --chown=node:node /app /app
 # Carries the plugin stage's already-installed pnpm workspace forward so tools/line-mock can
 # run as-is (fastify + sharp + tsx + the built @fosivo/line-rich-menu-core it imports) — see
-# docker-entrypoint.sh and Ruling E.
+# docker-entrypoint.sh and docs/DEMO.md.
 COPY --from=plugin --chown=node:node /repo /repo
 COPY --chown=node:node --chmod=755 examples/v5-app/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # demo เปิดสาธารณะ — process ที่รันเป็น root ในคอนเทนเนอร์ที่รับคำขอจากอินเทอร์เน็ตคือ
