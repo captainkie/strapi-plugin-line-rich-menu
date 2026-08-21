@@ -15,10 +15,13 @@ type Entity = Record<string, unknown>
  * ห้ามใช้ `entity.id` แทน: `id` คือ primary key ของแถว ส่วน `documentId` คือตัวระบุที่ทั้ง
  * Document Service และชั้น service ของเราใช้ ในตารางที่มีแถวเดียวสองค่านี้แยกกันไม่ออกด้วยตา
  * แต่พอมีหลายแถวเมื่อไหร่ การหยิบผิดตัวจะทำให้ทุกคำขอชี้ไปแถวอื่น
+ *
+ * ไม่มีทางลัดสำหรับค่าที่เป็นสตริงดิบ ๆ โดยตั้งใจ — `documents()` คืน relation เป็นอ็อบเจกต์เสมอ
+ * เมื่อถูก populate และไม่คืนคีย์นั้นเลยเมื่อไม่ถูกขอ ไม่มีรูปทรงที่สามที่จะรองรับ การเผื่อไว้
+ * เท่ากับเพิ่มกิ่งที่ไม่มีเทสต์ไหนไปถึงได้จริง
  */
 const documentIdOf = (value: unknown): string | null => {
   if (value === null || value === undefined) return null
-  if (typeof value === 'string') return value
   const id = (value as { documentId?: unknown }).documentId
   return typeof id === 'string' ? id : null
 }
@@ -34,7 +37,6 @@ const documentIdOf = (value: unknown): string | null => {
  */
 const fileIdOf = (value: unknown): number | null => {
   if (value === null || value === undefined) return null
-  if (typeof value === 'number') return value
   const id = (value as { id?: unknown }).id
   return typeof id === 'number' ? id : null
 }

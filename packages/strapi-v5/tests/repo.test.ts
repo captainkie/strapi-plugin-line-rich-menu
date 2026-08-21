@@ -275,6 +275,62 @@ describe('menu repo', () => {
     })
   })
 
+  it('เขียนคอลัมน์ที่เหลือทั้งหมดด้วยชื่อของฐานข้อมูล — เทียบทั้ง data ไม่ใช่ทีละคีย์', async () => {
+    const { strapi, calls } = fakeStrapi({ update: {} })
+    await createMenuRepo(strapi).update('mn1', {
+      name: 'เมนูใหม่',
+      size: 'compact',
+      chatBarText: 'เปิด',
+      chatBarMode: 'default',
+      selected: false,
+      templateKey: 'RICH_MENU_TEMPLATE_101',
+      areas: [],
+      areaImages: [{ index: 0, fileId: 5 }],
+      aliasId: 'tab-b',
+      status: 'failed',
+      lineRichMenuId: 'richmenu-b',
+      lastError: 'line_rejected',
+    })
+    expect((calls[0]!.params as { data: unknown }).data).toEqual({
+      name: 'เมนูใหม่',
+      size: 'compact',
+      chatBarText: 'เปิด',
+      chatBarMode: 'default',
+      selected: false,
+      templateKey: 'RICH_MENU_TEMPLATE_101',
+      areas: [],
+      areaImages: [{ index: 0, fileId: 5 }],
+      aliasId: 'tab-b',
+      status: 'failed',
+      lineRichMenuId: 'richmenu-b',
+      lastError: 'line_rejected',
+    })
+  })
+
+  it('กรองด้วยคอลัมน์ธรรมดาไม่ไปแตะ relation — ไม่แถม channel ที่ไม่มีใครขอ', async () => {
+    const { strapi, calls } = fakeStrapi()
+    await createMenuRepo(strapi).findMany({ filters: { status: 'published' } })
+    expect((calls[0]!.params as { filters: unknown }).filters).toEqual({ status: 'published' })
+  })
+
+  /**
+   * relation ที่กลับมาเป็นรูปทรงของ v4 (มีแต่ `id` ไม่มี `documentId`) ต้องกลายเป็นค่าว่าง
+   * ไม่ใช่ `"10"` หรือ `"[object Object]"` — ค่าที่ผิดแบบเงียบ ๆ จะกลายเป็น channelId ที่ชี้ไป
+   * แถวอื่นทันทีที่ตารางมีมากกว่าหนึ่งแถว
+   */
+  it('relation ที่ไม่มี documentId ติดมาต้องไม่ถูกเดาจาก id', async () => {
+    const { strapi } = fakeStrapi({
+      findOne: {
+        documentId: 'mn1', name: 'x', size: 'large', chatBarText: 'x',
+        chatBarMode: 'default', selected: false, status: 'draft',
+        channel: { id: 10 }, image: {},
+      },
+    })
+    const row = await createMenuRepo(strapi).findOne('mn1')
+    expect({ channelId: row!.channelId, imageFileId: row!.imageFileId })
+      .toEqual({ channelId: '', imageFileId: null })
+  })
+
   it('ค่าที่ยังไม่มีกลายเป็น null / [] ไม่ใช่ undefined — ชั้น service ประกาศไว้แบบนั้น', async () => {
     const { strapi } = fakeStrapi({
       findOne: {
@@ -342,6 +398,34 @@ describe('schedule repo', () => {
     expect((calls[0]!.params as { filters: unknown }).filters).toEqual({
       state: 'pending',
       richMenu: { documentId: 'mn1' },
+    })
+  })
+
+  it('กรองด้วย state อย่างเดียว (เส้นทางของ scheduler) ไม่แถมเงื่อนไข richMenu', async () => {
+    const { strapi, calls } = fakeStrapi()
+    await createScheduleRepo(strapi).findMany({ filters: { state: 'pending' }, limit: 50 })
+    expect(calls[0]!.params).toEqual({
+      populate: ['richMenu'],
+      filters: { state: 'pending' },
+      limit: 50,
+    })
+  })
+
+  it('เขียนคอลัมน์ของ lock ครบ — claim/release ของ scheduler ยิงผ่านทางนี้', async () => {
+    const { strapi, calls } = fakeStrapi({ update: {} })
+    await createScheduleRepo(strapi).update('sc1', {
+      state: 'running',
+      lockedBy: 'worker-1',
+      lockedAt: '2026-09-01T00:00:05.000Z',
+      lastError: null,
+      runAt: '2026-09-01T00:00:00.000Z',
+    })
+    expect((calls[0]!.params as { data: unknown }).data).toEqual({
+      state: 'running',
+      lockedBy: 'worker-1',
+      lockedAt: '2026-09-01T00:00:05.000Z',
+      lastError: null,
+      runAt: '2026-09-01T00:00:00.000Z',
     })
   })
 
