@@ -1,4 +1,5 @@
 import js from '@eslint/js'
+import reactHooks from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
@@ -36,6 +37,14 @@ export default tseslint.config(
     // สคริปต์ที่รันด้วย Node ตรง ๆ ไม่ได้ผ่าน bundler — ต้องประกาศ global ของ Node เอง
     // (ไม่ดึงแพ็กเกจ `globals` เข้ามาเพื่อสิ่งนี้ ตามแนวเดียวกับบล็อก shim ด้านบน)
     files: ['packages/strapi-v4/scripts/**/*.mjs', 'scripts/**/*.mjs'],
+    languageOptions: {
+      sourceType: 'module',
+      globals: { process: 'readonly', console: 'readonly', URL: 'readonly', Buffer: 'readonly' },
+    },
+  },
+  {
+    // สคริปต์ที่รันด้วย Node ตรง ๆ ไม่ได้ผ่าน bundler — เหตุผลเดียวกับบล็อกของ strapi-v4
+    files: ['packages/strapi-v5/scripts/**/*.mjs'],
     languageOptions: {
       sourceType: 'module',
       globals: { process: 'readonly', console: 'readonly', URL: 'readonly', Buffer: 'readonly' },
@@ -81,6 +90,18 @@ export default tseslint.config(
           { name: '@fosivo/line-rich-menu-core', message: 'ใช้ /browser เท่านั้น — "." ลาก sharp เข้าบันเดิล' },
         ],
       }],
+    },
+  },
+  {
+    // ยามที่ carry-forward ของ Plan 02 บันทึกว่าขาดอยู่: `RichMenuList` ใส่ `[channelId, http, t]`
+    // ไว้ใน dependency array ส่วน `ChannelSettings` ใช้ `useEffect(reload, [])` ที่ปิดทับ http/t
+    // สองสำนวนสำหรับเรื่องเดียวกันในไฟล์ที่อยู่ติดกัน — และเป็นความผิดพลาดที่ทำให้หน้าจอกะพริบ
+    // เป็นค่าว่างทุก render ถ้าเกิดกับ port ที่ adapter ประกอบ (ดูคอมเมนต์เหนือ HttpClient ใน port.ts)
+    files: ['packages/ui/**/*.{ts,tsx}', 'packages/strapi-v4/src/admin/**/*.{ts,tsx}', 'packages/strapi-v5/admin/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'error',
     },
   },
 )
