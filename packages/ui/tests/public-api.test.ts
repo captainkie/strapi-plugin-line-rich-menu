@@ -32,6 +32,9 @@ const EXPECTED_EXPORTS = [
   'OUTLINE_COLOR',
   'ACTIVE_FILL',
   'INVALID_COLOR',
+  'LINE_GREEN',
+  'LINE_ACTIVE_FILL',
+  'LINE_SELECTED_TINT',
 
   // components/*
   'ActionForm',
