@@ -59,6 +59,22 @@ export interface UIPrimitives {
   Alert: ComponentType<{ variant: 'success' | 'warning' | 'danger'; title?: string; onClose?: () => void; children?: ReactNode }>
   Loader: ComponentType<{ children?: ReactNode }>
   Tooltip: ComponentType<{ label: string; children?: ReactNode }>
+  /**
+   * padding, max-width และหัวหน้า (header) เป็นเรื่อง **version-specific** เหมือนสมาชิกอื่นทุก
+   * ตัวในไฟล์นี้ — DS v1 (Strapi 4) ให้ `HeaderLayout`/`ContentLayout` มาจาก `@strapi/design-system`
+   * ส่วน DS v2 (Strapi 5) ย้ายชุดเดียวกันไปอยู่ที่ `Layouts`/`Page` ของ `@strapi/admin/strapi-admin`
+   * แทน คนละแพ็กเกจคนละพร็อพ ถ้า `packages/ui` วาดกรอบเองด้วย `<div style={{ padding: ... }}>`
+   * เลขที่ hardcode ไว้จะดูใกล้เคียงของจริงวันนี้ แต่หลุดจาก spacing ของ Strapi ทันทีที่ DS
+   * เวอร์ชันถัดไปเปลี่ยนสเกล และเป็นคัปปลิ้งที่ผูก `packages/ui` เข้ากับรายละเอียดของแอดมินโดยตรง
+   * ซึ่งเป็นสิ่งที่ port ทั้งไฟล์นี้มีไว้กันอยู่แล้ว — `Page` จึงเป็น component ที่แต่ละ adapter
+   * จับคู่กับ layout จริงของเวอร์ชันตัวเอง เหมือน primitive ตัวอื่นทุกตัว ไม่ใช่ markup ดิบที่ฝังอยู่
+   * ใน component ที่ไม่รู้จัก Strapi เลย (เช่น `pages/List.tsx` ที่เดิมวาด `ui.Flex` เปล่า ๆ เป็นราก)
+   *
+   * `title`/`actions` อยู่ในนี้ด้วยเพราะ layout component ของทั้งสองเวอร์ชัน "เป็นเจ้าของ" ส่วนหัว
+   * ของหน้า (padding, พื้นหลัง, ตำแหน่งของ primaryAction) อยู่แล้ว — แยก `Page` (padding อย่างเดียว)
+   * ออกจากหัวข้อเป็นสองสมาชิกจะบังคับให้ทุกจุดเรียกต้องใช้คู่กันเสมอ โดยไม่ได้ประโยชน์อะไรเพิ่ม
+   */
+  Page: ComponentType<{ title: string; subtitle?: string; actions?: ReactNode; children?: ReactNode }>
 }
 
 /**

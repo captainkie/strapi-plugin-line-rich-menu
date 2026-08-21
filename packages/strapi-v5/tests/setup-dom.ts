@@ -20,4 +20,15 @@ if (typeof window !== 'undefined') {
   proto['hasPointerCapture'] ??= function hasPointerCapture(): boolean { return false }
   proto['setPointerCapture'] ??= function setPointerCapture(): void {}
   proto['releasePointerCapture'] ??= function releasePointerCapture(): void {}
+
+  /**
+   * `Layouts.Header` (Task 17 — primitives.tsx ของ Page) อ่าน `window.strapi.flags.docLinks`
+   * ตอน render ทุกครั้ง เพื่อตัดสินใจว่าจะวาดปุ่ม "Learn more" ไหม — ค่านี้ถูก Strapi เอง bootstrap
+   * ไว้ก่อนแอดมิน mount เสมอในแอปจริง แต่ jsdom ไม่มีให้ ปล่อยว่างจะได้ TypeError
+   * "Cannot read properties of undefined (reading 'flags')" ก่อนจะวาดอะไรออกมาเลย
+   * (ช่องว่างของสภาพแวดล้อมเทสต์เดียวกับสี่ตัวข้างบน ไม่ใช่ adapter เขียนผิด) — ปิด docLinks
+   * ไว้ (false) เพราะปลั๊กอินนี้ไม่มี doc link ของตัวเองให้ Strapi จับคู่อยู่แล้ว
+   */
+  const globalWithStrapi = globalThis as unknown as { strapi?: { flags?: { docLinks?: boolean } } }
+  globalWithStrapi.strapi ??= { flags: { docLinks: false } }
 }

@@ -32,7 +32,7 @@ describe('UIPort', () => {
     const port = createStubPort()
     expect(Object.keys(port.ui).sort()).toEqual([
       'Alert', 'Button', 'Checkbox', 'Divider', 'Flex', 'IconButton', 'Loader', 'Modal',
-      'Option', 'Radio', 'RadioGroup', 'Select', 'TextInput', 'Textarea', 'Toggle',
+      'Option', 'Page', 'Radio', 'RadioGroup', 'Select', 'TextInput', 'Textarea', 'Toggle',
       'Tooltip', 'Typography',
     ])
     for (const method of ['get', 'post', 'put', 'del'] as const) {
