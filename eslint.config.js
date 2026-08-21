@@ -13,6 +13,18 @@ export default tseslint.config(
     },
   },
   {
+    // ไฟล์ shim สองตัวนี้ต้องเป็น CommonJS จริง ๆ — Strapi 4 require() เข้าไปตรง ๆ ที่ root
+    // ของแพ็กเกจ (สเปก §2.1) จะเขียนเป็น ESM หรือใช้ import ไม่ได้เลย
+    files: ['packages/strapi-v4/strapi-server.js', 'packages/strapi-v4/strapi-admin.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: { require: 'readonly', module: 'writable' },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  {
     files: ['packages/ui/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': ['error', {
