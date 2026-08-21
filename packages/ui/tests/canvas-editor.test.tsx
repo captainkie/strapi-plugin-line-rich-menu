@@ -126,4 +126,28 @@ describe('CanvasEditor', () => {
     setup()
     expect(screen.getByTestId('rich-menu-canvas')).toBeInTheDocument()
   })
+
+  /**
+   * ค่านี้มาจากเซิร์ฟเวอร์วันนี้ จึงเป็นการป้องกันเชิงลึก ไม่ใช่รูรั่วที่เปิดอยู่ — แต่ `")` ตัวเดียว
+   * ในชื่อไฟล์ก็หลุดออกจาก token `url()` ได้แล้ว และ upload provider ที่ผู้ใช้เลือกเองเป็นคน
+   * ตัดสินว่า url หน้าตาเป็นยังไง ไม่ใช่เรา
+   */
+  it('imageUrl ถูก escape ก่อนใส่ใน url() — `")` ไม่หลุดออกจาก token', () => {
+    render(
+      <CanvasEditor
+        size={{ width: 2500, height: 1686 }}
+        bounds={[{ x: 0, y: 0, width: 100, height: 100 }]}
+        showOutlines={false}
+        activeIndex={null}
+        onSelect={() => {}}
+        imageUrl={'/uploads/a").evil("b.jpg'}
+      />,
+    )
+    const background = screen.getByTestId('rich-menu-canvas').style.backgroundImage
+    // quote ในค่าถูกแปลงเป็น %22 แล้ว เหลือ `"` แค่คู่เปิด-ปิดของ token เท่านั้น
+    expect(background).toContain('%22')
+    expect(background.match(/"/g)).toHaveLength(2)
+    // และยังเหลือ url( ชุดเดียว ไม่ใช่สองชุดที่เกิดจากการหลุดออกจาก token
+    expect(background.match(/url\(/g)).toHaveLength(1)
+  })
 })

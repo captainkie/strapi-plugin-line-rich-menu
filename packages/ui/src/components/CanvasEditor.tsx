@@ -45,6 +45,15 @@ function snapTo(value: number, grid: number): number {
   return grid <= 1 ? Math.round(value) : Math.round(value / grid) * grid
 }
 
+/**
+ * `url("...")` แบบมี quote คือรูปที่ escape ได้จริง — CSS ยอมให้ใส่ `\"` ข้างใน string ได้
+ * ส่วนรูปไม่มี quote (`url(x)`) ไม่มีทาง escape เลย ตัวอักษรอย่าง `")` จึงปิด token ทิ้ง
+ * แล้วสิ่งที่ตามมาถูกอ่านเป็น CSS ต่อ วันนี้ค่านี้มาจากเซิร์ฟเวอร์จึงเป็นการป้องกันเชิงลึก
+ * แต่ url ที่ผู้ใช้ได้รับมาจาก upload provider ที่เขาเลือกเอง ไม่ใช่จากเรา
+ */
+const cssUrl = (value: string): string =>
+  `url("${value.replace(/[\\"]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)}")`
+
 export function CanvasEditor({
   size, bounds, imageUrl, showOutlines, activeIndex, onSelect, onBoundsChange, errors, snap,
 }: CanvasEditorProps) {
@@ -90,7 +99,7 @@ export function CanvasEditor({
     backgroundColor: '#eaeaef',
     backgroundSize: 'cover',
     backgroundPosition: 'center',
-    ...(imageUrl === undefined ? {} : { backgroundImage: `url(${imageUrl})` }),
+    ...(imageUrl === undefined ? {} : { backgroundImage: cssUrl(imageUrl) }),
   }
 
   const handleKeyDown = (index: number) => (event: KeyboardEvent<HTMLDivElement>) => {

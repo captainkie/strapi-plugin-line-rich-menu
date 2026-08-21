@@ -21,9 +21,20 @@ describe('UIPort', () => {
     spy.mockRestore()
   })
 
+  /**
+   * เดิมบรรทัดนี้เป็น `expect(Object.keys(port.ui).length).toBeGreaterThanOrEqual(15)` ซึ่ง
+   * ไม่ได้พิสูจน์ชื่อของมันเลย: stub มี 16 ตัว การลบทิ้งหนึ่งตัวยังผ่าน และการเพิ่มตัวใหม่เข้า
+   * `UIPrimitives` โดยลืม implement ในสอง adapter ก็ยังผ่าน — ยามที่เขียวโดยไม่ได้บังคับอะไร
+   *
+   * รายการเต็มที่เรียงแล้วบังคับทั้งสองทิศ และเมื่อรายการเปลี่ยน มันจะเปลี่ยนแบบที่เห็นใน diff
+   */
   it('stub port มีครบทุกอย่างที่ UIPort ประกาศไว้', () => {
     const port = createStubPort()
-    expect(Object.keys(port.ui).length).toBeGreaterThanOrEqual(15)
+    expect(Object.keys(port.ui).sort()).toEqual([
+      'Alert', 'Button', 'Checkbox', 'Divider', 'Flex', 'IconButton', 'Loader', 'Modal',
+      'Option', 'Radio', 'RadioGroup', 'Select', 'TextInput', 'Textarea', 'Toggle',
+      'Tooltip', 'Typography',
+    ])
     for (const method of ['get', 'post', 'put', 'del'] as const) {
       expect(typeof port.http[method]).toBe('function')
     }

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ENDPOINTS } from '../src/api.js'
@@ -30,11 +31,30 @@ function stubImageSize(width: number, height: number) {
   vi.stubGlobal('URL', { ...URL, createObjectURL: () => 'blob:stub', revokeObjectURL: () => {} })
 }
 
+/**
+ * `ImageField` ไม่ถือ error ของตัวเองอีกต่อไป (ย้ายออกไปเป็นพร็อพ — ดูเทสต์
+ * 'error ที่ค้างอยู่ถูกล้างเมื่อ template เปลี่ยน' ด้านล่าง) — เทสต์เดิมในไฟล์นี้ที่คาดหวังให้
+ * ข้อความ error โผล่บนจอหลังอัปโหลดผิดพลาด จึงต้องมี wrapper ถือ state แทน component เอง
+ * เหมือนที่ RichMenuEditor ทำจริงในหน้า editor
+ */
 function setup(port = createStubPort({ t: (k) => k })) {
   const onChange = vi.fn()
+  function Wrapper() {
+    const [error, setError] = useState<string | undefined>(undefined)
+    return (
+      <ImageField
+        value={null}
+        size={SIZE}
+        disabled={false}
+        onChange={onChange}
+        onErrorChange={(message) => setError(message ?? undefined)}
+        {...(error === undefined ? {} : { error })}
+      />
+    )
+  }
   render(
     <PortProvider value={port}>
-      <ImageField value={null} size={SIZE} disabled={false} onChange={onChange} />
+      <Wrapper />
     </PortProvider>,
   )
   return { onChange }
@@ -123,5 +143,59 @@ describe('ImageField', () => {
     )
     fireEvent.click(screen.getByTestId('image-remove'))
     expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  /**
+   * `ImageField` เคยถือ error ของตัวเองไว้ ต่างจากพี่น้องทุกตัวที่รับมาเป็นพร็อพ ผลคือ
+   * `applyTemplate` เคลียร์มันไม่ได้: อัปรูปผิดสัดส่วน แล้วสลับจาก large เป็น compact
+   * แบนเนอร์ยังอ่านว่า "ต้องเป็นสัดส่วนของ template (2500×1686)" ทั้งที่ตอนนี้ template
+   * เป็น 2500×843 ไปแล้ว — ข้อมูลที่ผิดจริง ไม่ใช่แค่ค้าง
+   */
+  it('error ที่ค้างอยู่ถูกล้างเมื่อ template เปลี่ยน', async () => {
+    const onErrorChange = vi.fn()
+    const { rerender } = render(
+      <PortProvider value={createStubPort({ t: (k, v) => `${k}:${v?.['expected'] ?? ''}` })}>
+        <ImageField
+          value={null}
+          size={{ width: 2500, height: 1686 }}
+          disabled={false}
+          onChange={() => {}}
+          error="image.error.ratio:2500×1686"
+          onErrorChange={onErrorChange}
+        />
+      </PortProvider>,
+    )
+    expect(screen.getByText('image.error.ratio:2500×1686')).toBeInTheDocument()
+
+    rerender(
+      <PortProvider value={createStubPort({ t: (k, v) => `${k}:${v?.['expected'] ?? ''}` })}>
+        <ImageField
+          value={null}
+          size={{ width: 2500, height: 843 }}
+          disabled={false}
+          onChange={() => {}}
+          onErrorChange={onErrorChange}
+        />
+      </PortProvider>,
+    )
+    expect(screen.queryByText('image.error.ratio:2500×1686')).toBeNull()
+  })
+
+  it('error ที่เกิดจากการอัปโหลดถูกรายงานขึ้นไปให้ผู้เรียก ไม่ใช่เก็บไว้เอง', async () => {
+    const onErrorChange = vi.fn()
+    render(
+      <PortProvider value={createStubPort({ t: (k) => k })}>
+        <ImageField
+          value={null}
+          size={{ width: 2500, height: 1686 }}
+          disabled={false}
+          onChange={() => {}}
+          onErrorChange={onErrorChange}
+        />
+      </PortProvider>,
+    )
+    const file = new File(['x'], 'a.gif', { type: 'image/gif' })
+    fireEvent.change(screen.getByTestId('image-input'), { target: { files: [file] } })
+    await waitFor(() => expect(onErrorChange).toHaveBeenCalledWith('image.error.format'))
   })
 })

@@ -79,6 +79,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
   const [areaErrors, setAreaErrors] = useState<Record<number, string>>({})
   const [mainErrors, setMainErrors] = useState<Partial<Record<keyof MainSettingsValue, string>>>({})
   const [formError, setFormError] = useState<string | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
   const [chatBarError, setChatBarError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -117,6 +118,9 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
     // ผู้ใช้เพิ่งทำสิ่งที่แบนเนอร์ "ยังไม่มี template" ขอไว้ (เลือก template) — ต้องหายไปทันที
     // ไม่ใช่ค้างอยู่บนจอจนกว่าจะกด save รอบถัดไปที่บรรทัดต้นของ save() ถึงจะไปเคลียร์ให้
     setFormError(null)
+    // ข้อความ "ต้องเป็นสัดส่วนของ template (WxH)" ผูกกับขนาดของ template ตัวเดิม การเปลี่ยน
+    // template ทำให้มันกลายเป็นข้อมูลที่ผิด ไม่ใช่แค่เก่า — ต้องหายไปพร้อมกัน
+    setImageError(null)
     setPicking(false)
   }
 
@@ -334,6 +338,8 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
               size={size}
               disabled={draft.templateKey === null}
               onChange={(next) => setDraft((prev) => ({ ...prev, image: next }))}
+              onErrorChange={setImageError}
+              {...(imageError === null ? {} : { error: imageError })}
             />
           </ui.Flex>
 
