@@ -88,4 +88,46 @@ describe('restorePriorState', () => {
     expect(logger.error).toHaveBeenCalled()
     expect(client.updateAlias).toHaveBeenCalledWith('tab-a', 'richmenu-previous')
   })
+
+  /**
+   * "กลืน error ไว้แล้วไปต่อ" ถูกต้องแล้ว แต่ต้องไม่แปลว่าผู้เรียกไม่รู้ — ผู้เรียกกำลังจะตัดสินใจว่า
+   * จะลบเมนูที่เพิ่งสร้างทิ้งหรือไม่ และคำตอบนั้นขึ้นกับว่าการคืนค่าสำเร็จหรือเปล่าล้วน ๆ
+   */
+  describe('รายงานผลกลับให้ผู้เรียกตัดสินใจ', () => {
+    it('คืนครบทั้งคู่ → true ทั้งคู่', async () => {
+      expect(await restorePriorState(restorer(), { defaultRichMenuId: 'richmenu-old', aliasTarget: 'x' },
+        { aliasId: 'tab-a', completed: completedAll }, silent))
+        .toEqual({ defaultRestored: true, aliasRestored: true })
+    })
+
+    it('ไม่มีอะไรต้องคืน ก็นับว่าคืนสำเร็จ — ผู้เรียกจะได้ไม่ต้องรู้ว่าขั้นไหนถูกเดินบ้าง', async () => {
+      expect(await restorePriorState(restorer(), { defaultRichMenuId: 'richmenu-old', aliasTarget: 'x' },
+        { aliasId: 'tab-a', completed: [{ kind: 'validate' }, { kind: 'create' }] }, silent))
+        .toEqual({ defaultRestored: true, aliasRestored: true })
+    })
+
+    it('คืน default ล้ม → defaultRestored เป็น false แต่ alias ยังถูกคืนและรายงานแยกกัน', async () => {
+      const client = restorer()
+      client.setDefault.mockRejectedValueOnce(new Error('LINE ล่ม'))
+      expect(await restorePriorState(client, { defaultRichMenuId: 'richmenu-old', aliasTarget: 'richmenu-previous' },
+        { aliasId: 'tab-a', completed: completedAll }, silent))
+        .toEqual({ defaultRestored: false, aliasRestored: true })
+    })
+
+    it('คืน alias ล้ม → aliasRestored เป็น false', async () => {
+      const client = restorer()
+      client.updateAlias.mockRejectedValueOnce(new Error('LINE ล่ม'))
+      expect(await restorePriorState(client, { defaultRichMenuId: 'richmenu-old', aliasTarget: 'richmenu-previous' },
+        { aliasId: 'tab-a', completed: completedAll }, silent))
+        .toEqual({ defaultRestored: true, aliasRestored: false })
+    })
+
+    it('ล้าง default ที่ล้ม (ไม่เคยมี default มาก่อน) ก็นับเป็นคืนไม่สำเร็จเหมือนกัน', async () => {
+      const client = restorer()
+      client.clearDefault.mockRejectedValueOnce(new Error('LINE ล่ม'))
+      expect(await restorePriorState(client, { defaultRichMenuId: null, aliasTarget: null },
+        { aliasId: null, completed: completedAll }, silent))
+        .toEqual({ defaultRestored: false, aliasRestored: true })
+    })
+  })
 })

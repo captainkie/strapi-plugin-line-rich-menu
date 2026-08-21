@@ -59,7 +59,17 @@ function auditRepo(): Repo<AuditRow> & { rows: AuditRow[] } {
   }
 }
 
-/** LINE จำลองที่จำสถานะจริง เพื่อให้ assert ได้ว่า compensation คืนสถานะครบ */
+/**
+ * LINE จำลองที่จำสถานะจริง เพื่อให้ assert ได้ว่า compensation คืนสถานะครบ
+ *
+ * ของเดิม **ไปถึงสาขา "คืนค่าไม่สำเร็จ" ไม่ได้เลยโดยโครงสร้าง**: `clearDefault` กับ `deleteAlias`
+ * ไม่เคยดู `failures` จึงสั่งให้ล้มไม่ได้ ส่วน `setDefault`/`updateAlias` ดู แต่การสั่งให้ล้ม
+ * ทำให้ขั้น **เดินหน้า** ล้มไปด้วย การคืนค่าจึงไม่เคยถูกเดินถึง — นั่นคือเหตุผลเดียวที่ C4 มองไม่เห็น
+ *
+ * ตอนนี้ทุก endpoint นับจำนวนครั้งที่ถูกเรียก และ `failAt` รับคีย์แบบ `setDefault#2` ได้ ซึ่ง
+ * แปลว่า "ล้มเฉพาะการเรียกครั้งที่สอง" — สำหรับ `setDefault`/`updateAlias` ครั้งที่หนึ่งคือขั้นเดินหน้า
+ * ครั้งที่สองคือการคืนค่า จึงสั่งให้ **เฉพาะการคืนค่า** ล้มได้จริงเป็นครั้งแรก
+ */
 function fakeLine(initial: { defaultId?: string | null; aliases?: Record<string, string> } = {}) {
   const calls: string[] = []
   const state = {
@@ -69,41 +79,55 @@ function fakeLine(initial: { defaultId?: string | null; aliases?: Record<string,
   }
   let counter = 0
   const failures = new Map<string, Error>()
+  const seen = new Map<string, number>()
+
+  /** บันทึกการเรียกหนึ่งครั้งแล้วคืน error ที่ถูกสั่งไว้สำหรับ "ครั้งนี้" ถ้ามี */
+  function record(call: string): Error | null {
+    calls.push(call)
+    const nth = (seen.get(call) ?? 0) + 1
+    seen.set(call, nth)
+    return failures.get(`${call}#${nth}`) ?? failures.get(call) ?? null
+  }
+
   return {
     calls, state, failAt: (call: string, error: Error) => failures.set(call, error),
     client: {
-      async validateRichMenu() { calls.push('validate'); const f = failures.get('validate'); if (f) throw f },
+      async validateRichMenu() { const f = record('validate'); if (f) throw f },
       async createRichMenu() {
-        calls.push('create')
-        const f = failures.get('create'); if (f) throw f
+        const f = record('create'); if (f) throw f
         const id = `richmenu-new-${++counter}`
         state.menus.add(id)
         return id
       },
-      async uploadContent() { calls.push('upload'); const f = failures.get('upload'); if (f) throw f },
+      async uploadContent() { const f = record('upload'); if (f) throw f },
       async createAlias(aliasId: string, richMenuId: string) {
-        calls.push('createAlias')
-        const f = failures.get('createAlias'); if (f) throw f
+        const f = record('createAlias'); if (f) throw f
         state.aliases.set(aliasId, richMenuId)
       },
       async updateAlias(aliasId: string, richMenuId: string) {
-        calls.push('updateAlias')
-        const f = failures.get('updateAlias'); if (f) throw f
+        const f = record('updateAlias'); if (f) throw f
         state.aliases.set(aliasId, richMenuId)
       },
-      async deleteAlias(aliasId: string) { calls.push('deleteAlias'); state.aliases.delete(aliasId) },
+      async deleteAlias(aliasId: string) {
+        const f = record('deleteAlias'); if (f) throw f
+        state.aliases.delete(aliasId)
+      },
       async setDefault(id: string) {
-        calls.push('setDefault')
-        const f = failures.get('setDefault'); if (f) throw f
+        const f = record('setDefault'); if (f) throw f
         state.defaultId = id
       },
-      async clearDefault() { calls.push('clearDefault'); state.defaultId = null },
+      async clearDefault() {
+        const f = record('clearDefault'); if (f) throw f
+        state.defaultId = null
+      },
       async deleteRichMenu(id: string) {
-        calls.push('deleteRichMenu')
         // คีย์แบบเจาะจง id มีไว้ให้สั่ง `deleteOld` ล้มได้โดยที่การลบเมนูที่เพิ่งสร้าง
         // (ซึ่งเป็น deleteRichMenu เหมือนกัน) ยังทำงาน — ไม่งั้นแยกไม่ออกว่าเมนูใหม่ค้าง
         // เพราะ compensation พัง หรือเพราะเราสั่งให้ API ตัวนั้นล้มทั้งตัว
-        const f = failures.get(`deleteRichMenu:${id}`) ?? failures.get('deleteRichMenu')
+        // เรียก record() ก่อนเสมอ ไม่ใช่หลัง ?? — ไม่งั้นการเรียกที่ถูกสั่งให้ล้มด้วยคีย์เจาะจง id
+        // จะหายไปจาก `calls` ทั้งที่มันเกิดขึ้นจริง
+        const generic = record('deleteRichMenu')
+        const f = failures.get(`deleteRichMenu:${id}`) ?? generic
         if (f) throw f
         state.menus.delete(id)
       },
@@ -315,6 +339,68 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
 
     const report = await reconcileChannel(d as never, { channelId: '10' })
     expect(report.orphans).toEqual([])
+  })
+
+  /**
+   * เคสที่น่าจะเกิดที่สุด ไม่ใช่เคสพิสดาร: `setDefault(ใหม่)` สำเร็จ แล้ว `deleteOld(เก่า)` ล้มด้วย 500
+   * การคืนค่าเรียก `setDefault(เก่า)` ซึ่งมีโอกาสสูงมากที่จะล้มด้วยเหตุผลเดียวกับที่ `deleteOld`
+   * เพิ่งล้ม แล้วถูกกลืนเงียบ จากนั้น `deleteRichMenu(ใหม่)` สำเร็จ → **default บน LINE ชี้เมนูที่
+   * ไม่มีอยู่แล้ว และ end user ทุกคนเปิดแชทมาไม่เห็นเมนูเลย**
+   */
+  it('คืน default ไม่สำเร็จ → ห้ามลบเมนูใหม่ทิ้ง เพราะ LINE ยังชี้มันอยู่', async () => {
+    const line = fakeLine({ defaultId: 'richmenu-old' })
+    line.failAt('deleteRichMenu:richmenu-old', new LineServerError(500))
+    // ครั้งที่สองของ setDefault คือการคืนค่า (ครั้งแรกคือขั้นเดินหน้าซึ่งต้องสำเร็จ ไม่งั้นไม่มีอะไรให้คืน)
+    line.failAt('setDefault#2', new LineServerError(500))
+    const menus = menuRepo([menuRow({ status: 'published', lineRichMenuId: 'richmenu-old' })])
+    const { deps: d } = deps(line, menus)
+
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+
+    // สิ่งที่ห้ามเกิดเด็ดขาด: default ชี้ id ที่ไม่มีอยู่ในชุดเมนูบน LINE
+    expect(line.state.defaultId).toBe('richmenu-new-1')
+    expect(line.state.menus.has(line.state.defaultId!)).toBe(true)
+    // และแถวต้องชี้ตัวที่ LINE ใช้อยู่จริง ไม่ใช่เมนูเก่าที่ไม่ได้เป็น default แล้ว
+    expect(menus.rows[0]!.lineRichMenuId).toBe('richmenu-new-1')
+  })
+
+  /**
+   * เวอร์ชัน alias แย่กว่าเพราะลามออกนอก publish รอบนี้: alias ที่ชี้เมนูที่ถูกลบไปแล้วทำให้
+   * `richmenuswitch` ของเมนู **อื่น** ที่ไม่เกี่ยวอะไรด้วยเลยพังตามไปด้วย
+   */
+  it('คืน alias ไม่สำเร็จ → ห้ามลบเมนูใหม่ทิ้ง เพราะ alias ยังชี้มันอยู่', async () => {
+    const line = fakeLine({ aliases: { 'tab-a': 'richmenu-previous' } })
+    line.state.menus.add('richmenu-previous')
+    line.state.menus.add('richmenu-old')
+    // ต้องให้ `upsertAlias` **สำเร็จ** แล้วขั้นถัดจากมันล้ม ไม่งั้นไม่มีการคืน alias ให้ล้มตั้งแต่แรก
+    // (`deleteOld` เป็นขั้นเดียวที่อยู่หลัง upsertAlias เมื่อไม่ได้ตั้ง default)
+    line.failAt('deleteRichMenu:richmenu-old', new LineServerError(500))
+    // upsertAlias ของเมนูที่มี alias อยู่แล้วคือ updateAlias — ครั้งที่หนึ่งเดินหน้า ครั้งที่สองคืนค่า
+    line.failAt('updateAlias#2', new LineServerError(500))
+    const menus = menuRepo([menuRow({ aliasId: 'tab-a', status: 'published', lineRichMenuId: 'richmenu-old' })])
+    const { deps: d } = deps(line, menus)
+
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })).rejects.toThrow()
+
+    // ไม่ได้เรียกร้องว่า alias ต้องกลับไปถูกที่ (การคืนค่าล้มไปแล้ว) แต่เรียกร้องว่าปลายทางของมัน
+    // ต้องยังมีอยู่จริงบน LINE — alias ที่ชี้เมนูที่ถูกลบไปแล้วจะพัง `richmenuswitch` ของเมนู **อื่น**
+    // ที่ไม่เกี่ยวกับ publish รอบนี้เลย
+    expect(line.state.aliases.get('tab-a')).toBe('richmenu-new-1')
+    expect(line.state.menus.has('richmenu-new-1')).toBe(true)
+    // เมนูที่จงใจปล่อยค้างไว้ต้องโผล่ใน reconcile ให้ผู้ใช้เก็บกวาดได้ ไม่ใช่หายไปเงียบ ๆ
+    const report = await reconcileChannel(d as never, { channelId: '10' })
+    expect(report.orphans).toContain('richmenu-new-1')
+  })
+
+  it('upload ล้มก่อนถึงขั้นที่ต้องคืนอะไรเลย → ยังลบเมนูใหม่ทิ้งตามปกติ ไม่ใช่ปล่อยค้างทุกครั้ง', async () => {
+    const line = fakeLine()
+    line.failAt('upload', new LineServerError(500))
+    const menus = menuRepo([menuRow()])
+    const { deps: d } = deps(line, menus)
+
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+
+    expect(line.state.menus.size).toBe(0)
   })
 
   it('ถูก rate limit → ไม่แตะ LINE เลย และไม่สร้างแถว audit', async () => {
