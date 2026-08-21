@@ -265,6 +265,8 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     expect(menus.rows[0]!.lineRichMenuId).toBeNull()
     expect(audit.rows[0]!.result).toBe('failure')
     expect(audit.rows[0]!.errorCode).toBe('line_server_error')
+    // (I7) เมนูใหม่ถูกลบสำเร็จตามปกติ — ไม่มีอะไรถูกทิ้งไว้ และทั้งสองขาคืนค่าสำเร็จ (ไม่มีอะไรต้องคืนเลย)
+    expect(audit.rows[0]!.after).toEqual({ defaultRestored: true, aliasRestored: true, keptMenuId: null })
   })
 
   it('alias ถูกสร้างใหม่แล้ว setDefault ล้ม → alias ต้องหายไป ไม่ใช่ชี้เมนูที่ถูกลบ', async () => {
@@ -374,7 +376,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     // ครั้งที่สองของ setDefault คือการคืนค่า (ครั้งแรกคือขั้นเดินหน้าซึ่งต้องสำเร็จ ไม่งั้นไม่มีอะไรให้คืน)
     line.failAt('setDefault#2', new LineServerError(500))
     const menus = menuRepo([menuRow({ status: 'published', lineRichMenuId: 'richmenu-old' })])
-    const { deps: d } = deps(line, menus)
+    const { deps: d, audit } = deps(line, menus)
 
     await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
 
@@ -383,6 +385,10 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     expect(line.state.menus.has(line.state.defaultId!)).toBe(true)
     // และแถวต้องชี้ตัวที่ LINE ใช้อยู่จริง ไม่ใช่เมนูเก่าที่ไม่ได้เป็น default แล้ว
     expect(menus.rows[0]!.lineRichMenuId).toBe('richmenu-new-1')
+    // (I7) แถว audit ต้องบอกได้ว่าคืน default ไม่สำเร็จ และเมนูตัวไหนถูกจงใจปล่อยทิ้งไว้บน LINE
+    expect(audit.rows[0]!.after).toEqual({
+      defaultRestored: false, aliasRestored: true, keptMenuId: 'richmenu-new-1',
+    })
   })
 
   /**
@@ -399,7 +405,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     // upsertAlias ของเมนูที่มี alias อยู่แล้วคือ updateAlias — ครั้งที่หนึ่งเดินหน้า ครั้งที่สองคืนค่า
     line.failAt('updateAlias#2', new LineServerError(500))
     const menus = menuRepo([menuRow({ aliasId: 'tab-a', status: 'published', lineRichMenuId: 'richmenu-old' })])
-    const { deps: d } = deps(line, menus)
+    const { deps: d, audit } = deps(line, menus)
 
     await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })).rejects.toThrow()
 
@@ -411,6 +417,10 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     // เมนูที่จงใจปล่อยค้างไว้ต้องโผล่ใน reconcile ให้ผู้ใช้เก็บกวาดได้ ไม่ใช่หายไปเงียบ ๆ
     const report = await reconcileChannel(d as never, { channelId: '10' })
     expect(report.orphans).toContain('richmenu-new-1')
+    // (I7) และแถว audit เองก็ต้องบอกได้เหมือนกัน โดยไม่ต้องไปงมใน logger.error
+    expect(audit.rows[0]!.after).toEqual({
+      defaultRestored: true, aliasRestored: false, keptMenuId: 'richmenu-new-1',
+    })
   })
 
   it('upload ล้มก่อนถึงขั้นที่ต้องคืนอะไรเลย → ยังลบเมนูใหม่ทิ้งตามปกติ ไม่ใช่ปล่อยค้างทุกครั้ง', async () => {
