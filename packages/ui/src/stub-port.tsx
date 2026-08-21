@@ -135,6 +135,22 @@ const primitives: UIPrimitives = {
   ),
   Loader: ({ children }) => <div role="progressbar">{children}</div>,
   Tooltip: ({ label, children }) => <span title={label}>{children}</span>,
+  // `title` ต้องเป็น <h1> จริง ไม่ใช่ <div> — เทสต์ของ packages/ui (เช่น editor.test.tsx) ไล่หา
+  // หัวข้อหน้าด้วย getByRole('heading', { level: 1 }) เพื่อยืนยันว่าหน้าไม่ใช่ span ที่แค่ตัวโต
+  // (ดูคอมเมนต์เดียวกันที่ Typography ด้านบน) ถ้า stub วาดเป็น <div> เฉย ๆ เทสต์เหล่านั้นจะหาไม่เจอ
+  // ทั้งที่ adapter จริงทั้งสองตัว (v4 ผ่าน HeaderLayout, v5 ผ่าน Layouts.Header) มี <h1> จริงอยู่แล้ว
+  Page: ({ title, subtitle, actions, children }) => (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1>{title}</h1>
+          {subtitle === undefined ? null : <p>{subtitle}</p>}
+        </div>
+        {actions}
+      </div>
+      <div>{children}</div>
+    </div>
+  ),
 }
 
 /**

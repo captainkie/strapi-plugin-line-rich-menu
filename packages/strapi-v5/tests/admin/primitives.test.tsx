@@ -175,6 +175,30 @@ describe('Modal', () => {
   })
 })
 
+describe('Page', () => {
+  // ยามคู่กับเทสต์ "จับคู่ครบทุกตัว" ข้างบน — completeness เช็คแค่ว่า key มีอยู่และเป็นฟังก์ชัน
+  // ไม่เคยเรียกมันจริง `Page` ที่ลืมวาง `children` ไว้ (เช่น implement แล้วส่ง children ต่อผิดจุด)
+  // จะยังผ่าน completeness ได้สบาย ๆ ทั้งที่หน้าจอทุกหน้าที่ห่อด้วย Page จะว่างเปล่า
+  it('วาด title เป็น heading จริงและวาด children ให้ครบ ไม่ใช่กลืนทิ้ง', () => {
+    draw(
+      <primitives.Page title="หัวข้อหน้า">
+        <span>เนื้อหาหน้า</span>
+      </primitives.Page>,
+    )
+    expect(screen.getByRole('heading', { level: 1, name: 'หัวข้อหน้า' })).toBeInTheDocument()
+    expect(screen.getByText('เนื้อหาหน้า')).toBeInTheDocument()
+  })
+
+  it('วาด actions ที่ส่งมาด้วย ไม่ใช่แค่ title กับ children', () => {
+    draw(
+      <primitives.Page title="หัวข้อ" actions={<button type="button">save</button>}>
+        เนื้อหา
+      </primitives.Page>,
+    )
+    expect(screen.getByRole('button', { name: 'save' })).toBeInTheDocument()
+  })
+})
+
 describe('ข้อความที่ผู้ใช้เห็นซึ่ง DS v2 บังคับให้ adapter เป็นคนตั้ง', () => {
   // สเปก §12 — ห้าม hardcode ข้อความที่ผู้ใช้เห็น แม้แต่ aria-label ของปุ่มปิด Alert
   // `closeLabel` ของ Alert ใน DS v2 เป็นพร็อพ **บังคับ** ไม่ใช่ optional เหมือน v1

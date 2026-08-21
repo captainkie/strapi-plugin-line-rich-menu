@@ -5,6 +5,13 @@ import {
   Radio as DsRadio, SingleSelect, SingleSelectOption, Textarea as DsTextarea,
   TextInput as DsTextInput, Toggle as DsToggle, Tooltip as DsTooltip, Typography as DsTypography,
 } from '@strapi/design-system'
+// `Page`/`Layouts` ไม่ได้อยู่ใน `@strapi/design-system` (ตรวจ 2.2.4 จริงแล้วไม่มี export ชื่อนี้)
+// แต่อยู่ใน `@strapi/admin/strapi-admin` — แพ็กเกจนี้ไม่ได้เป็น dependency ตรงของ strapi-v5
+// เอง (ดู package.json) จึง import ผ่าน `@strapi/strapi/admin` ที่เป็น peer dependency อยู่แล้ว
+// และ re-export ทุกอย่างจาก `@strapi/admin/strapi-admin` ตรง ๆ (`export * from …` ใน
+// dist/admin.d.ts ของ @strapi/strapi) — จุดเรียกอื่นในไฟล์ adapters.ts/port.tsx ก็ import
+// hook ของ Strapi ผ่าน path เดียวกันนี้อยู่แล้ว
+import { Layouts, Page as StrapiPage } from '@strapi/strapi/admin'
 import { usePort, type UIPrimitives } from '@fosivo/line-rich-menu-ui'
 
 /**
@@ -290,4 +297,26 @@ export const primitives: UIPrimitives = {
   // `Tooltip.Trigger` ของ v2 ใช้ `asChild` ซึ่งเป็น `Slot` ของ Radix — เรียก `React.Children.only`
   // เช่นเดียวกับ `IconButton` ข้างบน สตริงล้วนจึงต้องถูกห่อก่อนเหมือนฝั่ง v4
   Tooltip: ({ label, children }) => <DsTooltip label={label}>{asElement(children)}</DsTooltip>,
+
+  /**
+   * รูปแบบเดียวกับที่ `@strapi/content-manager` เองใช้กับหน้า list/edit ของมัน (ตรวจจาก
+   * dist/admin ของแพ็กเกจนั้นแล้ว): `Page.Main` ครอบทั้งหน้าเป็น `<main>`, `Page.Title` ตั้ง
+   * document.title (คืน `null` ไม่มีอะไรขึ้นจอ ไม่ต้องกัง วลเรื่อง provider เพิ่ม), `Layouts.Header`
+   * วาด `<h1>` จริงพร้อม padding/พื้นหลังของหัวหน้า และ `Layouts.Content` ให้ padding ซ้าย-ขวา
+   * ของเนื้อหา — สี่ตัวนี้รวมกันคือ "โครงหน้า" ที่ทุกหน้าของแอดมิน v5 ใช้ ไม่ใช่ของที่ประดิษฐ์เอง
+   *
+   * ตั้งใจใช้ `Layouts.Header` (ไม่ใช่ `Layouts.BaseHeader`) แม้ตัวเต็มจะอ่าน
+   * `window.strapi.flags.docLinks` ภายใน — เพราะนั่นคือพฤติกรรมจริงของแอดมินที่ปลั๊กอินนี้วิ่งอยู่
+   * เสมอ (ไม่ใช่สภาพแวดล้อมเทสต์ล้วน ๆ ที่ setup-dom.ts แก้ให้ได้ในจุดอื่น) `window.strapi` ถูก
+   * bootstrap ไว้ก่อนแอดมินจะ mount อยู่แล้วเสมอในแอปจริง — ยืนยันด้วยเทสต์ที่ render จริงใน
+   * tests/admin/primitives.test.tsx (ต้องปลอม `window.strapi` ไว้ใน setup-dom.ts ให้ตรงกับ
+   * แอปจริง ไม่ใช่ข้ามการทดสอบเส้นทางนี้ไปเฉย ๆ)
+   */
+  Page: ({ title, subtitle, actions, children }) => (
+    <StrapiPage.Main>
+      <StrapiPage.Title>{title}</StrapiPage.Title>
+      <Layouts.Header title={title} subtitle={subtitle} primaryAction={actions} />
+      <Layouts.Content>{children}</Layouts.Content>
+    </StrapiPage.Main>
+  ),
 }

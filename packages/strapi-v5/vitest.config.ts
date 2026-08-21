@@ -47,7 +47,7 @@ export default defineConfig({
       // `@strapi/strapi` ทั้งแพ็กเกจคือ CMS ทั้งตัว (หลายร้อยเมกะไบต์และ React tree ของตัวเอง)
       // การติดตั้งมันไว้เพื่อ import hook สี่ตัวคือราคาที่ไม่คุ้ม ที่นี่จึงชี้ไป test double แล้ว
       // ให้ examples/v5-app (Task 10) เป็นตัวพิสูจน์ของจริง — ดูคอมเมนต์ในไฟล์ double เอง
-      '@strapi/strapi/admin': fileURLToPath(new URL('./tests/doubles/strapi-admin.ts', import.meta.url)),
+      '@strapi/strapi/admin': fileURLToPath(new URL('./tests/doubles/strapi-admin.tsx', import.meta.url)),
     },
   },
 })
