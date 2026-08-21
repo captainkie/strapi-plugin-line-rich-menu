@@ -164,9 +164,15 @@ export async function publishMenu(deps: PublishDeps, request: PublishRequest): P
         // เมนูอื่นที่ไม่เกี่ยวกับ publish รอบนี้เลยด้วย
         const safeToDelete = restored.defaultRestored && restored.aliasRestored
 
+        // (I7) id ของเมนูที่จงใจปล่อยทิ้งไว้บน LINE เพราะคืนค่าไม่สำเร็จ — `null` ถ้าไม่มีอะไรถูกทิ้งไว้
+        // (ลบสำเร็จตามปกติ หรือไม่เคยไปถึงขั้น create เลย) ไปโผล่ในแถว audit ผ่าน `auditAfter` ข้างล่าง
+        // เพราะนี่คือเมนูที่มีคนต้องรู้จักไว้ — มันอยู่บน LINE จริงและไม่มีแถวไหนใน DB อ้างถึงมันอีกแล้ว
+        let keptMenuId: string | null = null
+
         for (const action of compensate(attempted)) {
           if (action.kind === 'deleteCreated' && createdId !== null) {
             if (!safeToDelete) {
+              keptMenuId = createdId
               logger.error(
                 'line-rich-menu: keeping the menu created during a failed publish because the prior state could not be restored',
                 { createdId, ...restored },
@@ -179,6 +185,21 @@ export async function publishMenu(deps: PublishDeps, request: PublishRequest): P
               })
             })
           }
+        }
+
+        // แถว audit ของ publish ที่ล้มต้องตอบคำถามที่สำคัญที่สุดได้เอง: "เราทิ้ง LINE ไว้ในสภาพพังไหม"
+        // ไม่ใช่แค่ error code เดิม — ติดผลของ compensation ไว้ที่ error ก่อน throw เพราะ audit.around
+        // เป็นคนเขียนแถว failure จริง ๆ (ดู audit.ts:auditAfterOf) ไม่ใช้ error ชนิดใหม่เพราะ error
+        // ที่ล้มอาจเป็นของ LINE ตัวจริง (LineServerError ฯลฯ) และผู้เรียกที่ห่ออยู่นอกนี้ (ถ้ามี)
+        // ยังต้องเห็น error ชนิดเดิม ไม่ใช่ wrapper ใหม่
+        if (error !== null && typeof error === 'object') {
+          Object.assign(error, {
+            auditAfter: {
+              defaultRestored: restored.defaultRestored,
+              aliasRestored: restored.aliasRestored,
+              keptMenuId,
+            },
+          })
         }
 
         await menus.update(menu.id, {

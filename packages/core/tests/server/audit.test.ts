@@ -64,6 +64,29 @@ describe('createAuditWriter', () => {
     expect(repo.rows).toHaveLength(1)
     expect(repo.rows[0]!.result).toBe('failure')
     expect(repo.rows[0]!.errorCode).toBe('line_auth_failed')
+    // error ธรรมดาที่ไม่มี auditAfter ติดมา ต้องยังได้ after: null เหมือนพฤติกรรมเดิม
+    expect(repo.rows[0]!.after).toBeNull()
+  })
+
+  /**
+   * I7 — error ที่พก `auditAfter` ติดมา (เช่นผลของ compensation ใน publish.ts) ต้องไปโผล่ใน
+   * `after` ของแถว failure แทนที่จะเป็น null เสมอ — นี่คือกลไกเดียวที่ทำให้แถว audit ตอบได้ว่า
+   * "compensation คืนอะไรสำเร็จบ้าง" โดยที่ audit.ts ไม่ต้องรู้อะไรเกี่ยวกับ publish โดยเฉพาะ
+   */
+  it('around เขียน failure โดยเอา auditAfter จาก error มาเป็น after เมื่อมี', async () => {
+    const repo = fakeRepo()
+    const writer = createAuditWriter({ repo, logger: silent })
+    const thrown = Object.assign(new LineAuthError('LINE ปฏิเสธ credential'), {
+      auditAfter: { defaultRestored: true, aliasRestored: false, keptMenuId: 'richmenu-new-1' },
+    })
+
+    await expect(writer.around(context, async () => { throw thrown })).rejects.toBe(thrown)
+
+    expect(repo.rows[0]!.after).toEqual({
+      defaultRestored: true, aliasRestored: false, keptMenuId: 'richmenu-new-1',
+    })
+    // scrub ต้องยังทำงานกับ auditAfter เหมือน after ทุกก้อนอื่น
+    expect(repo.rows[0]!.errorCode).toBe('line_auth_failed')
   })
 
   it('error ที่ไม่มี code ยังได้แถว audit — ไม่ใช่เงียบหาย', async () => {

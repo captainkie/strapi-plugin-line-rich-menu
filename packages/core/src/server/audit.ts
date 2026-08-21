@@ -29,6 +29,22 @@ export function errorCodeOf(error: unknown): string {
   return typeof code === 'string' && code.length > 0 ? code : 'unknown_error'
 }
 
+/**
+ * (I7) บาง error พกผลของ compensation ติดมาด้วยผ่านคีย์ `auditAfter` (ดู publish.ts) — เช่น
+ * ขั้นไหนคืนสำเร็จ ขั้นไหนไม่สำเร็จ และ id ของเมนูที่จงใจปล่อยทิ้งไว้บน LINE เพราะคืนค่าไม่สำเร็จ
+ *
+ * เดิม `after` ของแถว failure เป็น `null` เสมอ — คำถามที่สำคัญที่สุดหลัง publish ล้มคือ
+ * "เราทิ้ง LINE ไว้ในสภาพพังไหม" ซึ่งไม่มีคำตอบอยู่ในแถวเดียวที่สเปก §11.5 บอกว่าต้องมี เลยเลย
+ * ต้องไปงมใน logger.error ที่กระจายกันหลายบรรทัดแทน
+ *
+ * ใช้ property บน error แทนการเพิ่มพารามิเตอร์ใหม่ให้ `around` เพราะ compensation เกิดขึ้น
+ * *ระหว่าง* catch block ของ `run()` เอง — ไม่มีทางส่งค่ากลับออกมาให้ `around` เห็นได้นอกจาก
+ * ผ่าน error ที่มันจับได้อยู่แล้ว และ `audit.ts` ไม่ควรรู้อะไรเกี่ยวกับ publish โดยเฉพาะ
+ */
+function auditAfterOf(error: unknown): unknown {
+  return (error as { auditAfter?: unknown } | null)?.auditAfter ?? null
+}
+
 export function createAuditWriter(deps: { repo: Repo<AuditRow>; logger: LoggerLike }): AuditWriter {
   const { repo, logger } = deps
 
@@ -69,7 +85,9 @@ export function createAuditWriter(deps: { repo: Repo<AuditRow>; logger: LoggerLi
       try {
         value = await run()
       } catch (error) {
-        await persistQuietly({ ...context, result: 'failure', after: null, errorCode: errorCodeOf(error) })
+        await persistQuietly({
+          ...context, result: 'failure', after: auditAfterOf(error), errorCode: errorCodeOf(error),
+        })
         throw error
       }
       await persistQuietly({
