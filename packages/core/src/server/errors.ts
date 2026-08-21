@@ -22,6 +22,18 @@ export class MenuNotReadyError extends CoreError {
   }
 }
 
+/**
+ * I4 — เมนูตัวนี้มี publish อีกตัวหนึ่งที่ยัง `status: 'publishing'` และยังไม่หมดอายุ (ดู
+ * `PUBLISHING_STALE_AFTER_MS` ใน publish.ts) ปล่อยให้คำขอที่สองเดินต่อคือ `create` ตัวที่สอง
+ * clobber id ที่ตัวแรกเพิ่งเขียนลง DB แล้วเมนูของตัวแรกกลายเป็นกำพร้าที่ไม่มีแถวไหนอ้างถึงอีกเลย
+ */
+export class PublishAlreadyRunningError extends CoreError {
+  readonly code = 'publish_already_running'
+  constructor(readonly menuId: string) {
+    super(`rich menu ${menuId} already has a publish in progress`)
+  }
+}
+
 /** สเปก §9 — action ชี้ไป alias ของเมนูที่ยังไม่เคย publish */
 export class AliasNotPublishedError extends CoreError {
   readonly code = 'alias_not_published'

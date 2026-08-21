@@ -21,6 +21,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   menu_not_found: 404,
   menu_not_ready: 409,
   alias_not_published: 409,
+  publish_already_running: 409,
   publish_rate_limited: 429,
   encryption_key_missing: 500,
   crypto_envelope_invalid: 500,
