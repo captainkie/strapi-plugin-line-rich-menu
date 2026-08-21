@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { UID } from '../src/server/content-types/index.js'
+import { readDisplayPeriod, writeDisplayPeriod } from '../src/server/menu-write.js'
 import { createAuditRepo, createChannelRepo, createMenuRepo, createScheduleRepo } from '../src/server/repo.js'
 import type { StrapiV4 } from '../src/server/strapi.js'
 
@@ -237,74 +238,51 @@ function statefulScheduleStrapi() {
   return { entityService } as unknown as StrapiV4
 }
 
-/** จำลองสิ่งที่ Task 16 จะทำ: ล้าง pending แถวเดิมของเมนูนี้ แล้วสร้างใหม่ตามค่าที่ไม่ใช่ null */
-async function writeDisplayPeriod(
-  strapi: StrapiV4,
-  menuId: string,
-  period: { startAt: string | null; endAt: string | null },
-) {
-  const repo = createScheduleRepo(strapi)
-  const existing = await repo.findMany({ filters: { richMenuId: menuId, state: 'pending' } })
-  await Promise.all(existing.map((row) => repo.delete(row.id)))
-  if (period.startAt !== null) {
-    await repo.create({ richMenuId: menuId, runAt: period.startAt, op: 'set-default', state: 'pending' })
-  }
-  if (period.endAt !== null) {
-    await repo.create({ richMenuId: menuId, runAt: period.endAt, op: 'clear-default', state: 'pending' })
-  }
-}
-
-/** จำลองสิ่งที่ Task 16 จะทำตอนอ่านฟอร์มกลับ */
-async function readDisplayPeriod(strapi: StrapiV4, menuId: string) {
-  const repo = createScheduleRepo(strapi)
-  const schedules = await repo.findMany({ filters: { richMenuId: menuId, state: 'pending' } })
-  return {
-    startAt: schedules.find((s) => s.op === 'set-default')?.runAt ?? null,
-    endAt: schedules.find((s) => s.op === 'clear-default')?.runAt ?? null,
-  }
-}
-
+/**
+ * ตัวช่วยสองตัวนี้เคยเป็นสำเนาที่นั่งอยู่ในไฟล์เทสต์นี้เอง — เทสต์จึงพิสูจน์ได้แค่ fixture ของตัวเอง
+ * ไม่ใช่ของที่ปลั๊กอินใช้จริง ตอนนี้ import มาจาก `src/server/menu-write.ts` ตรง ๆ
+ */
 describe('round trip: ช่วงเวลาแสดงผล (startAt/endAt) ผ่าน schedule rows', () => {
   it('ตั้งไว้ทั้งสองค่า อ่านกลับมาต้องได้ทั้งสองค่าเป๊ะ', async () => {
-    const strapi = statefulScheduleStrapi()
+    const schedules = createScheduleRepo(statefulScheduleStrapi())
     const period = { startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-30T00:00:00.000Z' }
-    await writeDisplayPeriod(strapi, '7', period)
-    expect(await readDisplayPeriod(strapi, '7')).toEqual(period)
+    await writeDisplayPeriod(schedules, '7', period)
+    expect(await readDisplayPeriod(schedules, '7')).toEqual(period)
   })
 
   it('ตั้งไว้แค่ startAt — endAt ต้องอ่านกลับมาเป็น null ไม่ใช่ undefined หรือค่าค้าง', async () => {
-    const strapi = statefulScheduleStrapi()
+    const schedules = createScheduleRepo(statefulScheduleStrapi())
     const period = { startAt: '2026-09-01T00:00:00.000Z', endAt: null }
-    await writeDisplayPeriod(strapi, '7', period)
-    expect(await readDisplayPeriod(strapi, '7')).toEqual(period)
+    await writeDisplayPeriod(schedules, '7', period)
+    expect(await readDisplayPeriod(schedules, '7')).toEqual(period)
   })
 
   it('ตั้งไว้แค่ endAt — startAt ต้องอ่านกลับมาเป็น null ไม่ใช่ undefined หรือค่าค้าง', async () => {
-    const strapi = statefulScheduleStrapi()
+    const schedules = createScheduleRepo(statefulScheduleStrapi())
     const period = { startAt: null, endAt: '2026-09-30T00:00:00.000Z' }
-    await writeDisplayPeriod(strapi, '7', period)
-    expect(await readDisplayPeriod(strapi, '7')).toEqual(period)
+    await writeDisplayPeriod(schedules, '7', period)
+    expect(await readDisplayPeriod(schedules, '7')).toEqual(period)
   })
 
   it('ไม่ตั้งค่าไหนเลย — อ่านกลับมาต้องเป็น null ทั้งคู่ ไม่ใช่โยน หรือคืนของเมนูอื่น', async () => {
-    const strapi = statefulScheduleStrapi()
-    await writeDisplayPeriod(strapi, '7', { startAt: null, endAt: null })
-    expect(await readDisplayPeriod(strapi, '7')).toEqual({ startAt: null, endAt: null })
+    const schedules = createScheduleRepo(statefulScheduleStrapi())
+    await writeDisplayPeriod(schedules, '7', { startAt: null, endAt: null })
+    expect(await readDisplayPeriod(schedules, '7')).toEqual({ startAt: null, endAt: null })
   })
 
   it('เขียนทับค่าที่ตั้งไว้เดิม (แก้ startAt จากมีเป็นไม่มี) ต้องไม่เหลือแถวเก่าให้อ่านย้อนกลับมา', async () => {
-    const strapi = statefulScheduleStrapi()
-    await writeDisplayPeriod(strapi, '7', { startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-30T00:00:00.000Z' })
-    await writeDisplayPeriod(strapi, '7', { startAt: null, endAt: '2026-09-30T00:00:00.000Z' })
-    expect(await readDisplayPeriod(strapi, '7')).toEqual({ startAt: null, endAt: '2026-09-30T00:00:00.000Z' })
+    const schedules = createScheduleRepo(statefulScheduleStrapi())
+    await writeDisplayPeriod(schedules, '7', { startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-30T00:00:00.000Z' })
+    await writeDisplayPeriod(schedules, '7', { startAt: null, endAt: '2026-09-30T00:00:00.000Z' })
+    expect(await readDisplayPeriod(schedules, '7')).toEqual({ startAt: null, endAt: '2026-09-30T00:00:00.000Z' })
   })
 
   it('เมนูอื่นมี schedule ของตัวเอง ไม่ปนกับเมนูนี้', async () => {
-    const strapi = statefulScheduleStrapi()
-    await writeDisplayPeriod(strapi, '7', { startAt: '2026-09-01T00:00:00.000Z', endAt: null })
-    await writeDisplayPeriod(strapi, '8', { startAt: '2026-10-01T00:00:00.000Z', endAt: '2026-10-31T00:00:00.000Z' })
-    expect(await readDisplayPeriod(strapi, '7')).toEqual({ startAt: '2026-09-01T00:00:00.000Z', endAt: null })
-    expect(await readDisplayPeriod(strapi, '8')).toEqual({
+    const schedules = createScheduleRepo(statefulScheduleStrapi())
+    await writeDisplayPeriod(schedules, '7', { startAt: '2026-09-01T00:00:00.000Z', endAt: null })
+    await writeDisplayPeriod(schedules, '8', { startAt: '2026-10-01T00:00:00.000Z', endAt: '2026-10-31T00:00:00.000Z' })
+    expect(await readDisplayPeriod(schedules, '7')).toEqual({ startAt: '2026-09-01T00:00:00.000Z', endAt: null })
+    expect(await readDisplayPeriod(schedules, '8')).toEqual({
       startAt: '2026-10-01T00:00:00.000Z', endAt: '2026-10-31T00:00:00.000Z',
     })
   })
