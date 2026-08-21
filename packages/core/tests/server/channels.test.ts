@@ -146,3 +146,51 @@ describe('withSecrets — ทางเดียวที่จะได้ plain
       .rejects.toThrow(ChannelNotFoundError)
   })
 })
+
+// "มี default ได้ทีละหนึ่งช่องเท่านั้น" เป็นกฎธุรกิจ ไม่ใช่รายละเอียดภายใน — ถ้ามันพัง จะมีสอง
+// channel ที่เป็น default พร้อมกันแล้วปลั๊กอินเลือกตัวไหนก็ได้ตามลำดับแถวที่ฐานข้อมูลคืนมา ซึ่งเป็น
+// พฤติกรรมที่ไล่ปัญหาไม่ได้เลยเพราะมันเปลี่ยนไปมาเอง กิ่งพวกนี้ถูก aggregate ของ coverage บังไว้
+// (ทั้งโฟลเดอร์ 95% แต่ไฟล์นี้ 87%) จึงเขียนไว้ตรงนี้ให้มันมีคนเฝ้าจริง
+describe('กฎ default ช่องเดียว', () => {
+  const other = (over: Partial<ChannelRow> = {}): ChannelRow => ({
+    id: '99', name: 'เดิม', channelId: '1600000001',
+    channelAccessToken: 'v1.x.y.z', channelSecret: null, accessTokenLast4: 'ZZZZ',
+    isDefault: true, ...over,
+  })
+
+  it('create เป็น default ปลด default ของช่องอื่นทุกช่อง', async () => {
+    const repo = fakeRepo([other({ id: '98' }), other({ id: '97' })])
+    const service = createChannelService({ repo, key })
+    const created = await service.create({ ...input, isDefault: true })
+    expect(created.isDefault).toBe(true)
+    expect(repo.rows.filter((r) => r.isDefault)).toHaveLength(1)
+    expect(repo.rows.find((r) => r.isDefault)!.id).toBe(created.id)
+  })
+
+  it('update ตั้ง default ปลดของเดิม และไม่ปลดตัวเอง', async () => {
+    const repo = fakeRepo([other()])
+    const service = createChannelService({ repo, key })
+    const created = await service.create(input)
+    const promoted = await service.update(created.id, { isDefault: true })
+    expect(promoted.isDefault).toBe(true)
+    expect(repo.rows.filter((r) => r.isDefault).map((r) => r.id)).toEqual([created.id])
+  })
+
+  it('update ยกเลิก default แล้วไม่เหลือ default เลย ไม่ใช่ไปตั้งให้ช่องอื่นเอง', async () => {
+    const repo = fakeRepo()
+    const service = createChannelService({ repo, key })
+    const created = await service.create({ ...input, isDefault: true })
+    const cleared = await service.update(created.id, { isDefault: false })
+    expect(cleared.isDefault).toBe(false)
+    expect(repo.rows.filter((r) => r.isDefault)).toHaveLength(0)
+  })
+
+  it('findDefault ตกลงมาที่ช่องแรกเมื่อไม่มีช่องไหนถูกตั้งเป็น default ไว้', async () => {
+    const repo = fakeRepo()
+    const service = createChannelService({ repo, key })
+    const created = await service.create(input)
+    const found = await service.withSecrets().findDefault()
+    expect(found.id).toBe(created.id)
+    expect(found.channelAccessToken).toBe(TOKEN)
+  })
+})
