@@ -219,3 +219,22 @@ guarantee. Accepted deliberately; revisit if concurrent publishes ever become co
 
 **Mutation testing was not re-run after the two fix rounds.** The nightly job covers it, but the
 score has not been checked against the ~120 tests added since.
+
+---
+
+## For Plan 04's README task — state the Strapi 4 security position plainly
+
+Strapi 4.25.x reached end of life on **30 April 2026**. Its own dependency tree carries **70+
+known vulnerabilities, including criticals**, and will never be patched because nobody maintains
+it. That is a property of running Strapi 4, not of this plugin: `@strapi/strapi` is a
+**peerDependency**, so the customer brings their own, and they have those advisories with or
+without us. What the plugin itself adds at runtime is `sharp` and `zod`, both current.
+
+CI reflects this honestly rather than hiding it: `scripts/audit-shipped.mjs` blocks on advisories
+reachable **without** going through `@strapi/strapi`, and a separate non-blocking job keeps
+scanning the whole tree so the upstream state stays visible.
+
+The README must say this in the v4 section, in plain language — a customer choosing between the
+v4 and v5 packages deserves to know that one of them targets EOL software. **Do not bury it in a
+footnote and do not omit it.** It is also the strongest honest argument for migrating to Strapi 5,
+which serves the customer better than silence does.

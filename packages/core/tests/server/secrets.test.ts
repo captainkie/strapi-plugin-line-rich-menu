@@ -9,7 +9,11 @@ import {
 import type { ChannelRow } from '../../src/server/types.js'
 
 const TOKEN = 'aBcDeFgH1234567890+/channel-access-token-XYZ9'
-const SECRET = '0123456789abcdef0123456789abcdef'
+// ค่าพวกนี้คือ *ข้อความที่ถูกเข้ารหัส* ในเทสต์ ไม่ใช่ key — รูปร่างของมันไม่มีผลต่อสิ่งที่เทสต์พิสูจน์
+// เดิม SECRET เป็นเลขฐานสิบหก 32 ตัว ซึ่ง gitleaks จับว่าเป็นความลับจริงและทำให้ CI แดง
+// การเขียนให้ดูปลอมชัดเจนแก้ที่ต้นเหตุ ส่วนการใส่ allowlist จะปิดปากตัวตรวจไว้เฉย ๆ แล้ววันหนึ่ง
+// ความลับจริงที่หลุดเข้ามาในไฟล์เทสต์ก็จะผ่านไปด้วย
+const SECRET = 'not-a-real-channel-secret-for-tests-only'
 
 function rowFrom(key: Buffer, overrides: Partial<ChannelRow> = {}): ChannelRow {
   const sealed = sealChannelSecrets({ channelAccessToken: TOKEN, channelSecret: SECRET }, key)
