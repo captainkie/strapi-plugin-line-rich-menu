@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+  "changelog": ["@changesets/changelog-github", { "repo": "captainkie/strapi-plugin-line-rich-menu" }],
+  "commit": false,
+  "fixed": [["strapi-plugin-line-rich-menu", "strapi-plugin-line-rich-menu-v4"]],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": []
+}
