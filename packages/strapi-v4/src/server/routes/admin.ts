@@ -17,6 +17,9 @@ export const admin = {
     { method: 'PUT', path: '/channels/:id', handler: 'channels.update', config: withPermission(PERMISSION.settings) },
     { method: 'POST', path: '/channels/:id/test', handler: 'channels.test', config: withPermission(PERMISSION.settings) },
     { method: 'GET', path: '/channels/:id/reconcile', handler: 'menus.reconcile', config: withPermission(PERMISSION.publish) },
+    // ลบด้วย lineRichMenuId ฝั่ง LINE ไม่ใช่ id ของฐานข้อมูล — เมนูกำพร้าไม่มีแถวให้ผูก (สเปก §8 ข้อ 3)
+    // ใช้สิทธิ์ publish เหมือน reconcile เพราะมันแตะของจริงบน LINE เส้นเดียวกับที่ §11.4 แยก publish จาก write
+    { method: 'DELETE', path: '/channels/:id/orphans/:lineRichMenuId', handler: 'channels.deleteOrphan', config: withPermission(PERMISSION.publish) },
 
     { method: 'GET', path: '/menus', handler: 'menus.find', config: withPermission(PERMISSION.read) },
     { method: 'GET', path: '/menus/:id', handler: 'menus.findOne', config: withPermission(PERMISSION.read) },

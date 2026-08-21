@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ZodError } from 'zod'
 import {
-  channelCreateSchema, idParam, listQuerySchema, menuInputSchema, publishBodySchema,
+  channelCreateSchema, idParam, lineRichMenuIdParam, listQuerySchema, menuInputSchema, publishBodySchema,
 } from '../src/server/validation.js'
 
 const validMenu = {
@@ -78,5 +78,11 @@ describe('idParam · listQuerySchema · publishBodySchema', () => {
 
   it('body ของ publish ว่างได้ และ default เป็นไม่ตั้ง default', () => {
     expect(publishBodySchema.parse(undefined)).toEqual({ setAsDefault: false })
+  })
+
+  it('lineRichMenuId ต้องไม่ว่างและไม่ยาวเกิน 64 ตัว', () => {
+    expect(lineRichMenuIdParam.parse('richmenu-abc123')).toBe('richmenu-abc123')
+    expect(() => lineRichMenuIdParam.parse('')).toThrow(ZodError)
+    expect(() => lineRichMenuIdParam.parse('x'.repeat(65))).toThrow(ZodError)
   })
 })

@@ -1,8 +1,18 @@
-import { describe, expect, it, vi } from 'vitest'
+import { http, HttpResponse } from 'msw'
+import { setupServer } from 'msw/node'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { LineAuthError, PublishRateLimitedError, ValidationError } from '@fosivo/line-rich-menu-core'
 import { controllers } from '../src/server/controllers/index.js'
 import { toHttpError } from '../src/server/http-error.js'
 import type { AdminContext } from '../src/server/http-error.js'
+
+// เฉพาะเทสต์ของ deleteOrphan ที่ต้องยิงจริงไปยัง services.clientFor() (LINE) — ที่เหลือในไฟล์นี้
+// ไม่แตะ LINE เลย onUnhandledRequest: 'error' ทำให้ request ที่ไม่ได้ mock ไว้ (เช่น DELETE ที่ไม่ควร
+// ถูกยิงตอน id ไม่ใช่กำพร้าจริง) ทำให้เทสต์ fail แทนที่จะเงียบผ่าน
+const lineServer = setupServer()
+beforeAll(() => lineServer.listen({ onUnhandledRequest: 'error' }))
+afterEach(() => lineServer.resetHandlers())
+afterAll(() => lineServer.close())
 
 const TOKEN = 'aBcDeFgH1234567890-channel-access-token-WXYZ'
 
@@ -102,6 +112,52 @@ describe('channels controller', () => {
 
     expect(context.status).toBe(400)
     expect(context.body).toMatchObject({ error: { code: 'validation_failed' } })
+  })
+})
+
+describe('channels controller > deleteOrphan', () => {
+  async function seedChannel() {
+    const { strapi } = fakeStrapi()
+    const controller = controllers.channels({ strapi })
+    const createCtx = ctx({ request: { body: { name: 'ร้าน', channelId: '1650000000', channelAccessToken: TOKEN } } })
+    await controller.create(createCtx)
+    return { controller, channelId: (createCtx.body as { id: string }).id }
+  }
+
+  it('ลบเมนูกำพร้าที่ตรวจซ้ำแล้วยังกำพร้าจริง — คืน 204 และยิง DELETE ด้วย id ฝั่ง LINE', async () => {
+    const { controller, channelId } = await seedChannel()
+    let deletedId: string | null = null
+    lineServer.use(
+      http.get('https://api.line.me/v2/bot/richmenu/list', () =>
+        HttpResponse.json({ richmenus: [{ richMenuId: 'richmenu-stray' }] })),
+      http.delete('https://api.line.me/v2/bot/richmenu/:id', ({ params }) => {
+        deletedId = params['id'] as string
+        return new HttpResponse(null, { status: 200 })
+      }),
+    )
+
+    const context = ctx({ params: { id: channelId, lineRichMenuId: 'richmenu-stray' } })
+    await controller.deleteOrphan(context)
+
+    expect(context.status).toBe(204)
+    expect(context.body).toBeNull()
+    expect(deletedId).toBe('richmenu-stray')
+  })
+
+  // หัวใจของ task นี้ที่ระดับ controller — id ที่ client ส่งมาไม่อยู่ในผลลัพธ์ reconcile ที่เรียกใหม่จริง
+  // ต้องตอบ 409 (menu_not_ready) ไม่ใช่ 500 และห้ามยิง DELETE ให้ LINE เด็ดขาด — onUnhandledRequest:
+  // 'error' ของ lineServer ทำให้การยิง DELETE โดยไม่ได้ตั้งใจ (ถ้าการตรวจซ้ำหลุดไป) ทำให้เทสต์นี้ fail เอง
+  it('id ที่ตรวจซ้ำแล้วไม่ใช่กำพร้าจริง — คืน 409 ไม่ยิง DELETE ให้ LINE', async () => {
+    const { controller, channelId } = await seedChannel()
+    lineServer.use(
+      http.get('https://api.line.me/v2/bot/richmenu/list', () => HttpResponse.json({ richmenus: [] })),
+    )
+
+    const context = ctx({ params: { id: channelId, lineRichMenuId: 'richmenu-guessed' } })
+    await controller.deleteOrphan(context)
+
+    expect(context.status).toBe(409)
+    expect(context.body).toMatchObject({ error: { code: 'menu_not_ready' } })
   })
 })
 

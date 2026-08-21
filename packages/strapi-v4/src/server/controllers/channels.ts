@@ -1,7 +1,8 @@
+import { deleteOrphan } from '@fosivo/line-rich-menu-core'
 import { getServices } from '../container.js'
 import { guard, type AdminContext } from '../http-error.js'
 import type { StrapiV4 } from '../strapi.js'
-import { channelCreateSchema, channelUpdateSchema, idParam } from '../validation.js'
+import { channelCreateSchema, channelUpdateSchema, idParam, lineRichMenuIdParam } from '../validation.js'
 
 const actorOf = (ctx: AdminContext): string | null =>
   ctx.state.user === undefined ? null : String(ctx.state.user.id)
@@ -57,5 +58,20 @@ export const channels = ({ strapi }: { strapi: StrapiV4 }) => ({
     const channel = await services.channels.withSecrets().findOne(id)
     const info = await services.clientFor(channel).getBotInfo()
     ctx.body = { userId: info.userId, basicId: info.basicId, displayName: info.displayName }
+  }),
+
+  deleteOrphan: guard(async (ctx) => {
+    const services = getServices(strapi)
+    const id = idParam.parse(ctx.params['id'])
+    const lineRichMenuId = lineRichMenuIdParam.parse(ctx.params['lineRichMenuId'])
+    const channel = await services.channels.withSecrets().findOne(id)
+    // deleteOrphan ของ core เป็นคนตรวจซ้ำว่า lineRichMenuId ยังกำพร้าจริงก่อนยิง DELETE ให้ LINE
+    // (เรียก reconcileChannel ใหม่ทุกครั้ง) — ชั้นนี้แค่ประกอบ deps ส่งต่อ ไม่เชื่อ id จาก client เอง
+    await deleteOrphan(
+      { client: services.clientFor(channel), menus: services.menus, audit: services.audit },
+      { channelId: id, lineRichMenuId, actorId: actorOf(ctx) },
+    )
+    ctx.status = 204
+    ctx.body = null
   }),
 })
