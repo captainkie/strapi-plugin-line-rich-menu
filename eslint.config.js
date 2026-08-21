@@ -8,14 +8,17 @@ export default tseslint.config(
   // docs/files/ ไม่ได้ถูก track เลย (.gitignore) — ต้นทางอ้างอิงจากโปรเจกต์ลูกค้าที่ห้ามขึ้น repo
   // สาธารณะ มีอยู่บนเครื่อง dev บางเครื่องเท่านั้น ต้องกันออกไม่งั้น `pnpm lint` จะพังบนเครื่องที่มีมัน
   // แต่ผ่านบน CI เงียบ ๆ เพราะไฟล์ล็อกไม่เคยเห็นมันเลย ซึ่งเป็นด่านที่เขียว/แดงไม่ตรงกันโดยไม่มีใครรู้ตัว
-  // examples/*/{build,.strapi,.tmp,.pack} เป็นผลผลิตของ `strapi build` และ `npm pack`
-  // ไม่ใช่ซอร์ส — ถ้าไม่กันออก `pnpm lint` จะไปไล่บันเดิลของ admin ทั้งก้อน (หมื่นกว่า error)
+  // examples/*/{build,.strapi,.tmp,.pack,types} ทั้งหมดนี้เป็นผลผลิตของ `strapi build` (หรือ
+  // `strapi develop`) กับ `npm pack` ไม่ใช่ซอร์ส — ถ้าไม่กันออก `pnpm lint` จะไปไล่บันเดิลของ admin
+  // ทั้งก้อน (หมื่นกว่า error) หรือไล่ types/generated/*.d.ts ที่ Strapi เขียนเองตอน build ซึ่งเป็น
+  // ด่านเขียว/แดงไม่ตรงกันแบบเดียวกับ docs/files/ ข้างบน: เครื่องที่เพิ่ง build แล้วมีไฟล์นี้ค้างอยู่
+  // จะเจอ `pnpm lint` พังด้วย error ที่ตัวเองไม่ได้ก่อ ส่วน CI ที่ไม่เคย build ก่อน lint จะผ่านเงียบ ๆ
   {
     ignores: [
       '**/dist/**', '**/coverage/**', '**/.stryker-tmp/**', 'docs/superpowers/**', 'docs/screenshots/**',
       'docs/files/**',
       'examples/*/build/**', 'examples/*/.strapi/**',
-      'examples/*/.tmp/**', 'examples/*/.pack/**',
+      'examples/*/.tmp/**', 'examples/*/.pack/**', 'examples/*/types/**',
     ],
   },
   js.configs.recommended,
