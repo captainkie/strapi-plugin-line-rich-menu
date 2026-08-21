@@ -55,10 +55,14 @@ plugin installed from a freshly packed tarball exactly as the Dockerfile does it
 
 | Where measured | Peak RSS |
 | --- | --- |
-| macOS (Apple Silicon), `/usr/bin/time -l` | ≈ 1.70 GiB (1,820,852,224 bytes) |
+| macOS (Apple Silicon), `/usr/bin/time -l pnpm exec strapi build` | ≈ 1.73 GiB (1,853,865,984 bytes) |
 | `node:20.20.0-bookworm-slim` container (`/usr/bin/time -v`) — same base image and same `npm run build` command the Dockerfile runs | ≈ 1.79 GiB (1,879,672 KB) |
 
-Both are well over the 512 MB a Render free instance has. Vite's production build still runs
+Measured three separate times across this task (twice on macOS, once inside the actual
+`node:20.20.0-bookworm-slim` base image on linux/amd64) and landed in the same 1.7–1.8 GiB band
+every time, including after the `config/plugins.js` and `config/database.js` changes below —
+this is Vite/Rollup bundling a full Strapi admin panel plus a plugin, not noise. Both figures
+are well over the 512 MB a Render free instance has. Vite's production build still runs
 Rollup under the hood, and bundling a full Strapi admin panel plus a plugin is memory-hungry
 regardless of how fast the *dev* server is — dev-server speed and production-bundle memory use
 are different things, and this project has been burned before by a justification nobody
@@ -78,18 +82,18 @@ never has to wait behind a build — it only has to start a process.
 `line-rich-menu.fosivo.com`.**
 
 Render's free tier gives a workspace 750 instance-hours a month, and that pool is **shared**
-with every service in the workspace — not just this one. This same Render workspace already
-runs `autoflow-demo-api` (plan `free`, region `singapore`), an unrelated project of the
-owner's, kept awake by its own traffic. Render free services spin down after roughly 15
-minutes idle and only burn hours while awake, so several mostly-idle services coexist fine
-inside 750 hours. What does **not** coexist is a service kept permanently awake — that alone
-can consume most or all of the shared pool.
+with every service in the workspace — not just this one. Render free services spin down after
+roughly 15 minutes idle and only burn hours while awake, so several mostly-idle services
+coexist fine inside 750 hours. What does **not** coexist is a service kept permanently awake —
+that alone can consume most or all of the shared pool.
 
 The instinct, once someone notices the roughly-a-minute cold start above, is to add a cron job
-that pings the demo every few minutes to keep it warm. Doing that here would burn the shared
-pool and could take `autoflow-demo-api` down with it — a failure in someone else's project that
-would look nothing like its actual cause. If the cold start needs to go away for a specific
-demo, that is a paid Render plan or a dedicated free-tier workspace, not a pinger on this one.
+that pings the demo every few minutes to keep it warm. **Do not.** In a workspace that hosts
+anything else, that pinger does not just make this demo expensive — it exhausts the shared
+allowance and suspends the *other* services too, and it does so with a failure that looks
+nothing like its cause: an unrelated project simply stops, weeks later, for no visible reason.
+If the cold start has to go away, the answer is a paid Render plan or a workspace that holds
+nothing else, never a pinger on this one.
 
 ### `render.yaml`'s `healthCheckPath` is not the pinger the section above forbids
 
@@ -100,15 +104,26 @@ instance so Render stops routing to it. Free-tier spin-down, separately, is gove
 genuine external inbound HTTP/WebSocket traffic reaching the service — Render's own
 control-plane health probe is not that.
 
-Render's documentation does not spell out this interaction in one place, so this was checked
-against the wider evidence rather than assumed: if setting `healthCheckPath` kept a free
-instance permanently awake, that would be a well-known, zero-effort way to defeat free-tier
-spin-down — and it appears nowhere as one. Every documented workaround for keeping a free
-service awake is an *external* uptime monitor hitting a public endpoint on its own schedule
-(the thing this section forbids), never "just configure a health check." If that ever turns out
-to be wrong for this specific line, it will look like `autoflow-demo-api` running out of hours
-for no visible reason — the fix is to verify against Render support before assuming a different
-cause, not to delete the line reflexively.
+Render's documentation does not spell out this interaction in one place, so it was checked two
+other ways rather than assumed.
+
+The circumstantial argument: if setting `healthCheckPath` kept a free instance permanently
+awake, that would be a well-known, zero-effort way to defeat free-tier spin-down — and it
+appears nowhere as one. Every documented workaround for keeping a free service awake is an
+*external* uptime monitor hitting a public endpoint on its own schedule (the thing this section
+forbids), never "just configure a health check."
+
+The empirical one, which is stronger: a free-tier Render service with `healthCheckPath`
+configured, last deployed and then left alone for a month, still reports itself unsuspended with
+no quota suspension against it. Had its health check counted as keep-alive traffic, that service
+would have run continuously for roughly 730 hours in the first month alone and been suspended
+for exhausting the 750-hour allowance well before anyone looked. It was not. A health check on a
+sleeping free instance does not wake it.
+
+If that ever turns out to be wrong, the symptom will be a service in this workspace running out
+of hours for no visible reason. Verify with Render support before assuming a different cause —
+and do not delete this line reflexively, because without it a hung instance keeps receiving
+traffic.
 
 ### The scheduler is off on this demo
 
@@ -120,7 +135,7 @@ to a feature that is otherwise fine:
 - The cron only runs while the container is awake. A schedule set for a specific time will
   silently not fire if Render happens to be asleep at that minute, and "I scheduled a menu
   change and it didn't happen" reads as a broken scheduler to anyone testing it — the same
-  hosting-causes-a-false-negative shape Ruling E already avoided once for the LINE mock.
+  hosting-causes-a-false-negative shape the in-container LINE mock already avoids.
 - A schedule that *does* fire mutates the demo's shared state — expiring a display period,
   clearing the default menu — with no visitor watching and no way to attribute the change to
   "the scheduler ran," which is confusing on a resource multiple strangers may be using at once.
@@ -156,9 +171,9 @@ default to flip back without re-reading this paragraph.
 
 ## The public hostname and its Cloudflare protection
 
-The Cloudflare zone for `fosivo.com` already serves the publisher's other infrastructure
-(`grafana`, `portainer`, `siteops-api`, `autoflow-research`), so `line-rich-menu.fosivo.com` is
-the demo's address — Fosivo Labs' own subdomain, not a customer's.
+The demo lives at `line-rich-menu.fosivo.com` — Fosivo Labs' own subdomain, not a customer's.
+The zone is a working one that serves other things besides this demo, which is why several
+decisions below are about not disturbing its neighbours.
 
 Getting from "Render service exists" to "hostname is live and protected" is a specific
 **order**, because reversing it is not cheap to undo:
@@ -177,11 +192,14 @@ Getting from "Render service exists" to "hostname is live and protected" is a sp
    traffic never wakes the sleeping instance, protecting the free-hour pool from the section
    above — and put a Managed Challenge in front of `/admin/login` and the auth API routes,
    since this is a real Strapi admin with a real login and credential stuffing is the attack
-   that actually costs something. (A general per-IP rate limit was evaluated and dropped: the
-   zone's one Free-plan rate-limit slot already belongs to the owner's auth brute-force
-   protection for `siteops-api.fosivo.com`, and replacing it to make room for this demo would
-   have removed *their* defense to add a weaker version of the same protection Managed
-   Challenge already provides here.) Cloudflare's **Bot Fight Mode** is deliberately left off —
+   that actually costs something. (A general per-IP rate limit was evaluated and dropped. The
+   Free plan allows exactly **one** rate-limiting rule per zone, and in this zone that slot was
+   already taken by brute-force protection for another host. Watch for the trap in the API if
+   you deploy this yourself: `PUT /zones/{id}/rulesets/phases/{phase}/entrypoint` **replaces the
+   entire phase** with the rules you send, so a call carrying only your own rules deletes
+   everyone else's and still returns HTTP 200 `"success": true`. Read the phase, merge, then
+   write. Here the merge left no room, so the rate limit was dropped rather than someone else's
+   defence — and the Managed Challenge above already covers the attack it would have addressed.) Cloudflare's **Bot Fight Mode** is deliberately left off —
    it is zone-wide with no per-hostname exception, and this zone also serves API hosts whose
    callers are programs, not browsers; turning it on to protect the demo would start
    challenging those callers too, breaking someone else's project days later in a way that

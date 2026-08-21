@@ -3,7 +3,7 @@ name: Demo image
 # Builds ที่นี่ ไม่ใช่บน Render — ดู render.yaml (ไม่มี buildCommand) และ docs/DEMO.md
 # ("Why the image is built in CI") สำหรับตัวเลข RSS ที่วัดจริง
 #
-# examples/v5-app เท่านั้น (Amendment 2) — v4 ไม่มี public URL ต่อ ดูเหตุผลเต็มใน docs/DEMO.md
+# examples/v5-app เท่านั้น — v4 ไม่มี public URL ต่อ ดูเหตุผลเต็มใน docs/DEMO.md
 on:
   push:
     branches: [main]

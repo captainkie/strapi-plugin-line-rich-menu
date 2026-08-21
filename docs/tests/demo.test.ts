@@ -12,13 +12,13 @@ const demoWorkflow = readFileSync(`${root}.github/workflows/demo-image.yml`, 'ut
 const demoDoc = readFileSync(`${root}docs/DEMO.md`, 'utf8')
 
 /**
- * Task 15 targets `examples/v5-app`, not `examples/v4-app` — Amendment 2 overturned spec §14's
+ * The demo targets `examples/v5-app`, not `examples/v4-app` — this overturned the original plan's
  * "v4 only" call after the fact: SECURITY.md is about to state in public that Strapi 4 is EOL
  * with 86 unpatched advisories, and a public demo running that exact stack under our own domain
  * would contradict the document while it is being published. v4 stays supported; it just does
  * not get a public URL.
  */
-describe('Dockerfile ของ demo v5 (Amendment 2)', () => {
+describe('Dockerfile ของ demo v5', () => {
   it('build admin ตอนสร้าง image ไม่ใช่ตอนบูต', () => {
     expect(dockerfile).toMatch(/RUN\s+npm run build/)
     // ENTRYPOINT/CMD ทั้งคู่ต้องไม่มีคำว่า build อยู่เลย — ของที่รันตอนบูตต้องเป็นของที่ build เสร็จแล้ว
@@ -55,14 +55,14 @@ describe('Dockerfile ของ demo v5 (Amendment 2)', () => {
     expect(exposed).toEqual(['1337'])
   })
 
-  // Ruling E (Amendment 2) — mock รันเป็นโปรเซสที่สองในคอนเทนเนอร์เดียวกัน ไม่ใช่ Render service
+  // mock รันเป็นโปรเซสที่สองในคอนเทนเนอร์เดียวกัน ไม่ใช่ Render service
   // แยก entrypoint จึงต้องเป็นสคริปต์ ไม่ใช่ `npx strapi start` ตรง ๆ
   it('บูตผ่าน entrypoint script ไม่ใช่เรียก strapi ตรง ๆ ใน CMD', () => {
     expect(dockerfile).toMatch(/ENTRYPOINT\s+\[?["']?docker-entrypoint\.sh["']?/)
   })
 })
 
-describe('docker-entrypoint.sh — Ruling E (Amendment 2)', () => {
+describe('docker-entrypoint.sh — mock อยู่ในคอนเทนเนอร์เดียวกัน', () => {
   // ตัดคอมเมนต์ (บรรทัดที่ขึ้นต้นด้วย #) ออกก่อนตรวจ — คอมเมนต์อธิบายพวกนี้พูดถึงคำว่า "exec"
   // และ "127.0.0.1" เองด้วย (อธิบายว่าสคริปต์ทำอะไร) ถ้าตรวจจากข้อความทั้งไฟล์ตรง ๆ
   // ประโยคอธิบายในคอมเมนต์จะทำให้ด่านนี้เขียวได้โดยไม่ต้องมีโค้ดจริงเลย — พิสูจน์แล้วโดยเจตนา:
@@ -108,7 +108,7 @@ describe('render.yaml', () => {
     expect(renderYaml).not.toMatch(/^\s*buildCommand:/m)
   })
 
-  // Ruling E — mock อยู่ในคอนเทนเนอร์เดียวกับ Strapi ไม่ใช่ service ที่สองของ Render
+  // mock อยู่ในคอนเทนเนอร์เดียวกับ Strapi ไม่ใช่ service ที่สองของ Render
   it('มี Render service เดียว ไม่ใช่สองตัว', () => {
     const services = [...renderYaml.matchAll(/^\s*-\s+type:\s*web\s*$/gm)]
     expect(services.length).toBe(1)
@@ -120,8 +120,8 @@ describe('render.yaml', () => {
     expect(renderYaml).toMatch(/127\.0\.0\.1/)
   })
 
-  // Ruling B — ใช้ region เดียวกับ autoflow-demo-api ที่รันอยู่แล้วในเวิร์กสเปซเดียวกัน
-  it('อยู่ region singapore เหมือน autoflow-demo-api', () => {
+  // region ต้องคงที่ ไม่ใช่เพราะสวยงาม แต่เพราะ instance-hours ของ Render รวมกันทั้ง workspace
+  it('ปักหมุด region ไว้ที่ singapore', () => {
     expect(renderYaml).toMatch(/region:\s*singapore/)
   })
 
@@ -172,11 +172,11 @@ describe('.github/workflows/demo-image.yml', () => {
 })
 
 describe('docs/DEMO.md', () => {
-  it('บอกว่า demo เป็น v5 บน Strapi 5 (Amendment 2) ไม่ใช่ v4', () => {
+  it('บอกว่า demo เป็น v5 บน Strapi 5 ไม่ใช่ v4', () => {
     expect(demoDoc).toMatch(/v5-app|Strapi 5/)
   })
 
-  // Ruling F — วัดจริง ไม่ใช่สืบทอดเหตุผลของ v4 (webpack) มาทั้งดุ้น
+  // วัดจริง ไม่ใช่สืบทอดเหตุผลของ v4 (webpack) มาทั้งดุ้น
   it('รายงานตัวเลข RSS ที่วัดจริงของ Vite build เทียบกับ 512 MB ไม่ใช่กล่าวอ้างลอย ๆ', () => {
     expect(demoDoc).toMatch(/512\s?MB/i)
     expect(demoDoc).toMatch(/Vite/)
@@ -190,27 +190,35 @@ describe('docs/DEMO.md', () => {
     expect(demoDoc).toMatch(/same container|คอนเทนเนอร์เดียวกัน|second process/i)
   })
 
-  // Ruling B — ต้องมี section ห้าม uptime pinger พร้อมเหตุผล ไม่ใช่แค่ประโยคเดียวลอย ๆ
-  it('มี section ห้าม uptime pinger พร้อมเหตุผลเรื่อง autoflow-demo-api', () => {
+  // ต้องมี section ห้าม uptime pinger พร้อม **เหตุผล** ไม่ใช่ประโยคเดียวลอย ๆ — เหตุผลคือสิ่งที่กัน
+  // ไม่ให้คนถัดไปใส่ pinger กลับเข้ามา ส่วนตัวเลข 750 คือสิ่งที่ทำให้ข้อห้ามนั้นจับต้องได้
+  it('มี section ห้าม uptime pinger พร้อมเหตุผลเรื่องโควตาที่แชร์กัน', () => {
     expect(demoDoc).toMatch(/^##+ .*(pinger|uptime)/im)
-    expect(demoDoc).toMatch(/autoflow-demo-api/)
     expect(demoDoc).toMatch(/750/)
+    expect(demoDoc).toMatch(/shared|share|พูล|แชร์/i)
   })
 
   it('บอก hostname สาธารณะของ demo', () => {
     expect(demoDoc).toContain('line-rich-menu.fosivo.com')
   })
 
-  // Ruling I — ลำดับ DNS/proxy สี่ขั้นต้องเขียนเป็น prose ให้คนทำตามได้
-  it('อธิบายลำดับ DNS/Cloudflare สี่ขั้นของ Ruling I', () => {
+  // ลำดับ DNS/proxy สี่ขั้นต้องเขียนเป็น prose ให้คนทำตามได้
+  it('อธิบายลำดับ DNS/Cloudflare สี่ขั้น', () => {
     expect(demoDoc).toMatch(/custom domain/i)
     expect(demoDoc).toMatch(/dns-only/i)
     expect(demoDoc).toMatch(/proxied/i)
     expect(demoDoc).toMatch(/cf-ray/i)
   })
 
-  it('ไม่มีชื่อลูกค้าหลุดเข้ามา', () => {
-    expect(demoDoc).not.toMatch(/roddonjai/i)
+  // ด่านเดิมเช็คชื่อลูกค้าชื่อเดียวในไฟล์เดียว แต่กฎที่มันยืนแทนกว้างกว่านั้น: repo นี้เป็น public
+  // ชื่อ service ภายในของใครก็ตามไม่ควรอยู่ในนี้ ไม่ว่าจะของลูกค้าหรือของผู้เผยแพร่เอง เพราะการ
+  // ประกาศว่ามี host อะไรอยู่บนโดเมนไหนบ้างคือการแจก reconnaissance ให้ฟรี ๆ — เคยหลุดมาแล้ว
+  // ทั้ง DEMO.md, render.yaml, entrypoint และตัวไฟล์เทสต์นี้เอง จึงต้องกวาดทุกไฟล์ ไม่ใช่ไฟล์เดียว
+  it('ไม่มีชื่อ infrastructure ส่วนตัวหลุดเข้ามาในไฟล์ไหนเลย', () => {
+    const forbidden = /roddonjai|autoflow|siteops|portainer|grafana/i
+    for (const [name, text] of Object.entries({ demoDoc, renderYaml, entrypoint, dockerfile, dockerignore, demoWorkflow })) {
+      expect(text, `${name} มีชื่อ infrastructure ส่วนตัวอยู่`).not.toMatch(forbidden)
+    }
   })
 })
 

@@ -58,7 +58,7 @@ describe('README — สิ่งที่ผู้ใช้เห็นก่�
   })
 
   /**
-   * Amendment 14-15-16, Ruling C — README ไม่ใช่ที่เก็บรายละเอียดความปลอดภัย แค่บอกจุดยืนเรื่อง
+   * README ไม่ใช่ที่เก็บรายละเอียดความปลอดภัย แค่บอกจุดยืนเรื่อง
    * Strapi 4 EOL สั้น ๆ สองประโยคแล้วชี้ไปที่ SECURITY.md รายละเอียดอยู่ที่เดียว ไม่ใช่สองที่
    */
   it('มีส่วน Security สั้น ๆ ที่ลิงก์ไปยัง SECURITY.md', () => {
@@ -67,7 +67,7 @@ describe('README — สิ่งที่ผู้ใช้เห็นก่�
   })
 })
 
-describe('SECURITY.md — Amendment 14-15-16 Ruling C', () => {
+describe('SECURITY.md ', () => {
   const security = readFileSync(`${root}SECURITY.md`, 'utf8')
 
   it('มีไฟล์อยู่จริงที่ root ของ repo', () => {
