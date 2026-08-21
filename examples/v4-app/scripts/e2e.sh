@@ -51,6 +51,10 @@ step() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 step "build เวิร์กสเปซ"
 (cd "$ROOT_DIR" && pnpm build)
 
+# token ของ channel ที่ acceptance.spec.ts สร้าง — ประกาศไว้ที่เดียวเพื่อให้ด่าน readiness
+# ข้างล่างถาม mock ด้วย store ใบเดียวกับที่เทสต์จะเขียนลงไปจริง
+export E2E_CHANNEL_ACCESS_TOKEN='e2e-access-token-ABCD'
+
 step "เริ่ม LINE mock ที่ 4010"
 free_port 4010 || { echo "::error::พอร์ต 4010 ยังถูกใช้อยู่และฆ่าไม่ลง" >&2; exit 1; }
 free_port 1337 || { echo "::error::พอร์ต 1337 ยังถูกใช้อยู่และฆ่าไม่ลง" >&2; exit 1; }
@@ -61,7 +65,11 @@ until curl -sf -H 'Authorization: Bearer wait' http://127.0.0.1:4010/v2/bot/info
 # ด่านนี้ถามว่า "ตัวที่ตอบอยู่คือตัวที่เราเพิ่งเริ่มหรือเปล่า" ไม่ใช่แค่ "มีอะไรตอบไหม" —
 # ตัวที่เพิ่งเริ่มต้องยังไม่มี rich menu สักอัน ถ้ามี แปลว่ากำลังคุยกับตัวค้างจากรอบก่อน
 # ไม่พึ่ง lsof เพราะด่านนี้ต้องทำงานได้แม้บนเครื่องที่ไม่มี lsof ติดตั้ง
-mock_menus="$(curl -sf -H 'Authorization: Bearer wait' http://127.0.0.1:4010/v2/bot/richmenu/list)"
+#
+# ต้องถามด้วย **token ตัวเดียวกับที่เทสต์ใช้** เพราะ mock แยก store ตาม access token แล้ว
+# (หนึ่ง token = หนึ่ง OA เหมือน LINE จริง) — ถามด้วย token อื่นจะได้ store เปล่าเสมอ แล้วด่านนี้
+# จะเขียวให้กับ mock ค้างจากรอบก่อนทุกครั้ง ซึ่งคือสิ่งที่มันมีไว้จับพอดี
+mock_menus="$(curl -sf -H "Authorization: Bearer $E2E_CHANNEL_ACCESS_TOKEN" http://127.0.0.1:4010/v2/bot/richmenu/list)"
 if [ "$mock_menus" != '{"richmenus":[]}' ]; then
   echo "::error::mock ที่พอร์ต 4010 ไม่ใช่ตัวที่รอบนี้เพิ่งเริ่ม — ยังถือ rich menu ของรอบก่อนอยู่" >&2
   echo "  /v2/bot/richmenu/list ตอบ: $mock_menus" >&2
