@@ -30,6 +30,15 @@ export default defineConfig({
       // regression without demanding new tests to go green. Raise them when the real figure
       // rises; never lower one to make a red build pass.
       thresholds: {
+        // เคยลองใส่ `perFile: true` ตรงนี้ แล้ว **มันไม่ทำงาน** — Vitest รับ key นี้ใน threshold
+        // ที่ผูกกับ glob โดยไม่บ่น แต่ไม่บังคับใช้ ยืนยันด้วยการวางไฟล์ที่ 40% lines / 50% branches
+        // ไว้ใน packages/core/src/server/ แล้วประตูยังเขียว เป็นความล้มเหลวชนิดเดียวกับ threshold
+        // ต่อ project ของ Vitest 2 ที่คอมเมนต์ข้างบนเล่าไว้เป๊ะ ๆ คือ option ที่ type ผ่านและอ่านแล้ว
+        // เหมือนตั้งค่าไว้ แต่ไม่ได้กั้นอะไรเลย — อย่าใส่กลับโดยไม่ได้ทดสอบว่ามันแดงจริง
+        //
+        // ผลคือไฟล์ที่อ่อนยังซ่อนหลังไฟล์ที่แข็งได้อยู่ (เจอจริงที่ server/channels.ts 87% branch
+        // ขณะที่ทั้ง glob 95%) ทางแก้จริงคือยก packages/ui ให้ผ่าน perFile แล้วเปิดที่ระดับบนสุด
+        // ซึ่งเป็นที่เดียวที่ Vitest บังคับใช้จริง — บันทึกไว้ใน carry-forward แล้ว
         'packages/core/src/**': { lines: 90, branches: 90, functions: 90, statements: 90 },
         'packages/ui/src/**': { lines: 90, branches: 90, functions: 70, statements: 90 },
       },
