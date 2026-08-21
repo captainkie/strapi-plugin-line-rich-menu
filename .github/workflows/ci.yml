@@ -40,6 +40,70 @@ jobs:
             echo "::error::sharp ถูก import เข้า packages/core/dist/browser.{js,cjs} — subpath \"./browser\" ต้องรันในเบราว์เซอร์ได้โดยไม่มี sharp"
             exit 1
           fi
+      - name: ตรวจว่า dist/browser.{js,cjs} ไม่มีชั้น server หลุดเข้ามา
+        # เทสต์ import-guard ตรวจที่ต้นทาง (src) ขั้นนี้ตรวจที่ dist ซึ่งเป็นสิ่งที่ผู้บริโภคได้จริง
+        # SERVER_MODULE_MARKER เป็นค่าคงที่ที่มีอยู่ที่เดียวในโค้ดเบส การเจอมันใน browser bundle
+        # แปลว่า tree-shaking ไม่ได้ตัด server/ ออก ไม่ว่าจะเข้ามาทางไหน
+        run: |
+          if grep -n "line-rich-menu/server" \
+            packages/core/dist/browser.js packages/core/dist/browser.cjs; then
+            echo "::error::ชั้น server หลุดเข้า packages/core/dist/browser.{js,cjs} — subpath \"./browser\" ต้องไม่มีโค้ดฝั่งเซิร์ฟเวอร์"
+            exit 1
+          fi
+
+  e2e-v4:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # สเปก §13.4 — matrix db เป็นด่านที่พิสูจน์ว่า lock query ของ scheduler (คำนวณเส้นตาย
+      # ใน JS ไม่ใช่ INTERVAL ของ Postgres) ทำงานได้จริงทั้งสอง dialect ไม่ใช่แค่ที่เราเดา
+      matrix:
+        db: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: strapi
+          POSTGRES_PASSWORD: strapi
+          POSTGRES_DB: strapi
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # เรียกสคริปต์ตัวเดียวกับที่คนรันบนเครื่อง ไม่ใช่เขียนลำดับขั้นซ้ำใน YAML —
+      # ลำดับใน scripts/e2e.sh มีด่านที่ตัดสินผลอยู่หลายจุด (ปลั๊กอินถูกโหลดจริงไหม, node_modules
+      # ได้ไบต์ของ tarball รอบนี้ไหม) การคัดลอกขั้นตอนมาไว้ที่นี่แปลว่า CI กับเครื่องจะเดินคนละทาง
+      # ทันทีที่ฝั่งใดฝั่งหนึ่งถูกแก้ ซึ่งเป็นวิธีที่ทำให้ gate เขียวโดยไม่ได้วัดของจริง
+      #
+      # ค่า DATABASE_* ส่งผ่าน env ไม่ใช่แก้ .env — สคริปต์ให้ env ภายนอกชนะไฟล์เสมอ
+      # ถ้าไม่เป็นแบบนั้น ขา postgres จะถูก .env ดึงกลับไปเป็น sqlite แล้วเขียวทั้งสองขา
+      # โดยไม่เคยแตะ Postgres เลย
+      - name: acceptance gate — Strapi 4.25.11 ตัวจริง + ปลั๊กอินจาก tarball
+        env:
+          DATABASE_CLIENT: ${{ matrix.db }}
+          DATABASE_HOST: 127.0.0.1
+          DATABASE_PORT: '5432'
+          DATABASE_NAME: strapi
+          DATABASE_USERNAME: strapi
+          DATABASE_PASSWORD: strapi
+        run: pnpm e2e:v4
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-v4-${{ matrix.db }}
+          path: |
+            examples/v4-app/test-results
+            examples/v4-app/.tmp-strapi.log
+            examples/v4-app/.tmp-line-mock.log
 
   mutation:
     runs-on: ubuntu-latest
@@ -75,8 +139,29 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ประตูนี้กั้นเฉพาะ dependency ที่ "เราเลือกเองและปล่อยออกไปจริง" เหตุผลเต็มอยู่ในหัวไฟล์
+  # scripts/audit-shipped.mjs — โดยย่อคือ Strapi 4.25.x EOL ไปแล้วตั้งแต่ 30 เมษายน 2026 และ
+  # ต้นไม้ dependency ของมันมีช่องโหว่ที่รู้จักแล้วเกิน 70 รายการซึ่งจะไม่มีวันได้แพตช์ เราไม่ได้พา
+  # มันเข้ามา (`@strapi/strapi` เป็น peerDependency) และแก้ไม่ได้ การกั้นทั้งไฟล์ล็อกจึงทำให้ CI
+  # แดงตลอดกาลด้วยเรื่องที่ทำอะไรไม่ได้ ซึ่งจบลงที่คนเลิกอ่านมัน แล้ววันที่ sharp หรือ zod มี
+  # ช่องโหว่จริงก็จะไม่มีใครสังเกต
   dependencies:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/audit-shipped.mjs
+
+  # ไม่บล็อก แต่ต้องยังเห็น — สถานะของต้นไม้ Strapi 4 เป็นข้อมูลที่ลูกค้าควรได้รู้ ไม่ใช่ของที่ปิดปาก
+  # ถ้าวันหนึ่งเลิกรองรับ v4 แล้ว job นี้ควรกลับมาบล็อกอีกครั้ง
+  dependencies-upstream:
+    runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: google/osv-scanner-action/osv-scanner-action@v2.5.1

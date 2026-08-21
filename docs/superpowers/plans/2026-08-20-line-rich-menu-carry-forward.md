@@ -161,3 +161,80 @@ fail outright for a scoped package.
 
 `pnpm -r build` was never in the verified set for Plan 02. It is the only command that exercises
 `resolveJsonModule` through tsup's `dts: true`. Run it before tagging.
+
+---
+
+## From Plan 03 — per-file coverage is not currently enforceable
+
+`perFile: true` works only in the **top-level** `thresholds` object. Inside a glob-keyed
+threshold Vitest accepts the key and silently ignores it — verified by placing a file at 40%
+lines / 50% branches under `packages/core/src/server/` and watching the gate stay green.
+
+So a weak file can still hide behind strong ones inside a glob. It already happened once:
+`server/channels.ts` sat at 87% branch while its glob showed 95%, and the untested branches
+were the "only one default channel" business rule.
+
+Turning it on at the top level requires `packages/ui` to pass per-file first. As of Plan 03's
+start these files fall short, most by one or two points:
+
+| File | Short on |
+|---|---|
+| `api.ts` | functions 20% |
+| `components/ActionForm.tsx` | lines 88%, statements 88%, functions 33% |
+| `components/CanvasEditor.tsx` | branches 89.58% |
+| `components/ChatBarSettings.tsx` | branches 88.88% |
+| `components/ImageField.tsx` | branches 89.65% |
+| `components/MainSettings.tsx` | functions 66.66% |
+| `components/Preview.tsx` | functions 50% |
+| `pages/RichMenuEditor.tsx` | branches 87.67% |
+| `styles.ts` | branches 75% |
+
+The function metric is structurally low for React components, since every inline handler prop
+counts as a function — a realistic `functions` floor for `packages/ui` is nearer 70 than 90,
+which the current glob threshold already reflects. The branch gaps are genuine and worth
+closing.
+
+---
+
+## From Plan 03's whole-branch review — accepted tradeoffs, for Plan 04 to check
+
+**The stale-publish guard depends on `updatedAt` being touched on every write.** I4's fix refuses
+a second publish while one is running, and recovers from a crashed publish by treating the
+`publishing` row as stale after a TTL. That TTL is read from `updatedAt`, which Strapi 4 bumps on
+every write. **This was not verified for Strapi 5's document service.** If v5 does not bump it the
+same way, a crashed publish wedges that menu permanently — check before porting.
+
+**The in-memory fake `Repo` does not simulate `updatedAt` being bumped.** This already cost one
+genuinely confusing debugging session: the guard silently failed to fire and the test looked like
+an infinite loop. Plan 04's v5 tests will hit the same thing unless the fake bumps it.
+
+**`PUBLISHING_STALE_AFTER_MS` is five minutes by reasoning, not by measurement.** Nobody has timed
+a real publish against a slow LINE response with a large image. Worth measuring once there is real
+usage rather than guessing again.
+
+**The stale-publish guard is check-then-set, not compare-and-swap.** `Repo<T>` has no conditional
+update primitive, and adding one would mean every adapter implementing it. The race window shrank
+from the whole publish duration to a single `await`, which is a large improvement and not a
+guarantee. Accepted deliberately; revisit if concurrent publishes ever become common.
+
+**Mutation testing was not re-run after the two fix rounds.** The nightly job covers it, but the
+score has not been checked against the ~120 tests added since.
+
+---
+
+## For Plan 04's README task — state the Strapi 4 security position plainly
+
+Strapi 4.25.x reached end of life on **30 April 2026**. Its own dependency tree carries **70+
+known vulnerabilities, including criticals**, and will never be patched because nobody maintains
+it. That is a property of running Strapi 4, not of this plugin: `@strapi/strapi` is a
+**peerDependency**, so the customer brings their own, and they have those advisories with or
+without us. What the plugin itself adds at runtime is `sharp` and `zod`, both current.
+
+CI reflects this honestly rather than hiding it: `scripts/audit-shipped.mjs` blocks on advisories
+reachable **without** going through `@strapi/strapi`, and a separate non-blocking job keeps
+scanning the whole tree so the upstream state stays visible.
+
+The README must say this in the v4 section, in plain language — a customer choosing between the
+v4 and v5 packages deserves to know that one of them targets EOL software. **Do not bury it in a
+footnote and do not omit it.** It is also the strongest honest argument for migrating to Strapi 5,
+which serves the customer better than silence does.

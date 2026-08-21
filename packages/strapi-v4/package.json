@@ -1,0 +1,59 @@
+{
+  "name": "strapi-plugin-line-rich-menu-v4",
+  "version": "0.0.0",
+  "description": "LINE rich menu builder for Strapi 4.25.x \u2014 a bridge while you migrate to Strapi 5",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=20.15.0"
+  },
+  "main": "./strapi-server.js",
+  "files": [
+    "dist",
+    "strapi-server.js",
+    "strapi-admin.js",
+    "LICENSE",
+    "COMMERCIAL-LICENSE.md"
+  ],
+  "strapi": {
+    "name": "line-rich-menu",
+    "displayName": "LINE Rich Menu",
+    "description": "Build, schedule and publish LINE rich menus from the Strapi admin panel",
+    "kind": "plugin"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "check:deps": "node scripts/check-runtime-deps.mjs"
+  },
+  "dependencies": {
+    "sharp": "^0.35.3",
+    "zod": "^3.23.8"
+  },
+  "peerDependencies": {
+    "@strapi/design-system": "^1.19.0",
+    "@strapi/helper-plugin": "^4.25.0",
+    "@strapi/icons": "^1.19.0",
+    "@strapi/strapi": "^4.25.0",
+    "react": "^17.0.0 || ^18.0.0",
+    "react-dom": "^17.0.0 || ^18.0.0",
+    "react-intl": "^6.4.1",
+    "react-router-dom": "^5.3.4",
+    "styled-components": "^5.3.3"
+  },
+  "devDependencies": {
+    "@fosivo/line-rich-menu-core": "workspace:*",
+    "@fosivo/line-rich-menu-ui": "workspace:*",
+    "@testing-library/react": "^16.3.2",
+    "@strapi/design-system": "^1.19.0",
+    "@strapi/helper-plugin": "^4.25.23",
+    "@strapi/icons": "^1.19.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@types/react-router-dom": "^5.3.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-intl": "^6.4.1",
+    "react-router-dom": "^5.3.4",
+    "styled-components": "^5.3.11"
+  }
+}

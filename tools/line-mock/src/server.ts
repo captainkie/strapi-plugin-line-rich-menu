@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import { inspectImage } from '@fosivo/line-rich-menu-core'
-import { createStore } from './store.js'
+import { createStore, type MockStore } from './store.js'
 
 interface Detail { property: string; message: string }
 
@@ -19,9 +19,30 @@ function validate(body: unknown): Detail[] {
   return details
 }
 
+/**
+ * store หนึ่งใบต่อหนึ่ง access token — ไม่ใช่ใบเดียวทั้งเซิร์ฟเวอร์
+ *
+ * ของเดิมตรวจแค่ว่า "มี Bearer header อยู่" แล้วใช้ store ใบเดียวไม่ว่า token จะเป็นอะไร คือ
+ * ของปลอมที่เป็น single-tenant ยืนแทน API ที่เป็น multi-tenant ผลคือข้อบกพร่องข้าม channel
+ * **ทุกชนิด** มองไม่เห็นจาก acceptance gate โดยโครงสร้าง: tick ที่ยิงเมนูของ OA หนึ่งด้วย token
+ * ของอีก OA หนึ่งจะ "ทำงานได้" อย่างสมบูรณ์แบบในของปลอมใบนี้ เพราะทั้งสอง OA ใช้ store ใบเดียวกัน
+ */
 export function createServer(): FastifyInstance {
   const app = Fastify({ logger: false })
-  const store = createStore()
+
+  // นับรวมทั้งเซิร์ฟเวอร์ ไม่ใช่ต่อ store — ดูเหตุผลที่ `createStore` ใน store.ts
+  let counter = 0
+  const nextId = (): string => `richmenu-${(++counter).toString().padStart(8, '0')}`
+  const stores = new Map<string, MockStore>()
+
+  function storeFor(req: FastifyRequest): MockStore {
+    const token = (req.headers.authorization ?? '').slice('Bearer '.length)
+    const found = stores.get(token)
+    if (found !== undefined) return found
+    const created = createStore(nextId)
+    stores.set(token, created)
+    return created
+  }
 
   app.addContentTypeParser(
     ['image/png', 'image/jpeg'],
@@ -52,18 +73,19 @@ export function createServer(): FastifyInstance {
   app.post('/v2/bot/richmenu', async (req, reply) => {
     const details = validate(req.body)
     if (details.length > 0) return reply.code(400).send({ message: 'invalid', details })
+    const store = storeFor(req)
     const richMenuId = store.nextId()
     store.menus.set(richMenuId, { richMenuId, payload: req.body })
     return reply.send({ richMenuId })
   })
 
-  app.get('/v2/bot/richmenu/list', async () => ({
-    richmenus: [...store.menus.values()].map((m) => ({ richMenuId: m.richMenuId })),
+  app.get('/v2/bot/richmenu/list', async (req) => ({
+    richmenus: [...storeFor(req).menus.values()].map((m) => ({ richMenuId: m.richMenuId })),
   }))
 
   app.get('/v2/bot/richmenu/:id', async (req, reply) => {
     const { id } = req.params as { id: string }
-    const found = store.menus.get(id)
+    const found = storeFor(req).menus.get(id)
     if (!found) return reply.code(404).send({ message: 'not found' })
     // `image` เป็นส่วนขยายเฉพาะของ mock นี้ (ไม่มีใน LINE จริง) ให้เทสต์ integration
     // ตรวจสอบได้ว่า dimension ของรูปที่อัปจริงตรงกับ size ที่ menu ประกาศไว้ (ดูสเปก 4.1)
@@ -72,6 +94,7 @@ export function createServer(): FastifyInstance {
 
   app.delete('/v2/bot/richmenu/:id', async (req, reply) => {
     const { id } = req.params as { id: string }
+    const store = storeFor(req)
     if (!store.menus.delete(id)) return reply.code(404).send({ message: 'not found' })
     if (store.defaultMenuId === id) store.defaultMenuId = null
     return reply.send({})
@@ -79,7 +102,7 @@ export function createServer(): FastifyInstance {
 
   app.post('/v2/bot/richmenu/:id/content', async (req, reply) => {
     const { id } = req.params as { id: string }
-    const menu = store.menus.get(id)
+    const menu = storeFor(req).menus.get(id)
     if (!menu) return reply.code(404).send({ message: 'not found' })
     const buffer = req.body as Buffer
     if (buffer.length > 1_048_576) {
@@ -99,39 +122,56 @@ export function createServer(): FastifyInstance {
     return reply.send({})
   })
 
+  app.get('/v2/bot/user/all/richmenu', async (req, reply) => {
+    const { defaultMenuId } = storeFor(req)
+    if (defaultMenuId === null) return reply.code(404).send({ message: 'no default richmenu' })
+    return reply.send({ richMenuId: defaultMenuId })
+  })
+
   app.post('/v2/bot/user/all/richmenu/:id', async (req, reply) => {
     const { id } = req.params as { id: string }
+    const store = storeFor(req)
+    // 404 ตรงนี้คือสิ่งที่ทำให้ "ตั้ง default ด้วย id ของ OA อื่น" ถูกจับได้ — ของเดิมที่ใช้ store
+    // ใบเดียวจะเจอ id นั้นเสมอ แล้วตอบ 200 ให้กับคำขอที่ผิด OA
     if (!store.menus.has(id)) return reply.code(404).send({ message: 'not found' })
     store.defaultMenuId = id
     return reply.send({})
   })
 
-  app.delete('/v2/bot/user/all/richmenu', async (_req, reply) => {
-    store.defaultMenuId = null
+  app.delete('/v2/bot/user/all/richmenu', async (req, reply) => {
+    storeFor(req).defaultMenuId = null
     return reply.send({})
   })
 
   app.post('/v2/bot/richmenu/alias', async (req, reply) => {
     const { richMenuAliasId, richMenuId } = req.body as { richMenuAliasId: string; richMenuId: string }
-    store.aliases.set(richMenuAliasId, richMenuId)
+    storeFor(req).aliases.set(richMenuAliasId, richMenuId)
     return reply.send({})
   })
 
   app.post('/v2/bot/richmenu/alias/:aliasId', async (req, reply) => {
     const { aliasId } = req.params as { aliasId: string }
     const { richMenuId } = req.body as { richMenuId: string }
-    store.aliases.set(aliasId, richMenuId)
+    storeFor(req).aliases.set(aliasId, richMenuId)
     return reply.send({})
   })
 
   app.delete('/v2/bot/richmenu/alias/:aliasId', async (req, reply) => {
     const { aliasId } = req.params as { aliasId: string }
-    store.aliases.delete(aliasId)
+    storeFor(req).aliases.delete(aliasId)
     return reply.send({})
   })
 
-  app.get('/v2/bot/richmenu/alias/list', async () => ({
-    aliases: [...store.aliases.entries()].map(([richMenuAliasId, richMenuId]) => ({ richMenuAliasId, richMenuId })),
+  app.get('/v2/bot/richmenu/alias/:aliasId', async (req, reply) => {
+    const { aliasId } = req.params as { aliasId: string }
+    const richMenuId = storeFor(req).aliases.get(aliasId)
+    if (richMenuId === undefined) return reply.code(404).send({ message: 'alias not found' })
+    return reply.send({ richMenuAliasId: aliasId, richMenuId })
+  })
+
+  app.get('/v2/bot/richmenu/alias/list', async (req) => ({
+    aliases: [...storeFor(req).aliases.entries()]
+      .map(([richMenuAliasId, richMenuId]) => ({ richMenuAliasId, richMenuId })),
   }))
 
   app.post('/v2/bot/user/:userId/richmenu/:id', async (_req, reply) => reply.send({}))
