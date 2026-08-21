@@ -16,9 +16,14 @@
     "verify": "pnpm --filter strapi-plugin-line-rich-menu verify",
     "check:deps": "pnpm --filter strapi-plugin-line-rich-menu-v4 check:deps && pnpm --filter strapi-plugin-line-rich-menu check:deps",
     "e2e:v4": "bash examples/v4-app/scripts/e2e.sh",
-    "e2e:v5": "bash examples/v5-app/scripts/e2e.sh"
+    "e2e:v5": "bash examples/v5-app/scripts/e2e.sh",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^1.0.0",
+    "@changesets/cli": "^3.0.1",
     "@eslint/js": "^9.39.5",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
