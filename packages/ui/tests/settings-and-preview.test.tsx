@@ -29,15 +29,72 @@ describe('MainSettings', () => {
     expect(screen.getByText('editor.title.hint')).toBeInTheDocument()
   })
 
-  it('ช่วงเวลาแสดงผลอยู่ในฟอร์มเดียวกัน ไม่ใช่หน้าแยก', () => {
+  // สเปกงานนี้ #4 — เจ้าของขอปฏิทินจริงแทนช่องพิมพ์สตริงอิสระ "YYYY-MM-DD HH:mm" เดิม รูปทรงตาม
+  // LINE ตรง ๆ (docs/files/example-ui/): วันที่ + เวลาแยกกันคนละช่องต่อฝั่ง (สี่ช่องรวม)
+  it('ช่วงเวลาแสดงผลมีสี่ช่อง (วันที่/เวลา × เริ่ม/สิ้นสุด) อยู่ในฟอร์มเดียวกัน ไม่ใช่หน้าแยก', () => {
     wrap(<MainSettings value={value} onChange={vi.fn()} />)
-    expect(screen.getByLabelText('editor.displayPeriod.start')).toBeInTheDocument()
-    expect(screen.getByLabelText('editor.displayPeriod.end')).toBeInTheDocument()
+    expect(screen.getByLabelText('editor.displayPeriod.startDate')).toBeInTheDocument()
+    expect(screen.getByLabelText('editor.displayPeriod.startTime')).toBeInTheDocument()
+    expect(screen.getByLabelText('editor.displayPeriod.endDate')).toBeInTheDocument()
+    expect(screen.getByLabelText('editor.displayPeriod.endTime')).toBeInTheDocument()
   })
 
-  it('ปุ่ม clear ล้างช่วงเวลาทั้งคู่ แต่ไม่แตะชื่อ', () => {
+  // ยามสำคัญของงานนี้ — ต้องเป็นปฏิทินจริง (input type=date/time ของ stub ซึ่งจับคู่กับ DatePicker/
+  // TimePicker ของ DS จริงในสอง adapter) ไม่ใช่ TextInput ที่พิมพ์สตริงตายตัวเหมือนเดิม
+  it('ช่องวันที่/เวลาเป็นปฏิทินจริง ไม่ใช่ช่องพิมพ์สตริงอิสระแบบเดิม', () => {
+    wrap(<MainSettings value={value} onChange={vi.fn()} />)
+    expect(screen.getByLabelText('editor.displayPeriod.startDate')).toHaveAttribute('type', 'date')
+    expect(screen.getByLabelText('editor.displayPeriod.endDate')).toHaveAttribute('type', 'date')
+    expect(screen.getByLabelText('editor.displayPeriod.startTime')).toHaveAttribute('type', 'time')
+    expect(screen.getByLabelText('editor.displayPeriod.endTime')).toHaveAttribute('type', 'time')
+  })
+
+  it('มี "~" คั่นระหว่างสองแถว ตามที่ LINE เองใช้', () => {
+    wrap(<MainSettings value={value} onChange={vi.fn()} />)
+    expect(screen.getByText('~')).toBeInTheDocument()
+  })
+
+  it('ค่า ISO ที่ตั้งไว้เดิมแยกกลับเป็นวันที่ + เวลาในสองช่องถูกต้อง ไม่ใช่ช่องว่างเปล่า', () => {
+    wrap(
+      <MainSettings
+        value={{ title: '', startAt: '2026-08-20T09:05:00.000Z', endAt: '' }}
+        onChange={vi.fn()}
+      />,
+    )
+    const dateInput = screen.getByLabelText('editor.displayPeriod.startDate') as HTMLInputElement
+    const timeInput = screen.getByLabelText('editor.displayPeriod.startTime') as HTMLInputElement
+    expect(dateInput.value).not.toBe('')
+    expect(timeInput.value).toMatch(/^\d{2}:\d{2}$/)
+    // ฝั่งที่ยังไม่ตั้ง (endAt ว่าง) ต้องว่างจริง ไม่ใช่ค้างค่าของฝั่งเริ่ม
+    expect((screen.getByLabelText('editor.displayPeriod.endDate') as HTMLInputElement).value).toBe('')
+  })
+
+  it('เลือกวันที่แล้ว startAt กลายเป็น ISO datetime string เดียว ไม่ใช่แค่สตริงวันที่ดิบ', () => {
     const onChange = vi.fn()
-    wrap(<MainSettings value={{ title: 'เมนู', startAt: '2026-08-20', endAt: '2026-08-26' }} onChange={onChange} />)
+    wrap(<MainSettings value={value} onChange={onChange} />)
+    fireEvent.change(screen.getByLabelText('editor.displayPeriod.startDate'), { target: { value: '2026-08-20' } })
+    expect(onChange).toHaveBeenCalledWith({ ...value, startAt: expect.stringMatching(/^2026-08-\d{2}T\d{2}:\d{2}:00\.000Z$/) })
+  })
+
+  it('ตั้งวันที่ไว้แล้วเปลี่ยนแค่เวลา ต้องคงวันที่เดิมไว้ ไม่ใช่ล้างวันที่ทิ้ง', () => {
+    const onChange = vi.fn()
+    wrap(<MainSettings value={{ ...value, startAt: '2026-08-20T00:00:00.000Z' }} onChange={onChange} />)
+    fireEvent.change(screen.getByLabelText('editor.displayPeriod.startTime'), { target: { value: '14:30' } })
+    const [nextValue] = onChange.mock.calls[0] as [{ startAt: string }]
+    expect(nextValue.startAt).not.toBe('')
+    const roundTrip = new Date(nextValue.startAt)
+    expect(roundTrip.getHours()).toBe(14)
+    expect(roundTrip.getMinutes()).toBe(30)
+  })
+
+  it('ปุ่ม clear ล้างช่วงเวลาทั้งคู่ (ทั้งวันที่และเวลา) แต่ไม่แตะชื่อ', () => {
+    const onChange = vi.fn()
+    wrap(
+      <MainSettings
+        value={{ title: 'เมนู', startAt: '2026-08-20T00:00:00.000Z', endAt: '2026-08-26T23:59:00.000Z' }}
+        onChange={onChange}
+      />,
+    )
     fireEvent.click(screen.getByTestId('clear-period'))
     expect(onChange).toHaveBeenCalledWith({ title: 'เมนู', startAt: '', endAt: '' })
   })

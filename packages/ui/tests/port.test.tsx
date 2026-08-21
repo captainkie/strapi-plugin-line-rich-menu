@@ -31,9 +31,9 @@ describe('UIPort', () => {
   it('stub port มีครบทุกอย่างที่ UIPort ประกาศไว้', () => {
     const port = createStubPort()
     expect(Object.keys(port.ui).sort()).toEqual([
-      'Alert', 'Button', 'Checkbox', 'Divider', 'Flex', 'IconButton', 'Loader', 'Modal',
-      'Option', 'Page', 'Radio', 'RadioGroup', 'Select', 'TextInput', 'Textarea', 'Toggle',
-      'Tooltip', 'Typography',
+      'Alert', 'Button', 'Checkbox', 'DatePicker', 'Divider', 'Flex', 'IconButton', 'Loader',
+      'Modal', 'Option', 'Page', 'Radio', 'RadioGroup', 'Select', 'TextInput', 'Textarea',
+      'TimePicker', 'Toggle', 'Tooltip', 'Typography',
     ])
     for (const method of ['get', 'post', 'put', 'del'] as const) {
       expect(typeof port.http[method]).toBe('function')

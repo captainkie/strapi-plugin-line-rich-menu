@@ -85,6 +85,39 @@ declare module '@strapi/design-system' {
     rows?: number
   }>
 
+  /**
+   * `DatePicker` ของ DS v1 ห่อ Field (label/hint/error) ให้เองครบทั้งก้อน (`DatePickerField` ใน
+   * dist/DatePicker/DatePicker.mjs) — ต่างจาก DS v2 ที่ต้องห่อ `Field.Root` เอง (ดู primitives.tsx
+   * ของ strapi-v5) พร็อพด้านล่างอ่านมาจาก source นั้นตรง ๆ เหมือนทุกตัวอื่นในไฟล์นี้: `selectedDate`/
+   * `onChange` เป็น `Date | undefined` (ไม่ใช่ `null` — port ของเราแปลงให้ที่ primitives.tsx)
+   */
+  export const DatePicker: ComponentType<{
+    id?: string
+    name?: string
+    label?: string
+    'aria-label'?: string
+    error?: string
+    disabled?: boolean
+    selectedDate?: Date
+    onChange?(date: Date | undefined): void
+  }>
+
+  /**
+   * `TimePicker` ของ DS v1 (`dist/TimePicker/TimePicker.mjs`) — ก็ห่อ Field ให้เองเหมือน
+   * `DatePicker` ข้างบน `value` เป็นสตริง `'HH:mm'` เสมอ (formatter ภายในบังคับ 24 ชั่วโมง
+   * `hour12: false`) ไม่ใช่ `Date` เพราะเวลาอย่างเดียวไม่มี "วัน" ผูกอยู่
+   */
+  export const TimePicker: ComponentType<{
+    id?: string
+    name?: string
+    label?: string
+    'aria-label'?: string
+    error?: string
+    disabled?: boolean
+    value?: string
+    onChange?(value: string | undefined): void
+  }>
+
   /** DS v1 ส่ง "ค่าที่เลือก" มาตรง ๆ ไม่ใช่ event — ต่างจาก v2 ที่ห่อไว้ */
   export const Select: ComponentType<{
     name: string

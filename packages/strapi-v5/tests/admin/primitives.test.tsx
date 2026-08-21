@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import type { ReactNode } from 'react'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { DesignSystemProvider } from '@strapi/design-system'
 import { PortProvider, createStubPort } from '@fosivo/line-rich-menu-ui'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { primitives } from '../../admin/src/primitives.js'
 
@@ -93,6 +93,66 @@ describe('TextInput', () => {
   it('hint ที่ส่งมาถูกวาดออกมาเช่นกัน', () => {
     draw(<primitives.TextInput name="name" value="" onChange={() => {}} label="ชื่อ" hint="ใช้ภายในเท่านั้น" />)
     expect(screen.getByText('ใช้ภายในเท่านั้น')).toBeInTheDocument()
+  })
+})
+
+describe('DatePicker / TimePicker', () => {
+  // สเปกงานนี้ #4 — ยืมปฏิทินของ DS v2 แทนวาดเอง (ต้องห่อ Field.Root เอง ต่างจาก v4 — ดูคอมเมนต์
+  // ข้อ 1 ที่หัวไฟล์ primitives.tsx)
+  it('DatePicker มีชื่อจาก label และวาดค่าที่ตั้งไว้ออกมาให้อ่านได้', () => {
+    draw(
+      <primitives.DatePicker name="startDate" value={new Date(2026, 7, 20)} onChange={() => {}} label="วันที่เริ่ม" />,
+    )
+    const input = screen.getByLabelText('วันที่เริ่ม')
+    expect(input).toBeInTheDocument()
+    expect((input as HTMLInputElement).value).not.toBe('')
+  })
+
+  it('DatePicker ไม่มี label ก็ยังมีชื่อ — ใช้ name เป็นชื่อสำรอง', () => {
+    draw(<primitives.DatePicker name="startDate" value={null} onChange={() => {}} />)
+    expect(screen.getByLabelText('startDate')).toBeInTheDocument()
+  })
+
+  it('DatePicker วาด error ที่ส่งมาให้อ่านได้ ไม่ใช่ถูกกลืน', () => {
+    draw(
+      <primitives.DatePicker name="startDate" value={null} onChange={() => {}} label="วันที่เริ่ม" error="ผิดพลาด" />,
+    )
+    expect(screen.getByText('ผิดพลาด')).toBeInTheDocument()
+  })
+
+  // ช่องนี้เป็น combobox ที่พิมพ์ข้อความตรง ๆ ได้ (ไม่ต้องเปิดปฏิทิน — การเปิด popover ของ Radix
+  // ต้องพึ่ง pointer capture ที่ jsdom ไม่รองรับครบ) พิมพ์วันที่ตามรูปแบบที่ placeholder บอก
+  // (MM/DD/YYYY) แล้ว blur พิสูจน์ว่า onChange ของ port ต่อสายถึง DS จริง ได้ Date ไม่ใช่ undefined
+  // ดิบของ DS หรือสตริงที่ไม่ได้แปลง
+  it('พิมพ์วันที่แล้ว blur — onChange ของ port ได้ Date ที่พาร์สแล้ว ไม่ใช่ path ที่ไม่เดินสาย', async () => {
+    const onChange = vi.fn()
+    draw(<primitives.DatePicker name="startDate" value={null} onChange={onChange} label="วันที่เริ่ม" />)
+    const input = screen.getByLabelText('วันที่เริ่ม')
+    fireEvent.change(input, { target: { value: '08/20/2026' } })
+    fireEvent.blur(input)
+    await waitFor(() => expect(onChange).toHaveBeenCalled())
+    const received = onChange.mock.calls[0]![0] as Date | null
+    expect(received).toBeInstanceOf(Date)
+    expect(received?.getFullYear()).toBe(2026)
+  })
+
+  it('TimePicker มีชื่อจาก label และวาดค่าที่ตั้งไว้ออกมาให้อ่านได้', () => {
+    draw(<primitives.TimePicker name="startTime" value="09:05" onChange={() => {}} label="เวลาเริ่ม" />)
+    const input = screen.getByLabelText('เวลาเริ่ม')
+    expect(input).toBeInTheDocument()
+    expect((input as HTMLInputElement).value).toBe('09:05')
+  })
+
+  it('TimePicker ไม่มี label ก็ยังมีชื่อ — ใช้ name เป็นชื่อสำรอง', () => {
+    draw(<primitives.TimePicker name="startTime" value="" onChange={() => {}} />)
+    expect(screen.getByLabelText('startTime')).toBeInTheDocument()
+  })
+
+  it('TimePicker วาด error ที่ส่งมาให้อ่านได้', () => {
+    draw(
+      <primitives.TimePicker name="startTime" value="" onChange={() => {}} label="เวลาเริ่ม" error="ผิดพลาด" />,
+    )
+    expect(screen.getByText('ผิดพลาด')).toBeInTheDocument()
   })
 })
 

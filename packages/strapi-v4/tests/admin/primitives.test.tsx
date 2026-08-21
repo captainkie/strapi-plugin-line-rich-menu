@@ -101,6 +101,44 @@ describe('TextInput', () => {
   })
 })
 
+describe('DatePicker / TimePicker', () => {
+  // สเปกงานนี้ #4 — ยืมปฏิทินของ DS v1 (DatePickerField ห่อ Field ให้เองครบ) แทนวาดเอง
+  it('DatePicker วาด label ออกมาให้อ่านได้', () => {
+    const html = draw(
+      <primitives.DatePicker name="startDate" value={new Date(2026, 7, 20)} onChange={() => {}} label="วันที่เริ่ม" />,
+    )
+    expect(html).toContain('วันที่เริ่ม')
+  })
+
+  it('DatePicker ไม่มี label ก็ไม่พังทั้งหน้า — ใช้ name เป็นชื่อสำรอง เหมือน TextInput', () => {
+    const html = draw(<primitives.DatePicker name="startDate" value={null} onChange={() => {}} />)
+    expect(html).toContain('aria-label="startDate"')
+  })
+
+  it('DatePicker วาด error ที่ส่งมาให้อ่านได้ ไม่ใช่ถูกกลืน', () => {
+    const html = draw(
+      <primitives.DatePicker name="startDate" value={null} onChange={() => {}} label="วันที่เริ่ม" error="ผิดพลาด" />,
+    )
+    expect(html).toContain('ผิดพลาด')
+  })
+
+  // ค่าที่แสดงจริงของ TimePicker (`textValue`) มาจาก `useLayoutEffect` ภายใน DS v1 ซึ่งไม่ทำงานบน
+  // renderToStaticMarkup (ดูคอมเมนต์ `SILENCED` ที่หัวไฟล์) — เทสต์นี้จึงเช็คได้แค่ label กับว่า
+  // `name` ไปถึง <input> จริง ไม่ใช่ค่าที่แสดงบนจอ (ต้องพิสูจน์ทางอื่นถ้าจะเช็คค่าแสดงจริง)
+  it('TimePicker วาด label และส่ง name ไปถึง <input> จริง', () => {
+    const html = draw(
+      <primitives.TimePicker name="startTime" value="09:05" onChange={() => {}} label="เวลาเริ่ม" />,
+    )
+    expect(html).toContain('เวลาเริ่ม')
+    expect(html).toContain('name="startTime"')
+  })
+
+  it('TimePicker ไม่มี label ก็ไม่พังทั้งหน้า — ใช้ name เป็นชื่อสำรอง', () => {
+    const html = draw(<primitives.TimePicker name="startTime" value="" onChange={() => {}} />)
+    expect(html).toContain('aria-label="startTime"')
+  })
+})
+
 describe('RadioGroup + Radio', () => {
   const group = (
     <primitives.RadioGroup name="mode" value="custom" onChange={() => {}} label="ป้ายแถบเมนู">

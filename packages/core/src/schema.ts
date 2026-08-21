@@ -122,6 +122,36 @@ export function validateRichMenu(input: unknown): RichMenuPayload {
 }
 
 /**
+ * รหัสที่ทั้งสอง adapter แนบไว้ใน `params.code` ตอน superRefine ของ `menuInputSchema` ปฏิเสธ
+ * ช่วงเวลาแสดงผลที่กลับหัว — เอกสารตัวเองว่าทำไม issue นี้เป็นของเรา ไม่ใช่ค่า 'custom' ดิบของ zod
+ * (ดูคอมเมนต์ที่ `toValidationIssue` ด้านบน) แม้ `http-error.ts` ของทั้งสอง adapter จะยังไม่ได้
+ * อ่าน `params` ตอนแปลง ZodError เป็น HTTP response ก็ตาม (ต่างจาก `toValidationIssue` ในไฟล์นี้)
+ */
+export const DISPLAY_PERIOD_ORDER_CODE = 'display_period_end_not_after_start'
+
+/**
+ * กฎเดียวที่ทั้งฟอร์มฝั่ง UI และ request schema ของทั้งสอง adapter ต้องเห็นตรงกัน: `endAt` ต้องอยู่
+ * "หลัง" `startAt` เสมอ ไม่ใช่แค่ "ไม่ก่อน" — อยู่ในไฟล์เดียวกับ validation อื่นของเมนูแทนที่จะให้
+ * แต่ละที่เขียนกฎเอง ซึ่งเป็นรูปแบบความผิดพลาดที่โปรเจกต์นี้เคยเจอมาแล้วครั้งหนึ่ง (rule ที่มีอยู่
+ * แค่ชั้น UI คือ rule ที่อะไรก็ตามที่ไม่ใช่ฟอร์มของเราเดินข้ามไปได้เฉย ๆ)
+ *
+ * หมายเหตุ: ช่วงเวลาแสดงผลนี้**ไม่ใช่แนวคิดของ LINE เอง** — มันไม่ได้อยู่ใน `RichMenuPayload`
+ * ที่ส่งให้ LINE เลยสักฟิลด์ (ดู `richMenuPayloadSchema` ด้านบน) แต่เป็นฟีเจอร์ของแอปนี้เอง ทำผ่าน
+ * แถวตาราง schedule ที่ยิง set-default/clear-default ตามเวลา (ดู menu-write.ts ของทั้งสอง adapter)
+ * จึงไม่มีเอกสาร API ของ LINE ให้ยึดว่า `endAt === startAt` ควรเป็นอะไร — **ที่นี่ถือว่าไม่ผ่าน**
+ * (เป็นการตัดสินใจของเจ้าของโปรดักต์ตรง ๆ ไม่ใช่ค่าที่ LINE กำหนด): ช่วงเวลาที่ยาวเป็นศูนย์ไม่แสดง
+ * เมนูให้ใครเห็นเลย ไม่ต่างจากไม่ตั้งช่วงเวลาที่ถูกต้องอะไรเลย
+ *
+ * คืน `true` (ผ่าน) ทันทีเมื่อฝั่งใดฝั่งหนึ่งว่าง (`null` ของ adapter หรือ `''` ของฟอร์ม — ยอมรับทั้ง
+ * สองแบบเพื่อให้ทั้งสองจุดเรียกไม่ต้องแปลงค่าก่อนเรียก) — "ยังไม่ระบุ" ไม่ใช่ช่วงเวลาที่ต้องเรียงลำดับ
+ * ตั้งแค่ฝั่งใดฝั่งหนึ่งไว้ก็เป็นค่าที่ถูกต้องอยู่แล้ว (schedule ฝั่งนั้นยิงเดี่ยว ๆ ได้ตามปกติ)
+ */
+export function isDisplayPeriodValid(startAt: string | null, endAt: string | null): boolean {
+  if (startAt === null || startAt === '' || endAt === null || endAt === '') return true
+  return new Date(endAt).getTime() > new Date(startAt).getTime()
+}
+
+/**
  * ประตูกัน drift ระหว่าง schema กับ type
  *
  * `validateRichMenu` ปิดท้ายด้วย `as RichMenuPayload` ซึ่งเป็นจุดเชื่อมเดียวระหว่างสองอย่างนี้
