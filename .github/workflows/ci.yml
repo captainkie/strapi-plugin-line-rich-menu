@@ -51,6 +51,19 @@ jobs:
             exit 1
           fi
 
+      # ทั้งสองด่านนี้ตรวจที่ `dist` — สิ่งที่ npm ห่อไปให้ลูกค้าจริง — ต่างจาก
+      # tests/package-shape.test.ts ที่ตรวจที่ต้นทาง เหตุผลเต็มอยู่ในหัวไฟล์ของสคริปต์แต่ละตัว
+      - name: ตรวจว่าปลั๊กอิน v4 ติดตั้งได้จาก npm จริง
+        run: pnpm --filter strapi-plugin-line-rich-menu-v4 check:deps
+
+      - name: ตรวจว่าปลั๊กอิน v5 ติดตั้งได้จาก npm จริง
+        run: pnpm --filter strapi-plugin-line-rich-menu check:deps
+
+      - name: strapi-plugin verify (สเปก §13.4)
+        # ด่านทางการของ Strapi เอง: package.json โหลดได้ · มี export ที่ Strapi รู้จัก ·
+        # ลำดับคีย์ถูก · ทุกไฟล์ที่ exports อ้างถึงมีอยู่จริงบนดิสก์
+        run: pnpm --filter strapi-plugin-line-rich-menu verify
+
   e2e-v4:
     runs-on: ubuntu-latest
     strategy:

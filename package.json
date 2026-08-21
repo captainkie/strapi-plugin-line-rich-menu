@@ -13,6 +13,8 @@
     "test:mutation": "pnpm --filter @fosivo/line-rich-menu-core exec stryker run",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
+    "verify": "pnpm --filter strapi-plugin-line-rich-menu verify",
+    "check:deps": "pnpm --filter strapi-plugin-line-rich-menu-v4 check:deps && pnpm --filter strapi-plugin-line-rich-menu check:deps",
     "e2e:v4": "bash examples/v4-app/scripts/e2e.sh"
   },
   "devDependencies": {
