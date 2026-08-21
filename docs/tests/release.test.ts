@@ -200,5 +200,6 @@ describe('docs/RELEASING.md', () => {
     expect(releasing, 'ต้องสะกด security@fosivo.com ถูก').toContain('security@fosivo.com')
     expect(releasing, 'repo ต้อง public ก่อน publish ครั้งแรก').toMatch(/public.*before|before.*public/i)
     expect(releasing, 'gitleaks ต้องสะอาดทั้งประวัติ ไม่ใช่แค่ tip').toMatch(/gitleaks/i)
+    expect(releasing, 'ต้องมี NPM_TOKEN เป็น GitHub secret จริง ไม่ใช่แค่ใน .env.local').toContain('NPM_TOKEN')
   })
 })
