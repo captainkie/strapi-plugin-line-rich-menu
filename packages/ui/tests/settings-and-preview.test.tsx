@@ -141,6 +141,76 @@ describe('Preview', () => {
     expect(screen.getByTestId('preview-menu')).toBeInTheDocument()
   })
 
+  // สเปกงานนี้ #3 — ต้องทั้งพิสูจน์ว่าตัวเลือก "Default behavior" มีผลจริง (ยุบเมนูได้) และคนที่
+  // เลือก Collapsed ไม่เสีย canvas ที่กำลังแก้อยู่ไปทั้งอัน (แตะแถบแชทดึงกลับมาได้) — สองข้อความนี้
+  // ต้องแดงทั้งคู่ถ้ามีใครผูก radio ทิ้งอีกครั้ง (ตัด expanded ออกจากพรีวิว) หรือลืมต่อ onClick
+  describe('แถบแชทสลับกาง/ยุบเมนูได้ — Collapsed ไม่ใช่การเสีย canvas ถาวร', () => {
+    it('เริ่มยุบไว้ (expanded=false) แตะแถบแชทแล้วเมนูกลับมา', () => {
+      wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded={false} />)
+      expect(screen.queryByTestId('preview-menu')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('preview-chat-bar'))
+      expect(screen.getByTestId('preview-menu')).toBeInTheDocument()
+    })
+
+    it('เริ่มกางไว้ (expanded=true) แตะแถบแชทแล้วเมนูยุบ', () => {
+      wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
+      expect(screen.getByTestId('preview-menu')).toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('preview-chat-bar'))
+      expect(screen.queryByTestId('preview-menu')).not.toBeInTheDocument()
+    })
+
+    // ยังไม่มีผังให้แก้เลย (bounds ว่าง) — ไม่มีอะไรให้กาง แตะแล้วต้องไม่มีอะไรเกิดขึ้น
+    it('ไม่มี template เลือกไว้ (bounds ว่าง) แตะแถบแชทแล้วไม่มีอะไรเกิดขึ้น', () => {
+      wrap(<Preview size={template.size} bounds={[]} chatBarText="เมนู" expanded />)
+      expect(screen.queryByTestId('preview-menu')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('preview-chat-bar'))
+      expect(screen.queryByTestId('preview-menu')).not.toBeInTheDocument()
+    })
+
+    // เชฟรอนต้องชี้ไปทิศทางที่แตะแล้วจะเกิดอะไรขึ้น — ชี้ลงตอนกางอยู่ (แตะแล้วยุบ) ชี้ขึ้นตอนยุบอยู่
+    // (แตะแล้วกาง) ไม่ใช่ทิศทางตายตัว
+    it('เชฟรอนในแถบแชทชี้ลงตอนกาง ชี้ขึ้นตอนยุบ', () => {
+      wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
+      const bar = screen.getByTestId('preview-chat-bar')
+      expect(bar.textContent).toContain('▾')
+      fireEvent.click(bar)
+      expect(bar.textContent).toContain('▴')
+    })
+
+    // การเปลี่ยนค่า expanded จากภายนอก (เช่นผู้ใช้เปลี่ยน radio ในหน้า editor) ต้องรีเซ็ตพรีวิวกลับไป
+    // ที่สถานะนั้นเสมอ แม้ผู้ใช้จะเคยแตะแถบแชทเองมาก่อนหน้านี้แล้วก็ตาม — ไม่งั้นตัวเลือกจะ "ค้าง"
+    // ที่ค่าที่ผู้ใช้แตะไว้ล่าสุด ไม่ใช่ค่าที่ radio บอก ซึ่งเท่ากับตัวเลือกไม่ได้สาธิตตัวเองจริง
+    //
+    // ต้องเปลี่ยนค่า prop จริง ๆ ไม่ใช่ rerender ด้วยค่าเดิม — useEffect ที่ยิงตอน dependency
+    // เปลี่ยนจะไม่ทำงานถ้าค่าเท่าเดิม (สมเหตุสมผลตามหลัก React) การส่งซ้ำค่าเดิมจึงไม่นับเป็น
+    // "เปลี่ยน radio" เทสต์นี้เลยไล่ true → (แตะเอง=false) → rerender false (ยังไม่เห็นผลต่าง เพราะ
+    // สถานะภายในเท่ากับ prop อยู่แล้ว) → rerender true (prop เปลี่ยนจริง) → เมนูต้องกลับมา
+    it('เปลี่ยน expanded จากภายนอกรีเซ็ตพรีวิวกลับไปที่ค่านั้นเสมอ แม้เคยแตะเองมาก่อน', () => {
+      const rerenderWith = (expanded: boolean) => (
+        <PortProvider value={port}>
+          <Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded={expanded} />
+        </PortProvider>
+      )
+      const { rerender } = wrap(
+        <Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />,
+      )
+      expect(screen.getByTestId('preview-menu')).toBeInTheDocument()
+
+      // ผู้ใช้แตะเองให้ยุบ ทั้งที่ radio ยังบอกว่า Shown อยู่
+      fireEvent.click(screen.getByTestId('preview-chat-bar'))
+      expect(screen.queryByTestId('preview-menu')).not.toBeInTheDocument()
+
+      // ผู้ใช้เลือก "Collapsed" — ค่า prop เปลี่ยนจริง (true → false)
+      rerender(rerenderWith(false))
+      expect(screen.queryByTestId('preview-menu')).not.toBeInTheDocument()
+
+      // ผู้ใช้เลือก "Shown" กลับ — ค่า prop เปลี่ยนจริงอีกครั้ง (false → true) ต้องรีเซ็ตเมนูให้กลับมา
+      // แม้ระหว่างทางจะเคยถูกแตะยุบเองไปแล้วก็ตาม
+      rerender(rerenderWith(true))
+      expect(screen.getByTestId('preview-menu')).toBeInTheDocument()
+    })
+  })
+
   it('ข้อความแถบแชทว่าง ใช้ label default แทน', () => {
     wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="" expanded />)
     expect(screen.getByTestId('preview-chat-bar').textContent).toContain('chatBar.defaultLabel')

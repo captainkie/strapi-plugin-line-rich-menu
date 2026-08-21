@@ -182,6 +182,22 @@ describe('RichMenuEditor', () => {
     expect(screen.getByTestId('preview-chat-bar').textContent).toContain('ทดสอบ')
   })
 
+  // สเปกงานนี้ #3 — เดิม Preview รับ expanded={draft.bounds.length > 0} เสมอ ตัวเลือก "Default
+  // behavior" (Shown/Collapsed) จึงไม่มีผลอะไรกับพรีวิวเลย อ่านเป็นของพัง เทสต์นี้ต้องแดงถ้ามีใคร
+  // ผูก expanded กลับไปที่ bounds.length อีกครั้ง — ไม่ใช่แค่พิสูจน์ว่า Preview เองสลับได้ (ดูเทสต์
+  // ของ Preview เองใน settings-and-preview.test.tsx) แต่พิสูจน์ว่า "สายไฟ" จาก radio ไปถึง Preview จริง
+  it('เลือก "Collapsed" ในหน้า editor แล้วเมนูในพรีวิวยุบจริง เลือก "Shown" แล้วกางกลับ', () => {
+    setup()
+    chooseTemplate()
+    expect(screen.getByTestId('preview-menu')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('chatBar.behavior.collapsed'))
+    expect(screen.queryByTestId('preview-menu')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('chatBar.behavior.shown'))
+    expect(screen.getByTestId('preview-menu')).toBeInTheDocument()
+  })
+
   // ปุ่ม Save draft มีสองชุด (หัว/ท้ายฟอร์ม) จาก testid เดียวกัน — ไล่ทั้งคู่เพื่อพิสูจน์ว่าทั้งสองชุด
   // บันทึกร่างเหมือนกันจริง ไม่ใช่แค่ชุดที่ทดสอบไว้
   //
