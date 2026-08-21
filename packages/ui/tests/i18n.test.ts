@@ -144,6 +144,8 @@ describe('i18n', () => {
       'channel.channelSecret',
       'editor.heading',
       'editor.template',
+      // ชื่อผลิตภัณฑ์ที่ขึ้นในเมนูซ้ายของแอดมิน — LINE ใช้ชื่อนี้ทั้งในไทยและอังกฤษ ไม่มีชื่อไทย
+      'plugin.name',
       'template.picker.group.compact',
       'template.picker.group.large',
     ]
