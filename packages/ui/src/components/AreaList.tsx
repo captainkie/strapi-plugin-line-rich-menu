@@ -14,6 +14,9 @@ export interface AreaListProps {
   onChange(index: number, next: ActionFormState): void
   aliasOptions: readonly string[]
   errors?: Readonly<Record<number, string>>
+  /** ส่งมาเฉพาะตอนที่โหมดปรับผังเองเปิดอยู่ — ไม่ส่ง = ไม่มีปุ่มเพิ่ม/ลบเลยสักปุ่ม */
+  onAdd?(): void
+  onRemove?(index: number): void
 }
 
 /**
@@ -23,7 +26,7 @@ export interface AreaListProps {
  * สองเวอร์ชันที่อาจ implement accordion ต่างกัน (เช่น Modal/Collapse ของ DS v1 vs v2)
  */
 export function AreaList({
-  areas, activeIndex, view, onViewChange, onSelect, onChange, aliasOptions, errors,
+  areas, activeIndex, view, onViewChange, onSelect, onChange, aliasOptions, errors, onAdd, onRemove,
 }: AreaListProps) {
   const { ui, t } = usePort()
 
@@ -38,6 +41,17 @@ export function AreaList({
           <ui.IconButton label={t('editor.view.expanded')} onClick={() => onViewChange('expanded')} testId="view-expanded">
             ⛶
           </ui.IconButton>
+          {onAdd === undefined ? null : (
+            <ui.Button
+              variant="secondary"
+              testId="area-add"
+              // เพดาน 20 ช่องเป็นข้อจำกัดของ LINE เอง (สเปก §2.2) ไม่ใช่ตัวเลขที่เราเลือก
+              disabled={areas.length >= 20}
+              onClick={onAdd}
+            >
+              {t('editor.layout.add')}
+            </ui.Button>
+          )}
         </ui.Flex>
       </ui.Flex>
 
@@ -46,21 +60,35 @@ export function AreaList({
         const open = view === 'expanded' || activeIndex === index
         return (
           <section key={index} style={{ border: '1px solid #dcdce4', borderRadius: 4 }}>
-            <button
-              type="button"
-              data-testid={`area-header-${index}`}
-              aria-expanded={open}
-              onClick={() => onSelect(index)}
-              style={{
-                width: '100%', display: 'flex', justifyContent: 'space-between',
-                padding: '.6rem .8rem', background: 'none', border: 'none', cursor: 'pointer',
-              }}
-            >
-              <span>{areaLabel(index)}</span>
-              {error === undefined ? null : (
-                <span data-testid={`area-error-${index}`} style={{ color: INVALID_COLOR }}>{error}</span>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <button
+                type="button"
+                data-testid={`area-header-${index}`}
+                aria-expanded={open}
+                onClick={() => onSelect(index)}
+                style={{
+                  width: '100%', display: 'flex', justifyContent: 'space-between',
+                  padding: '.6rem .8rem', background: 'none', border: 'none', cursor: 'pointer',
+                }}
+              >
+                <span>{areaLabel(index)}</span>
+                {error === undefined ? null : (
+                  <span data-testid={`area-error-${index}`} style={{ color: INVALID_COLOR }}>{error}</span>
+                )}
+              </button>
+              {onRemove === undefined ? null : (
+                <ui.IconButton
+                  label={t('editor.layout.remove')}
+                  testId={`area-remove-${index}`}
+                  // เหลือศูนย์ช่องแล้ว payload จะถูก LINE ปฏิเสธด้วย "1–20 ช่อง" โดยที่ผู้ใช้
+                  // ไม่มีทางรู้ว่าตัวเองทำอะไรผิด กันไว้ที่นี่ตั้งแต่ต้น
+                  disabled={areas.length <= 1}
+                  onClick={() => onRemove(index)}
+                >
+                  ✕
+                </ui.IconButton>
               )}
-            </button>
+            </div>
             {open ? (
               <div data-testid={`area-body-${index}`} style={{ padding: '.8rem' }}>
                 <ActionForm

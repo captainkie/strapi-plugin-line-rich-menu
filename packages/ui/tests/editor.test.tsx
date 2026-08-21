@@ -7,7 +7,11 @@ import { createStubPort } from '../src/stub-port.js'
 import { RichMenuEditor, emptyDraft, type RichMenuDraft } from '../src/pages/RichMenuEditor.js'
 
 function setup(overrides: Partial<React.ComponentProps<typeof RichMenuEditor>> = {}) {
-  const onSave = vi.fn(async () => {})
+  // ระบุ type ผ่าน generic ของ vi.fn ตรง ๆ (ไม่ใช่ตั้งชื่อพารามิเตอร์ที่ implementation ไม่ใช้ —
+  // จะโดน no-unused-vars) — ไม่งั้น `onSave.mock.calls[0][0]` จะ infer เป็น tuple ว่างจาก
+  // `async () => {}` เปล่า ๆ ทำให้เทสต์ที่อ่านค่า draft ที่ถูกส่งจริง (custom layout describe
+  // ท้ายไฟล์) พังตอน typecheck ไม่ใช่ตอนรัน
+  const onSave = vi.fn<(draft: RichMenuDraft, publish: boolean) => Promise<void>>(async () => {})
   const onCancel = vi.fn()
   const toast = vi.fn()
   render(
@@ -329,5 +333,123 @@ describe('RichMenuEditor', () => {
       fireEvent.click(screen.getByTestId('template-confirm'))
       expect(screen.queryByTestId('image-remove')).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('custom layout (สเปก §5.2 · §17 "ขอบเขต v1.0 — จัดเต็ม")', () => {
+  const enableCustomLayout = () => {
+    fireEvent.click(screen.getByLabelText('editor.layout.custom'))
+  }
+
+  /**
+   * `CanvasEditor` ตัดสินว่าตัวเองแก้ไขได้หรือไม่จากการมีอยู่ของ `onBoundsChange` และวาดมือจับ
+   * เฉพาะตอนแก้ไขได้ (ดู canvas-editor-drag.test.tsx) — การมี/ไม่มี `resize-handle-*` จึงเป็น
+   * ตัวชี้ที่ตรงที่สุดว่าพร็อพเดินทางผ่าน `Preview` ไปถึงจริงหรือไม่
+   *
+   * ก่อน Plan 04 ไม่มีจุดเรียกไหนส่งมันมาเลย ทั้งความสามารถลาก/ปรับขนาดจึงถูกทดสอบไว้แต่
+   * ไม่มีทางถูกใช้จากหน้าจอจริงแม้แต่ครั้งเดียว
+   */
+  it('สวิตช์ปิดอยู่ตอนเริ่ม — ผังสำเร็จรูปแก้ไม่ได้', () => {
+    setup()
+    chooseTemplate()
+    expect(screen.queryAllByTestId(/^resize-handle-/)).toHaveLength(0)
+  })
+
+  it('เปิดสวิตช์แล้วมือจับโผล่ครบทุกช่อง', () => {
+    setup()
+    chooseTemplate()
+    const areas = screen.getAllByTestId(/^area-header-/).length
+    enableCustomLayout()
+    expect(screen.getAllByTestId(/^resize-handle-/)).toHaveLength(areas)
+  })
+
+  /**
+   * `CanvasEditor` ไม่มีการลากด้วยคีย์บอร์ด (`handleKeyDown` รับแค่ Enter/Space สำหรับ select เท่านั้น
+   * ดู canvas-editor-drag.test.tsx ที่ทดสอบเฉพาะ pointer event) และ template 205 ที่ใช้เป็นค่าเริ่มต้น
+   * ของ `chooseTemplate()` ให้ช่อง A กว้างเท่าผืนผ้าใบพอดี (2500/2500) ทำให้ขยับแนวนอนไม่ได้เลยไม่ว่า
+   * จะลากด้วยกลไกไหน (`clampToCanvas` บังคับ x ให้เป็น 0 เสมอเมื่อ width == canvas width) — เทสต์นี้
+   * จึงลาก A ด้วย pointer (กลไกที่ต่อสายจริงและถูกทดสอบไว้แล้ว) บน template 206 ที่ A กว้างครึ่งเดียว
+   */
+  it('ลากด้วย pointer แล้วช่องขยับจริง — ค่าไปถึง draft ไม่ใช่แค่ state ภายใน canvas', () => {
+    setup()
+    chooseTemplate('RICH_MENU_TEMPLATE_206')
+    enableCustomLayout()
+    // ต้อง scope ที่ `preview-menu` — ชื่อ "A" มีสองที่: ช่องบนผืนผ้าใบ กับหัว accordion ใน AreaList
+    const area = within(screen.getByTestId('preview-menu')).getByRole('button', { name: /^A$/ })
+    expect(area.style.left).toBe('0%')
+    fireEvent.pointerDown(area, { clientX: 0, clientY: 0, pointerId: 1 })
+    fireEvent.pointerMove(area, { clientX: 50, clientY: 0, pointerId: 1 })
+    fireEvent.pointerUp(area, { pointerId: 1 })
+    // `Preview` เป็น controlled — ถ้า bounds ไม่ถูกเขียนกลับลง draft ช่องจะเด้งกลับที่เดิมทันที
+    expect(within(screen.getByTestId('preview-menu')).getByRole('button', { name: /^A$/ }).style.left)
+      .not.toBe('0%')
+  })
+
+  it('เพิ่มช่องได้จนถึง 20 แล้วปุ่มถูกปิด — เพดานของ LINE เอง (สเปก §2.2)', () => {
+    setup()
+    chooseTemplate()
+    enableCustomLayout()
+
+    const before = screen.getAllByTestId(/^area-header-/).length
+    fireEvent.click(screen.getByTestId('area-add'))
+    expect(screen.getAllByTestId(/^area-header-/)).toHaveLength(before + 1)
+
+    while (screen.getAllByTestId(/^area-header-/).length < 20) {
+      fireEvent.click(screen.getByTestId('area-add'))
+    }
+    expect(screen.getAllByTestId(/^area-header-/)).toHaveLength(20)
+    expect(screen.getByTestId('area-add')).toBeDisabled()
+  })
+
+  // เหลือศูนย์ช่องแล้ว payload จะถูก LINE ปฏิเสธด้วย "1–20 ช่อง" โดยที่ผู้ใช้ไม่รู้ว่าทำอะไรผิด
+  it('ลบช่องได้ แต่ลบช่องสุดท้ายไม่ได้', () => {
+    setup()
+    chooseTemplate()
+    enableCustomLayout()
+
+    while (screen.getAllByTestId(/^area-header-/).length > 1) {
+      fireEvent.click(screen.getAllByTestId(/^area-remove-/)[0]!)
+    }
+    expect(screen.getAllByTestId(/^area-header-/)).toHaveLength(1)
+    expect(screen.getByTestId('area-remove-0')).toBeDisabled()
+  })
+
+  it('ลบช่องแล้ว action ของช่องที่เหลือไม่เลื่อนตำแหน่ง', () => {
+    setup()
+    chooseTemplate()
+    enableCustomLayout()
+
+    fireEvent.click(screen.getByTestId('area-header-1'))
+    fireEvent.change(within(screen.getByTestId('area-body-1')).getByLabelText('action.field.label'), {
+      target: { value: 'ช่องที่สอง' },
+    })
+    fireEvent.click(screen.getByTestId('area-remove-0'))
+    fireEvent.click(screen.getByTestId('area-header-0'))
+    expect(within(screen.getByTestId('area-body-0')).getByLabelText('action.field.label'))
+      .toHaveValue('ช่องที่สอง')
+  })
+
+  it('ปุ่มเพิ่ม/ลบไม่โผล่เลยเมื่อสวิตช์ปิดอยู่', () => {
+    setup()
+    chooseTemplate()
+    expect(screen.queryByTestId('area-add')).toBeNull()
+    expect(screen.queryByTestId('area-remove-0')).toBeNull()
+  })
+
+  /**
+   * ผังที่ถูกปรับเองแล้วไม่ตรงกับ template ที่เลือกไว้อีกต่อไป การเก็บชื่อ template ไว้จะทำให้
+   * ตอนเปิดกลับมาแก้ ผู้ใช้เห็นชื่อ template ที่ไม่ตรงกับสิ่งที่อยู่บนผืนผ้าใบ แล้วอาจกดใช้ซ้ำ
+   * โดยไม่รู้ว่ามันจะทับผังที่ตัวเองปรับไว้ทั้งหมด
+   */
+  it('เพิ่มช่องแล้ว templateKey ถูกล้าง — ผังไม่ใช่ของ template นั้นอีกแล้ว', async () => {
+    const { onSave } = setup()
+    chooseTemplate()
+    enableCustomLayout()
+    fireEvent.click(screen.getByTestId('area-add'))
+    // testId ของปุ่มบันทึกร่างคือ `save-draft` (มีสองปุ่มบนจอ บนหัวและท้ายฟอร์ม — ดู
+    // 'มีปุ่มบันทึกทั้งบนหัวและท้ายฟอร์ม' ด้านบนในไฟล์นี้) กดปุ่มแรกก็พอ
+    fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect((onSave.mock.calls[0]![0] as RichMenuDraft).templateKey).toBeNull()
   })
 })
