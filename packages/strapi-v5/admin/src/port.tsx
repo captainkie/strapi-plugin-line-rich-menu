@@ -2,6 +2,10 @@ import { useMemo } from 'react'
 import { useFetchClient, useNotification } from '@strapi/strapi/admin'
 import { Link, useNavigate } from 'react-router-dom'
 import { useIntl } from 'react-intl'
+// DS v2 ไม่ re-export `useTheme` ของตัวเอง (ตรวจ dist/index.d.ts แล้ว ไม่มี) แต่ `ThemeProvider`
+// ของมันเป็นแค่ `styled-components`'s ThemeProvider ห่อไว้อีกชั้น (ตรวจจาก dist/index.mjs: component
+// ภายในของ DS v2 เองก็เรียก `styled-components`'s `useTheme()` ตรง ๆ) import จากที่เดียวกันได้เลย
+import { useTheme } from 'styled-components'
 import type { UIPort } from '@fosivo/line-rich-menu-ui'
 import { makeHttp, makeNav, makeT, makeToast, type FetchClient } from './adapters.js'
 import { primitives } from './primitives.js'
@@ -23,6 +27,10 @@ export function usePluginPort(): UIPort {
   const { toggleNotification } = useNotification()
   const navigate = useNavigate()
   const { formatMessage } = useIntl()
+  // ธีมปัจจุบันของ Strapi (สว่าง/มืดตามที่ผู้ใช้ตั้งไว้) — `DesignSystemProvider` ของ Strapi 5 ครอบ
+  // ทั้งแอดมินไว้ด้วย styled-components `ThemeProvider` อยู่แล้วเสมอในแอปจริง ค่านี้จึงสลับตามธีมจริง
+  // โดยอัตโนมัติ ไม่ใช่ค่าคงที่ (สเปกงานนี้ #5)
+  const { colors } = useTheme()
 
   return useMemo<UIPort>(() => ({
     ui: primitives,
@@ -39,5 +47,13 @@ export function usePluginPort(): UIPort {
      */
     nav: makeNav(navigate, Link as UIPort['nav']['Link']),
     t: makeT(formatMessage as Parameters<typeof makeT>[0]),
-  }), [fetchClient, toggleNotification, navigate, formatMessage])
+    // ดูคอมเมนต์ที่ `ThemeColors` ใน port.ts ของ packages/ui — สี่ตัวนี้คือทั้งหมดที่ CanvasEditor/
+    // AreaList/TemplatePicker ต้องใช้นอกเหนือจาก Typography
+    theme: {
+      border: colors.neutral200,
+      surface: colors.neutral150,
+      strongText: colors.neutral800,
+      mutedText: colors.neutral600,
+    },
+  }), [fetchClient, toggleNotification, navigate, formatMessage, colors])
 }

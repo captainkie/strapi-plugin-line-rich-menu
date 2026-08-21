@@ -240,6 +240,23 @@ describe('Preview', () => {
     expect(onSelect).toHaveBeenCalledWith(0)
   })
 
+  // สเปกงานนี้ #5 — CanvasEditor เองไม่แตะ usePort (ต้อง render ได้โดยไม่มี PortProvider ครอบ)
+  // Preview จึงเป็นคนดึงสีจากธีมของ Strapi (usePort().theme) แล้วส่งต่อลงไปให้ ต้องแดงถ้ามีใครลืม
+  // ส่งต่อ (เช่นลบพร็อพ theme ตอนเรียก CanvasEditor ใน Preview.tsx ทิ้ง) แล้วเงียบ ๆ กลับไปใช้ค่า
+  // ดีฟอลต์ธีมสว่างเสมอไม่ว่า Strapi จะอยู่ธีมไหน
+  it('ส่งสีจากธีมของ Strapi ต่อให้ CanvasEditor จริง ไม่ใช่ใช้ค่าดีฟอลต์เสมอ', () => {
+    const darkPort = createStubPort({
+      t: (k) => k,
+      theme: { border: '#4a4a6a', surface: '#32324d', strongText: '#ffffff', mutedText: '#a5a5ba' },
+    })
+    render(
+      <PortProvider value={darkPort}>
+        <Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />
+      </PortProvider>,
+    )
+    expect(screen.getByTestId('rich-menu-canvas').style.backgroundColor).toBe('rgb(50, 50, 77)') // #32324d
+  })
+
   // ผู้เรียกที่ต้องการแค่ภาพ (ไม่ส่ง onSelect) ต้องยังได้ภาพเหมือนเดิม ไม่ใช่ canvas ที่กดแล้วพัง
   it('ไม่ส่ง onSelect มา ก็ยังวาดได้ตามปกติ', () => {
     wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)

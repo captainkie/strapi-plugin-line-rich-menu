@@ -22,6 +22,20 @@ function setup(overrides: Partial<React.ComponentProps<typeof AreaList>> = {}) {
 }
 
 describe('AreaList', () => {
+  // สเปกงานนี้ #5 — เดิม hardcode #dcdce4 ตรง ๆ ต้องแดงถ้ามีใครใส่ hex กลับเข้าไป
+  it('เส้นขอบการ์ดของแต่ละช่องมาจาก theme ของ port ไม่ใช่ hex ที่ hardcode ไว้', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (k) => k, theme: { border: '#4a4a6a', surface: '', strongText: '', mutedText: '' } })}>
+        <AreaList
+          areas={areas} activeIndex={null} view="list"
+          onViewChange={() => {}} onSelect={() => {}} onChange={() => {}} aliasOptions={[]}
+        />
+      </PortProvider>,
+    )
+    expect(screen.getByTestId('area-header-0').closest('section')?.style.border)
+      .toContain('rgb(74, 74, 106)') // #4a4a6a
+  })
+
   it('มีหัวข้อหนึ่งอันต่อหนึ่งช่อง ติดป้าย A B C', () => {
     setup()
     for (const letter of ['A', 'B', 'C']) {

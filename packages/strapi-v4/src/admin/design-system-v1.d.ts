@@ -156,6 +156,22 @@ declare module '@strapi/design-system' {
   export const ThemeProvider: ComponentType<{ theme: unknown; children?: ReactNode }>
   export const lightTheme: unknown
 
+  /**
+   * hook จริงของ DS v1 (ตรวจแล้ว: `exports.useTheme = hooks.useTheme` ใน dist/index.js) คืนธีมของ
+   * Strapi ที่ `ThemeProvider` วางไว้ใน context ของ styled-components ตรงนั้น — สี่ตัวนี้คือทั้งหมด
+   * ที่ `port.tsx` ใช้ประกอบ `UIPort.theme` (สเปกงานนี้ #5) ประกาศไว้แคบเท่าที่ใช้จริงเหมือนสมาชิก
+   * อื่นทุกตัวในไฟล์นี้ ไม่ใช่ทั้ง `DefaultTheme` ของ Strapi — `Record<string, string>` ใช้ไม่ได้ที่นี่
+   * เพราะ `noUncheckedIndexedAccess` ของ repo นี้จะทำให้ทุก index access เป็น `string | undefined`
+   */
+  export function useTheme(): {
+    colors: {
+      neutral150: string
+      neutral200: string
+      neutral600: string
+      neutral800: string
+    }
+  }
+
   /** `<main>` ที่โฟกัสได้ตอนเปลี่ยนหน้า (สเปกการเข้าถึงของ Strapi เอง) — ไม่มีพร็อพที่ใช้จริงที่นี่ */
   export const Main: ComponentType<{ children?: ReactNode }>
 

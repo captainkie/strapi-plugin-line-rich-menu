@@ -19,6 +19,21 @@ function setup(overrides: Partial<React.ComponentProps<typeof TemplatePicker>> =
 }
 
 describe('TemplatePicker', () => {
+  // สเปกงานนี้ #5 — จำนวนช่องใต้ thumbnail เดิม hardcode #32324d ตรง ๆ ต้องแดงถ้ามีใครใส่กลับ
+  it('สีตัวอักษรจำนวนช่องมาจาก theme ของ port ไม่ใช่ hex ที่ hardcode ไว้', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (key) => key, theme: { border: '', surface: '', strongText: '#ffffff', mutedText: '' } })}>
+        <TemplatePicker
+          currentKey={null} hasConfiguredActions={false} hasImage={false}
+          onApply={vi.fn()} onClose={vi.fn()}
+        />
+      </PortProvider>,
+    )
+    const counts = screen.getAllByText('template.picker.areaCount.one')
+    expect(counts.length).toBeGreaterThan(0)
+    expect(counts[0]!.style.color).toBe('rgb(255, 255, 255)')
+  })
+
   it('แสดง Large 7 แบบ และ Compact 5 แบบ', () => {
     setup()
     expect(screen.getAllByTestId(/^template-option-RICH_MENU_TEMPLATE_2/)).toHaveLength(7)
