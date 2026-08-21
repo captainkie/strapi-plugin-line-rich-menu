@@ -85,6 +85,15 @@ system (npm, GitHub, DNS) that the test suite has no read access to.
       so "zero findings" and "only the recorded findings" are different outcomes, and only
       the second one is a pass. A new, unrecorded finding means stop and look at it — it is
       not automatically a real secret, but it is not automatically safe either.
+- [ ] **`NPM_TOKEN` exists as a GitHub Actions secret, and the `npm` environment exists.**
+      `release.yml` reads `secrets.NPM_TOKEN` and runs under `environment: npm`; a token
+      sitting in `.env.local` on someone's machine is not the same thing as a configured
+      GitHub secret, and the workflow fails at the publish step — after every gate ahead of
+      it has already passed — if either is missing. Verified live on this repository at the
+      time of writing: `gh api repos/{owner}/{repo}/environments` returns zero environments
+      and `gh secret list` returns nothing, so both still need to be created before the first
+      tag push. `environment: npm` also gives the owner a place to attach a required reviewer
+      or a wait timer later, if a manual approval step before publish is ever wanted.
 
 ## Publishing (owner only)
 
