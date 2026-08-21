@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+import { createElement, type ComponentType } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { MESSAGES } from '@fosivo/line-rich-menu-ui'
+import { LineMark, MESSAGES } from '@fosivo/line-rich-menu-ui'
 import admin from '../../admin/src/index.js'
 import { prefixTranslations } from '../../admin/src/translations.js'
 
@@ -29,14 +31,23 @@ describe('register', () => {
 
   /**
    * v4 ถามว่า icon เป็นฟังก์ชันไหม เพราะ DS v1 ส่งไอคอนออกมาเป็น function component ตรง ๆ
-   * DS v2 ห่อทุกไอคอนด้วย `forwardRef` ค่าที่ได้จึงเป็นอ็อบเจกต์ `{ $$typeof, render }` —
-   * `toBeTypeOf('function')` จะแดงทั้งที่ไอคอนถูกต้องทุกอย่าง ที่ต้องยืนยันคือ "React วาดมันได้"
-   * ไม่ใช่ "มันเป็นฟังก์ชัน" เพราะแอดมินของ Strapi วาด icon ของทุกเมนูโดยไม่เช็คก่อน
+   * DS v2 เคยห่อไอคอนของตัวเอง (`@strapi/icons`) ด้วย `forwardRef` (ค่าที่ได้จึงเป็นอ็อบเจกต์
+   * `{ $$typeof, render }`) แต่ตั้งแต่สเปกงานนี้ #2 ไอคอนเมนูไม่ใช่ `@strapi/icons` อีกต่อไป —
+   * เป็น `LineMark` ของแพ็กเกจเราเอง ซึ่งเป็น plain function component ธรรมดา (ใช้ร่วมกับ v4
+   * ที่ต้องการ `toBeTypeOf('function')` ตรง ๆ) เทสต์นี้จึงต้องไม่ผูกกับ "รูปทรง" ของไอคอนตัวใดตัวหนึ่ง
+   * (forwardRef หรือ function เฉย ๆ ก็ได้) ยืนยันแค่สิ่งที่ชื่อเทสต์บอกจริง ๆ: "React วาดมันได้"
+   * เพราะแอดมินของ Strapi วาด icon ของทุกเมนูโดยไม่เช็คก่อนว่ารูปทรงเป็นแบบไหน
    */
   it('มี icon จริงที่ React วาดได้ ไม่ใช่ undefined', () => {
-    const icon = register().link['icon'] as { $$typeof?: symbol; render?: unknown }
-    expect(icon.$$typeof).toBe(Symbol.for('react.forward_ref'))
-    expect(icon.render).toBeTypeOf('function')
+    const Icon = register().link['icon'] as ComponentType
+    expect(Icon).toBeDefined()
+    expect(() => renderToStaticMarkup(createElement(Icon))).not.toThrow()
+  })
+
+  // สเปกงานนี้ #2 — ไอคอนเมนูต้องเป็นเครื่องหมาย LINE ที่เราวาดเอง ไม่ใช่ `Message` กลาง ๆ ของ
+  // Strapi (`@strapi/icons`) อีกต่อไป ต้องแดงถ้ามีใครสลับกลับ
+  it('ไอคอนเมนูคือ LineMark ของเราเอง ไม่ใช่ไอคอนกลาง ๆ ของ @strapi/icons', () => {
+    expect(register().link['icon']).toBe(LineMark)
   })
 
   /**

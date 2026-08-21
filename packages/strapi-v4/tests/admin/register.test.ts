@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { MESSAGES } from '@fosivo/line-rich-menu-ui'
+import { LineMark, MESSAGES } from '@fosivo/line-rich-menu-ui'
 import admin from '../../src/admin/index.js'
 import { prefixTranslations } from '../../src/admin/translations.js'
 
@@ -29,6 +29,12 @@ describe('register', () => {
 
   it('มี icon จริง ไม่ใช่ undefined — แอดมินของ v4 วาด icon ของทุกเมนูโดยไม่เช็คก่อน', () => {
     expect(register().link['icon']).toBeTypeOf('function')
+  })
+
+  // สเปกงานนี้ #2 — ไอคอนเมนูต้องเป็นเครื่องหมาย LINE ที่เราวาดเอง ไม่ใช่ `Message` กลาง ๆ ของ
+  // Strapi (`@strapi/icons`) อีกต่อไป ต้องแดงถ้ามีใครสลับกลับ
+  it('ไอคอนเมนูคือ LineMark ของเราเอง ไม่ใช่ไอคอนกลาง ๆ ของ @strapi/icons', () => {
+    expect(register().link['icon']).toBe(LineMark)
   })
 
   /**
