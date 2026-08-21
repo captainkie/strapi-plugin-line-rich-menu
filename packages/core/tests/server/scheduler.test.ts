@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LineServerError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
 import { createScheduler } from '../../src/server/scheduler.js'
@@ -179,6 +179,50 @@ describe('tick', () => {
     expect(report).toEqual({ due: 1, claimed: 1, done: 0, failed: 1 })
     expect(lock.release).toHaveBeenCalledWith('s1', 'worker-a', 'failed', 'menu_not_found')
     expect(clientFor).not.toHaveBeenCalled()
+  })
+
+})
+
+/**
+ * I3 — `due > 0 && claimed === 0` แยกไม่ออกจากรายงานตัวเลขเฉย ๆ ว่าเป็น "ชนกันจริง" หรือ
+ * "lock พังเงียบ ๆ" (เช่นชื่อคอลัมน์ผิดหลัง migration) ทั้งสองเคสสมควรมีบรรทัด log ให้คนมาดู
+ * เพราะเคสหลังไม่มี error โผล่เลยนอกจากตัวเลขนี้ที่นิ่งอยู่ทุกนาที (ดูรายละเอียดที่ lock.ts)
+ *
+ * `beforeEach` เคลียร์ `silent.warn` เอง — `silent` เป็นอ็อบเจกต์ระดับโมดูลที่ทุก `describe`
+ * ในไฟล์นี้ใช้ร่วมกัน (รวมถึง 'แย่ง lock ไม่ได้ = ข้ามไป ไม่ใช่ทำซ้ำ' ด้านบนซึ่งมี due=1,claimed=0
+ * เหมือนกันและตอนนี้ก็ยิง warn ด้วย) vitest ไม่ล้าง mock ให้อัตโนมัติระหว่างเทสต์ ถ้าไม่เคลียร์เอง
+ * เคส "ไม่ warn" ข้างล่างจะเห็นการเรียกที่ค้างมาจากเทสต์ก่อนหน้าในไฟล์แล้วแดงผิดเหตุผล
+ */
+describe('tick — warn เมื่อ due > 0 แต่ claim ไม่ติดสักงานเดียว', () => {
+  beforeEach(() => { silent.warn.mockClear() })
+
+  it('due > 0 แต่ claim ไม่ติดสักงานเดียว → ต้อง warn', async () => {
+    const { scheduler } = harness([scheduleRow()], [menuRow()], async () => false)
+    const report = await scheduler.tick()
+
+    expect(report).toEqual({ due: 1, claimed: 0, done: 0, failed: 0 })
+    expect(silent.warn).toHaveBeenCalledWith(
+      'line-rich-menu: schedules are due but none could be claimed — total lock contention or a broken lock',
+      report,
+    )
+  })
+
+  it('claim ติดอย่างน้อยหนึ่งงาน → ไม่ warn แม้จะมีงานอื่นแย่ง lock ไม่ได้', async () => {
+    let calls = 0
+    const claim = async () => { calls += 1; return calls === 1 }
+    const { scheduler } = harness(
+      [scheduleRow({ id: 's1' }), scheduleRow({ id: 's2', runAt: '2026-08-21T11:30:00.000Z' })],
+      [menuRow()],
+      claim,
+    )
+    await scheduler.tick()
+    expect(silent.warn).not.toHaveBeenCalled()
+  })
+
+  it('ไม่มีงานถึงเวลาเลย (due = 0) → ไม่ warn', async () => {
+    const { scheduler } = harness([scheduleRow({ runAt: '2026-08-21T13:00:00.000Z' })], [menuRow()])
+    await scheduler.tick()
+    expect(silent.warn).not.toHaveBeenCalled()
   })
 })
 
