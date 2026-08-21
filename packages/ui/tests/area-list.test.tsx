@@ -85,6 +85,46 @@ describe('ปุ่มเพิ่ม/ลบช่อง', () => {
     expect(remove.closest('[data-testid="area-header-0"]')).toBeNull()
   })
 
+  /**
+   * ปุ่มเพิ่มถูก disable ที่ 20 ช่องอยู่แล้ว (เพดานของ LINE เอง — สเปก §2.2) แต่ไม่มีคำอธิบายว่า
+   * ทำไมกดไม่ได้ — ผู้ใช้เห็นปุ่มเทาแล้วเดาเอาเองว่าเกิดอะไรขึ้น ข้อความนี้ตอบคำถามนั้นตรง ๆ
+   */
+  it('ครบ 20 ช่องแล้วมีข้อความบอกเพดานโผล่ข้างปุ่มเพิ่ม', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (k) => k })}>
+        <AreaList
+          areas={Array.from({ length: 20 }, () => emptyActionForm())}
+          activeIndex={null}
+          view="list"
+          onViewChange={() => {}}
+          onSelect={() => {}}
+          onChange={() => {}}
+          onAdd={() => {}}
+          aliasOptions={[]}
+        />
+      </PortProvider>,
+    )
+    expect(screen.getByText('editor.layout.limit')).toBeInTheDocument()
+  })
+
+  it('ยังไม่ครบ 20 ช่อง ไม่มีข้อความเพดานโผล่มา', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (k) => k })}>
+        <AreaList
+          areas={Array.from({ length: 19 }, () => emptyActionForm())}
+          activeIndex={null}
+          view="list"
+          onViewChange={() => {}}
+          onSelect={() => {}}
+          onChange={() => {}}
+          onAdd={() => {}}
+          aliasOptions={[]}
+        />
+      </PortProvider>,
+    )
+    expect(screen.queryByText('editor.layout.limit')).toBeNull()
+  })
+
   it('ไม่ส่ง onAdd/onRemove มาก็ไม่มีปุ่มไหนโผล่', () => {
     render(
       <PortProvider value={createStubPort({ t: (k) => k })}>
