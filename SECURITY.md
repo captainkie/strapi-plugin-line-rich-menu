@@ -33,11 +33,21 @@ It does **not** mean Strapi 4 itself is secure — see the next section.
 ## The Strapi 4 position
 
 **Strapi 4 reached end of life on 30 April 2026.** No more security patches from Strapi,
-for anything, at any price. Its dependency tree carries a large and growing number of
-known advisories that nobody upstream is going to fix — as of 21 August 2026, `pnpm audit
---prod` at the root of this repository reports **69 known advisories** reachable through
-`@strapi/strapi`. Run `pnpm audit` yourself for the current count; it only grows, and it
-grows for reasons that have nothing to do with this plugin.
+for anything, at any price. Its dependency tree carries dozens of known advisories that
+nobody upstream is going to fix, spread across every severity including critical.
+
+We are not going to print today's count here, because it changes faster than a document
+does — on 21 August 2026, `scripts/audit-shipped.mjs` counted 69 distinct advisory IDs
+while `pnpm audit --prod` reported 74 vulnerabilities on the same tree the same hour, and
+both numbers were higher by the end of the week. Run it yourself:
+
+```bash
+pnpm audit --prod            # every advisory in the tree, Strapi 4's included
+node scripts/audit-shipped.mjs   # only the ones we could actually fix
+```
+
+What is stable is the shape, and the shape is what matters: every one of those advisories
+reaches you through `@strapi/strapi`, and none of them through anything we ship.
 
 We didn't bring that dependency tree in — `@strapi/strapi` is a `peerDependency`, not a
 `dependency`, of `strapi-plugin-line-rich-menu-v4` — and we can't fix it. Gating our CI on
