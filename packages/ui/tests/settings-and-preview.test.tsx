@@ -175,4 +175,39 @@ describe('Preview', () => {
     wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
     expect(screen.getByTestId('preview-menu')).toBeInTheDocument()
   })
+
+  // ส่วนนี้เพิ่มหลัง Task 17 (กรอบ iPhone) — ครอบคลุมเฉพาะส่วนที่มีความหมาย (เนื้อหา/การเข้าถึง
+  // ได้) ไม่ใช่สี/ขนาดพิกเซลของกรอบ ซึ่งจะพังทุกครั้งที่มีคน restyle ใหม่โดยไม่ได้พิสูจน์พฤติกรรม
+  // อะไรเพิ่มเลย (ดูคอมเมนต์ในสเปกของงานนี้)
+  describe('กรอบ iPhone', () => {
+    it('ชื่อบัญชีของหัวแชทแสดงอยู่จริง — ไม่ใช่ของตกแต่งที่ซ่อนจาก screen reader', () => {
+      wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
+      const name = screen.getByText('preview.accountName')
+      expect(name).toBeInTheDocument()
+      expect(name).not.toHaveAttribute('aria-hidden')
+    })
+
+    // ตัวชิ้นแต่งของกรอบ (bezel, dynamic island, status bar, chevron, แบต ฯลฯ) ต้องถูกซ่อนจาก
+    // screen reader ทุกชิ้น ไม่งั้นคนใช้ screen reader จะได้ยินรายละเอียดของกรอบมือถือปลอม
+    // ปนอยู่กับเนื้อหาจริง — ไม่ใช้ testId ตามที่สเปกงานนี้บอกไว้ตรง ๆ ("New decorative elements
+    // need no test ids") จึงนับจาก attribute aria-hidden ที่ต้องมีอยู่จริงแทน
+    it('ชิ้นตกแต่งของกรอบ (bezel/island/status bar ฯลฯ) ถูก aria-hidden ไว้ทุกชิ้น', () => {
+      const { container } = wrap(
+        <Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />,
+      )
+      expect(container.querySelectorAll('[aria-hidden="true"]').length).toBeGreaterThan(0)
+    })
+
+    // ยามสำคัญที่สุดของ Task 17 ส่วนนี้: ชิ้นตกแต่งรอบข้าง (status bar/หัวแชท/วอลเปเปอร์) ต้อง
+    // เป็น sibling ของ preview-menu ไม่ใช่บรรพบุรุษที่ aria-hidden ทับลงมา — getByRole ของ
+    // testing-library กรอง element ที่ inaccessible (ตัวเองหรือบรรพบุรุษมี aria-hidden) ออกโดย
+    // ค่าเริ่มต้นอยู่แล้ว ถ้าใครห่อ preview-menu ไว้ใต้กรอบที่ aria-hidden โดยไม่ได้ตั้งใจ เทสต์นี้
+    // (และเทสต์ลากช่องด้านบนที่ query ผ่าน role เหมือนกัน) จะหาไม่เจอทันที ไม่ใช่แค่ผ่านลอย ๆ
+    it('เมนูใน preview-menu ยังกดถึงได้จริงผ่าน role — ไม่มีบรรพบุรุษไหน aria-hidden ทับอยู่', () => {
+      wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
+      const menu = screen.getByTestId('preview-menu')
+      expect(menu).not.toHaveAttribute('aria-hidden')
+      expect(within(menu).getAllByRole('button')).toHaveLength(template.bounds.length)
+    })
+  })
 })
