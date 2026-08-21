@@ -1,12 +1,18 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { TEMPLATES } from '@fosivo/line-rich-menu-core/browser'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { emptyActionForm } from '../src/action-form.js'
-import { PortProvider } from '../src/port.js'
+import { PortProvider, type HttpClient, type UIPort } from '../src/port.js'
 import { createStubPort } from '../src/stub-port.js'
 import { RichMenuEditor, emptyDraft, type RichMenuDraft } from '../src/pages/RichMenuEditor.js'
 
-function setup(overrides: Partial<React.ComponentProps<typeof RichMenuEditor>> = {}) {
+function setup(
+  overrides: Partial<React.ComponentProps<typeof RichMenuEditor>> = {},
+  // เพิ่มเข้ามาสำหรับเทสต์ publish รอบที่ต้องอัปโหลดรูปจริงผ่าน UI (fix round 1) — ต้องปลอม
+  // http.post ให้คืนไฟล์ที่อัปสำเร็จ ค่าเริ่มต้นของ stub port (`async () => ({})`) ไม่ใช่ array
+  // จึง `uploaded[0]` เป็น undefined เสมอ ทำให้ ImageField เข้า error path ทุกครั้ง
+  portOverrides: Partial<UIPort> = {},
+) {
   // ระบุ type ผ่าน generic ของ vi.fn ตรง ๆ (ไม่ใช่ตั้งชื่อพารามิเตอร์ที่ implementation ไม่ใช้ —
   // จะโดน no-unused-vars) — ไม่งั้น `onSave.mock.calls[0][0]` จะ infer เป็น tuple ว่างจาก
   // `async () => {}` เปล่า ๆ ทำให้เทสต์ที่อ่านค่า draft ที่ถูกส่งจริง (custom layout describe
@@ -15,7 +21,7 @@ function setup(overrides: Partial<React.ComponentProps<typeof RichMenuEditor>> =
   const onCancel = vi.fn()
   const toast = vi.fn()
   render(
-    <PortProvider value={createStubPort({ t: (k) => k, toast })}>
+    <PortProvider value={createStubPort({ t: (k) => k, toast, ...portOverrides })}>
       <RichMenuEditor aliasOptions={[]} onSave={onSave} onCancel={onCancel} {...overrides} />
     </PortProvider>,
   )
@@ -27,6 +33,28 @@ function chooseTemplate(key = 'RICH_MENU_TEMPLATE_205') {
   fireEvent.click(screen.getByTestId(`template-option-${key}`))
   fireEvent.click(screen.getByTestId('template-apply'))
 }
+
+function file(name = 'menu.png', type = 'image/png') {
+  return new File([new Uint8Array([1, 2, 3])], name, { type })
+}
+
+// jsdom ไม่ decode รูปจริง จึงต้องปลอมขนาดที่ Image จะรายงานกลับมา (แพทเทิร์นเดียวกับ
+// image-field.test.tsx) — ต้อง unstub ท้ายเทสต์ ไม่งั้นหลุดข้ามเทสต์ถัดไปในไฟล์เดียวกัน
+function stubImageSize(width: number, height: number) {
+  class StubImage {
+    onload: (() => void) | null = null
+    onerror: (() => void) | null = null
+    naturalWidth = width
+    naturalHeight = height
+    set src(_v: string) { queueMicrotask(() => this.onload?.()) }
+  }
+  vi.stubGlobal('Image', StubImage)
+  vi.stubGlobal('URL', { ...URL, createObjectURL: () => 'blob:stub', revokeObjectURL: () => {} })
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('RichMenuEditor', () => {
   it('เป็นฟอร์มเดียวเลื่อนยาว ไม่มีแท็บ', () => {
@@ -342,6 +370,32 @@ describe('custom layout (สเปก §5.2 · §17 "ขอบเขต v1.0 —
   }
 
   /**
+   * เพียงพอที่จะยิง `moveBounds` (ซึ่งเคลียร์ templateKey ทิ้งเสมอไม่ว่าค่าจะเปลี่ยนจริงหรือไม่)
+   * ไม่จำเป็นต้องให้ตำแหน่งขยับจริง — เทสต์กลุ่ม fix round 1 ด้านล่างสนใจแค่ผลข้างเคียงที่ว่า
+   * templateKey กลายเป็น null ไม่ได้สนใจว่าช่อง A ขยับไปกี่ % (ดูเทสต์ pointer drag ด้านบนที่คุม
+   * เรื่องขยับจริงไปแล้ว)
+   */
+  const dragAreaA = () => {
+    const area = within(screen.getByTestId('preview-menu')).getByRole('button', { name: /^A$/ })
+    fireEvent.pointerDown(area, { clientX: 0, clientY: 0, pointerId: 1 })
+    fireEvent.pointerMove(area, { clientX: 10, clientY: 0, pointerId: 1 })
+    fireEvent.pointerUp(area, { pointerId: 1 })
+  }
+
+  /** เติม action.field.text ให้ทุกช่องที่ template 205 ให้มา (2 ช่อง) — `type: 'message'` ที่
+   * emptyActionForm() ตั้งไว้ต้องการ text อย่างน้อย 1 ตัวอักษร ไม่งั้น validateRichMenu ติด error
+   * รายช่องก่อนจะไปถึง guard ที่กลุ่มเทสต์นี้ต้องการพิสูจน์จริง ๆ */
+  const fillAllActions = () => {
+    for (const index of [0, 1]) {
+      fireEvent.click(screen.getByTestId(`area-header-${index}`))
+      fireEvent.change(
+        within(screen.getByTestId(`area-body-${index}`)).getByLabelText('action.field.text'),
+        { target: { value: 'ปุ่ม' } },
+      )
+    }
+  }
+
+  /**
    * `CanvasEditor` ตัดสินว่าตัวเองแก้ไขได้หรือไม่จากการมีอยู่ของ `onBoundsChange` และวาดมือจับ
    * เฉพาะตอนแก้ไขได้ (ดู canvas-editor-drag.test.tsx) — การมี/ไม่มี `resize-handle-*` จึงเป็น
    * ตัวชี้ที่ตรงที่สุดว่าพร็อพเดินทางผ่าน `Preview` ไปถึงจริงหรือไม่
@@ -451,5 +505,72 @@ describe('custom layout (สเปก §5.2 · §17 "ขอบเขต v1.0 —
     fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     expect((onSave.mock.calls[0]![0] as RichMenuDraft).templateKey).toBeNull()
+  })
+
+  describe('fix round 1 — templateKey เป็น null ต้องไม่ปิดทางไป publish', () => {
+    /**
+     * เดิม RichMenuEditor.tsx:185 เช็ค `draft.templateKey === null` ก่อน publish — ลากช่องเดียว
+     * ทำให้ templateKey เป็น null (moveBounds/addArea/removeArea เคลียร์มันทิ้งเสมอ) แล้ว publish
+     * จะติด "เลือก template ก่อนเผยแพร่" ตลอดไป ทั้งที่ผังมีจริงและถูกต้องสมบูรณ์ — ทางแก้เดียวที่
+     * ข้อความนั้นชี้ให้ทำ (เปิด picker แล้วเลือก template) จะทับผังที่เพิ่งปรับเองทิ้งทั้งหมดด้วยซ้ำ
+     */
+    it('เปิดสวิตช์ปรับผังเอง ลากช่อง แนบรูป แล้ว publish ได้จริง — ไม่ติด "เลือก template ก่อน"', async () => {
+      stubImageSize(2500, 1686)
+      const post = vi.fn(async () => [{ id: 1, url: '/uploads/a.png', width: 2500, height: 1686 }])
+      const t = (key: string) => (key === 'chatBar.defaultLabel' ? 'เมนู' : key)
+      const { onSave } = setup({}, {
+        t,
+        http: { ...createStubPort().http, post: post as unknown as HttpClient['post'] },
+      })
+      chooseTemplate()
+      enableCustomLayout()
+      dragAreaA()
+      fillAllActions()
+
+      fireEvent.change(screen.getByTestId('image-input'), { target: { files: [file()] } })
+      await waitFor(() => expect(screen.getByTestId('image-remove')).toBeInTheDocument())
+
+      fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+      await waitFor(() => expect(onSave).toHaveBeenCalled())
+      expect(onSave.mock.calls[0]![1]).toBe(true)
+      expect((onSave.mock.calls[0]![0] as RichMenuDraft).templateKey).toBeNull()
+      expect(screen.queryByText('editor.error.noTemplate')).not.toBeInTheDocument()
+    })
+
+    // เดิม RichMenuEditor.tsx:339 ปิด ImageField ด้วย `draft.templateKey === null` เหมือนกัน —
+    // ลากช่องเดียวก็ปิดปุ่มอัปโหลดรูปทันที ทั้งที่ผู้ใช้กำลังแก้ผังอยู่และยังไม่มีรูปเลย
+    it('ลากช่องแล้วช่องอัปโหลดรูปยังกดได้ ไม่ถูกปิดเพราะ templateKey เป็น null', () => {
+      setup()
+      chooseTemplate()
+      enableCustomLayout()
+      dragAreaA()
+      expect(screen.getByTestId('image-input')).not.toBeDisabled()
+    })
+
+    // เพิ่มช่องแล้วลบช่อง (คนละปุ่มจาก dragAreaA แต่เคลียร์ templateKey ด้วยเหตุผลเดียวกัน) — ต้อง
+    // publish ได้เหมือนกัน ไม่ใช่แค่ตัวลากที่ถูกทดสอบไปแล้วด้านบน
+    it('เพิ่มช่องแล้วลบช่อง ก็ publish ได้จริงเหมือนกัน — templateKey เป็น null จากปุ่มไหนก็ตาม', async () => {
+      stubImageSize(2500, 1686)
+      const post = vi.fn(async () => [{ id: 1, url: '/uploads/a.png', width: 2500, height: 1686 }])
+      const t = (key: string) => (key === 'chatBar.defaultLabel' ? 'เมนู' : key)
+      const { onSave } = setup({}, {
+        t,
+        http: { ...createStubPort().http, post: post as unknown as HttpClient['post'] },
+      })
+      chooseTemplate()
+      enableCustomLayout()
+      fireEvent.click(screen.getByTestId('area-add'))
+      fireEvent.click(screen.getByTestId('area-remove-2'))
+      fillAllActions()
+
+      fireEvent.change(screen.getByTestId('image-input'), { target: { files: [file()] } })
+      await waitFor(() => expect(screen.getByTestId('image-remove')).toBeInTheDocument())
+
+      fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+      await waitFor(() => expect(onSave).toHaveBeenCalled())
+      expect(onSave.mock.calls[0]![1]).toBe(true)
+      expect((onSave.mock.calls[0]![0] as RichMenuDraft).templateKey).toBeNull()
+      expect(screen.queryByText('editor.error.noTemplate')).not.toBeInTheDocument()
+    })
   })
 })
