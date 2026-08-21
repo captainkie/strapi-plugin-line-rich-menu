@@ -121,10 +121,23 @@ export async function publishMenu(deps: PublishDeps, request: PublishRequest): P
           completed.push(step)
         }
       } catch (error) {
-        await restorePriorState(client, prior, { aliasId: menu.aliasId, completed }, logger)
+        const restored = await restorePriorState(client, prior, { aliasId: menu.aliasId, completed }, logger)
+
+        // เมนูค้างหนึ่งตัวแย่กว่า "LINE ชี้เมนูที่ถูกลบไปแล้ว" เสมอ: อย่างแรกกินโควตาและมีปุ่มให้เก็บกวาด
+        // ทีหลัง (reconcile) ส่วนอย่างหลังคือ end user ทุกคนเปิดแชทมาไม่เห็นเมนูเลย และเก็บกวาดไม่ได้
+        // เพราะเมนูที่ต้องเอากลับมาไม่มีอยู่แล้ว — เวอร์ชัน alias ยังลามไปพัง `richmenuswitch` ของ
+        // เมนูอื่นที่ไม่เกี่ยวกับ publish รอบนี้เลยด้วย
+        const safeToDelete = restored.defaultRestored && restored.aliasRestored
 
         for (const action of compensate(completed)) {
           if (action.kind === 'deleteCreated' && createdId !== null) {
+            if (!safeToDelete) {
+              logger.error(
+                'line-rich-menu: keeping the menu created during a failed publish because the prior state could not be restored',
+                { createdId, ...restored },
+              )
+              continue
+            }
             await client.deleteRichMenu(createdId).catch((deleteError: unknown) => {
               logger.error('line-rich-menu: failed to delete the menu created during a failed publish', {
                 createdId, error: deleteError,
@@ -144,7 +157,11 @@ export async function publishMenu(deps: PublishDeps, request: PublishRequest): P
           // จึงรายงานมันเป็น **กำพร้า** แล้วหน้า ChannelSettings ยื่นปุ่มลบให้ผู้ใช้กด — ผู้ใช้ที่มีสิทธิ์
           // publish จะลบเมนูที่ลูกค้ากำลังใช้อยู่ทิ้งจากรายงานที่บอกเขาว่ามันเป็นขยะ และ `deleteOrphan`
           // ก็เห็นด้วยเพราะตามนิยามของมันเองมันกำพร้าจริง
-          lineRichMenuId: menu.lineRichMenuId,
+          //
+          // ยกเว้นกรณีที่คืน default ไม่สำเร็จ: ตอนนั้น default บน LINE ยังเป็นเมนูที่รอบนี้เพิ่งสร้าง
+          // (ซึ่งเราจงใจไม่ลบทิ้ง) แถวจึงต้องชี้ตัวนั้น ไม่ใช่เมนูเก่าที่ไม่มีใครใช้แล้ว กฎเดียวกันทั้งสอง
+          // สาขา — "แถวต้องชี้สิ่งที่ LINE ใช้อยู่จริง" เพื่อไม่ให้ reconcile ชี้ปุ่มลบไปที่ default
+          lineRichMenuId: restored.defaultRestored ? menu.lineRichMenuId : createdId,
         })
         throw error
       }

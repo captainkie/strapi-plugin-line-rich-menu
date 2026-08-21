@@ -36,6 +36,16 @@ export async function capturePriorState(
 }
 
 /**
+ * ผลของการคืนสถานะ — ผู้เรียกต้องรู้ว่า "คืนไม่สำเร็จ" ก่อนตัดสินใจลบเมนูที่เพิ่งสร้าง
+ *
+ * `true` หมายรวมถึง "ไม่มีอะไรต้องคืน" ด้วย — ขั้นที่ไม่เคยถูกแตะย่อมไม่ต้องถูกคืน
+ */
+export interface RestoreOutcome {
+  defaultRestored: boolean
+  aliasRestored: boolean
+}
+
+/**
  * คืนสถานะให้ตรงกับที่ `capturePriorState` อ่านไว้ ก่อนที่ผู้เรียกจะลบเมนูที่เพิ่งสร้าง
  *
  * ทำไมไม่แก้ด้วยการสลับลำดับขั้นแทน: ถ้าเลื่อน `upsertAlias` ไปท้ายสุด `setDefault` จะกลายเป็น
@@ -44,25 +54,36 @@ export async function capturePriorState(
  *
  * แต่ละขั้นถูกห่อ try/catch แยกกัน — การคืน default ที่ล้มต้องไม่ทำให้ alias ไม่ถูกคืนตามไปด้วย
  * และไม่ว่ากรณีใด error ของการคืนค่าต้องไม่กลบ error จริงที่ทำให้ต้องมาคืนค่าตั้งแต่แรก
+ *
+ * แต่ "กลืน error ไว้" ต้องไม่แปลว่า "ผู้เรียกไม่รู้" — เดิมฟังก์ชันนี้คืน `void` ผู้เรียกจึงลบเมนู
+ * ที่เพิ่งสร้างทิ้งเสมอโดยไม่มีทางรู้ว่าการคืน default เพิ่งล้มไป เคสที่น่าจะเกิดที่สุด (ไม่ใช่เคสพิสดาร)
+ * คือ `deleteOld` ล้มด้วย 500 แล้ว `setDefault` ของการคืนค่าล้มด้วยเหตุผลเดียวกัน จากนั้นเมนูใหม่
+ * ถูกลบสำเร็จ → default บน LINE ชี้เมนูที่ไม่มีอยู่แล้ว และ end user ทุกคนเปิดแชทมาไม่เห็นเมนูเลย
  */
 export async function restorePriorState(
   client: LineRestorer,
   prior: PriorState,
   input: { aliasId: string | null; completed: readonly Step[] },
   logger: LoggerLike,
-): Promise<void> {
+): Promise<RestoreOutcome> {
   const did = (kind: Step['kind']) => input.completed.some((step) => step.kind === kind)
 
-  async function attempt(what: string, run: () => Promise<void>): Promise<void> {
+  async function attempt(what: string, run: () => Promise<void>): Promise<boolean> {
     try {
       await run()
+      return true
     } catch (error) {
       logger.error(`line-rich-menu: failed to restore ${what} during compensation`, { error })
+      return false
     }
   }
 
+  // ไม่มีอะไรต้องคืน = คืนสำเร็จ ผู้เรียกจึงตัดสินใจจากค่าเดียวได้โดยไม่ต้องรู้ว่าขั้นไหนถูกเดินบ้าง
+  let defaultRestored = true
+  let aliasRestored = true
+
   if (did('setDefault')) {
-    await attempt('default rich menu', async () => {
+    defaultRestored = await attempt('default rich menu', async () => {
       if (prior.defaultRichMenuId === null) await client.clearDefault()
       else await client.setDefault(prior.defaultRichMenuId)
     })
@@ -70,9 +91,11 @@ export async function restorePriorState(
 
   if (did('upsertAlias') && input.aliasId !== null) {
     const aliasId = input.aliasId
-    await attempt(`alias ${aliasId}`, async () => {
+    aliasRestored = await attempt(`alias ${aliasId}`, async () => {
       if (prior.aliasTarget === null) await client.deleteAlias(aliasId)
       else await client.updateAlias(aliasId, prior.aliasTarget)
     })
   }
+
+  return { defaultRestored, aliasRestored }
 }
