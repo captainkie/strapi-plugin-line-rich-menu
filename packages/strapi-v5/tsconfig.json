@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "paths": {
+      "@fosivo/line-rich-menu-core": ["../core/src/index.ts"],
+      "@fosivo/line-rich-menu-core/browser": ["../core/src/browser.ts"],
+      "@fosivo/line-rich-menu-ui": ["../ui/src/index.ts"]
+    }
+  },
+  "include": ["admin", "server", "tests"]
+}
