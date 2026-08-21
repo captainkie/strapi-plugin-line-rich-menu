@@ -6,7 +6,7 @@ interface DraftChannel {
   name: string
   channelId: string
   channelSecret: string
-  accessToken: string
+  channelAccessToken: string
 }
 
 /** เมนูกำพร้าตัวหนึ่งที่รอผู้ใช้กดยืนยันลบ — เก็บทั้ง channelId เพราะ endpoint ลบต้องใช้ทั้งคู่ */
@@ -15,7 +15,7 @@ interface PendingDelete {
   lineRichMenuId: string
 }
 
-const emptyChannel: DraftChannel = { name: '', channelId: '', channelSecret: '', accessToken: '' }
+const emptyChannel: DraftChannel = { name: '', channelId: '', channelSecret: '', channelAccessToken: '' }
 
 export function ChannelSettings() {
   const { ui, http, t } = usePort()
@@ -195,8 +195,8 @@ export function ChannelSettings() {
               ไม่มีได้ (ถ้าวันไหนตัดสินใจเอา type="password" ออก ต้องคิดเรื่องนี้ใหม่ทั้งคู่พร้อมกัน) */}
           <ui.TextInput name="channelSecret" type="password" autoComplete="off" label={t('channel.channelSecret')} value={draft.channelSecret}
             onChange={(v) => set('channelSecret', v)} />
-          <ui.TextInput name="accessToken" type="password" autoComplete="off" label={t('channel.accessToken')} value={draft.accessToken}
-            onChange={(v) => set('accessToken', v)} />
+          <ui.TextInput name="channelAccessToken" type="password" autoComplete="off" label={t('channel.accessToken')} value={draft.channelAccessToken}
+            onChange={(v) => set('channelAccessToken', v)} />
           <ui.Flex gap={2}>
             <ui.Button variant="secondary" onClick={() => setAdding(false)}>{t('common.cancel')}</ui.Button>
             <ui.Button testId="save-channel" onClick={() => void save()}>{t('common.save')}</ui.Button>
