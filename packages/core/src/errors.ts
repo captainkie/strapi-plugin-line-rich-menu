@@ -48,6 +48,15 @@ export class LineValidationError extends CoreError {
   }
 }
 
+/**
+ * LINE ตอบ 404 — สำหรับ `getDefault` / `getAlias` นี่คือ "ยังไม่มี" ซึ่งเป็นคำตอบที่ถูกต้อง
+ * ไม่ใช่ความผิดพลาด แยกออกจาก `LineValidationError` เพราะ compensation (Task 10) ต้องแยก
+ * "ไม่มีของให้คืน" ออกจาก "payload ผิด" ให้ได้ ไม่งั้นจะคืนสถานะผิดหรือกลืน error จริงทิ้ง
+ */
+export class LineNotFoundError extends CoreError {
+  readonly code = 'line_not_found'
+}
+
 export class LineServerError extends CoreError {
   readonly code = 'line_server_error'
   constructor(readonly status: number) {
