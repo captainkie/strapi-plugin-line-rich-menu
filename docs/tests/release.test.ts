@@ -3,7 +3,13 @@ import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+// เทสต์ README-ใน-tarball ข้างล่างสปอว์น `npm pack` และ `tar` จริงสองรอบ — ภายใต้ vitest.config.ts
+// ที่รันหลายไฟล์ขนานกันพร้อม coverage instrumentation ทั้ง repo (`pnpm test:coverage`) วัดได้ว่า
+// ใช้เวลาเกิน default 5s ของ vitest แม้แต่ละรอบเดี่ยว ๆ ใช้ราว 3s ก็ตาม — ตั้ง timeout ให้กว้าง
+// พอสำหรับเครื่องที่ช้ากว่านี้ (เช่น CI runner) แทนที่จะปล่อยให้ flaky
+vi.setConfig({ testTimeout: 30_000 })
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const release = readFileSync(`${root}.github/workflows/release.yml`, 'utf8')
