@@ -182,7 +182,12 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
     setChatBarError(null)
 
     if (publish) {
-      if (draft.templateKey === null) {
+      // เช็คจาก draft.bounds ไม่ใช่ templateKey — โหมดปรับผังเองเคลียร์ templateKey ทิ้งทันทีที่
+      // ผู้ใช้ขยับ/เพิ่ม/ลบช่องแรก (moveBounds/addArea/removeArea) ถ้ายังเช็ค templateKey ตรงนี้
+      // ผังที่ผู้ใช้เพิ่งปรับเองจะ publish ไม่ได้เลย และคำแนะนำในข้อความ ("เลือก template ก่อน
+      // เผยแพร่") ก็ชวนให้กดปุ่มเปิด picker ซึ่งจะทับผังที่เพิ่งปรับทิ้งทั้งหมด — bounds ว่างเปล่า
+      // เกิดได้เฉพาะตอนยังไม่เคยเลือกอะไรเลย (emptyDraft()) ซึ่งเป็นเวลาเดียวที่ข้อความนี้ยังถูกอยู่
+      if (draft.bounds.length === 0) {
         setFormError(t('editor.error.noTemplate'))
         return
       }
@@ -336,7 +341,11 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
             <ImageField
               value={draft.image}
               size={size}
-              disabled={draft.templateKey === null}
+              // เช็คจาก draft.bounds ไม่ใช่ templateKey — เหตุผลเดียวกับ guard ใน save() ด้านบน
+              // โหมดปรับผังเองเคลียร์ templateKey ทิ้งทันทีที่ขยับช่องแรก ถ้าปิดช่องรูปตาม
+              // templateKey ผู้ใช้จะอัปโหลดรูปให้ผังที่เพิ่งปรับเองไม่ได้เลย ทั้งที่ LINE ปฏิเสธการ
+              // เผยแพร่เมนูที่ไม่มีรูปเสมอ — ผังนั้นจะเผยแพร่ไม่ได้ตลอดไปแม้จะแก้ guard ข้างบนแล้วก็ตาม
+              disabled={draft.bounds.length === 0}
               onChange={(next) => setDraft((prev) => ({ ...prev, image: next }))}
               onErrorChange={setImageError}
               {...(imageError === null ? {} : { error: imageError })}
