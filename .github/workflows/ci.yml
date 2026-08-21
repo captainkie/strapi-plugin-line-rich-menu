@@ -43,6 +43,11 @@ jobs:
 
   mutation:
     runs-on: ubuntu-latest
+    # Node 22 โดยตั้งใจ ต่างจาก job อื่นที่ใช้ .nvmrc — @stryker-mutator/core@10 ประกาศ
+    # engines.node >= 22 ส่วน .nvmrc ตรึงไว้ที่ 20.20.0 เพราะนั่นคือเวอร์ชันที่ลูกค้ารันจริง
+    # และเป็นเวอร์ชันที่ต้องพิสูจน์ว่า *ตัวสินค้า* ทำงานได้ เครื่องมือวัด mutation ไม่ใช่ของที่
+    # ปล่อยออกไป จึงไม่จำเป็นต้องรันบนพื้นเดียวกับสินค้า — บังคับให้มันลงมาที่ 20 คือการเลือก
+    # เครื่องมือที่แย่ลงเพื่อความสม่ำเสมอที่ไม่ได้ให้อะไรกลับมา
     # เดิมรันเฉพาะ push (ซึ่ง trigger แค่ตอน merge เข้า main แล้ว) เท่ากับ ruleset ของ main
     # (.github/rulesets/main.json) บังคับให้เป็น required check ไม่ได้เพราะ Stryker รันหลัง merge
     # เสมอ — ช้าเกินจะเป็น required check ของ PR ตั้งใจไว้แบบนั้น (ดูสเปก 13.4) แต่ก็ต้องมีทางรัน
@@ -53,7 +58,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:mutation

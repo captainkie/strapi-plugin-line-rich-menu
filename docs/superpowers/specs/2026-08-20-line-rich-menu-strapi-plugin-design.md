@@ -270,7 +270,7 @@ export const usePort: () => UIPort;
 **บังคับใช้:** `ui` มีชุดเทสต์ที่รันด้วย stub port ล้วน + ESLint rule `no-restricted-imports` บล็อกแพ็กเกจข้างบน
 ถ้ามีใคร import DS เข้ามา CI พังทันที
 
-### 5.2 สองอย่างที่จงใจไม่ผ่าน port
+### 5.2 สิ่งที่จงใจไม่ผ่าน port
 
 **CanvasEditor** — เขียนด้วย `div` + inline style + ไฟล์ CSS ธรรมดา ไม่แตะ DS ไม่แตะ styled-components
 overlay ทุกช่องคำนวณจาก `bounds` เป็นเปอร์เซ็นต์:
@@ -287,6 +287,19 @@ height = bounds.height / size.height * 100%
 
 **การอัปโหลดรูป** — ไม่เรียก Media Library UI ของ Strapi (v4 กับ v5 ต่างกันมาก) แต่ `POST /upload`
 ซึ่งเป็น endpoint เดียวกันทั้งสองเวอร์ชัน แล้วเก็บ file id ที่ได้กลับมา
+
+**ตัวเลือกไฟล์เป็น `<input type="file">` ดิบ ไม่ผ่าน port** — ตัดสินใจไว้แบบเดียวกับ CanvasEditor
+Design System ทั้ง v1 และ v2 ไม่มี file input ที่ควรค่าแก่การ adapt และถ้าทำเป็น primitive
+ทั้งสอง adapter จะ implement เป็น input ดิบเหมือนกันอยู่ดี — ได้ความซับซ้อนเพิ่มโดยไม่ได้อะไรกลับมา
+
+**accordion ของรายการช่องประกอบเอง ไม่ผ่าน port** — เป็น `<section>` + `<button aria-expanded>` +
+children แบบมีเงื่อนไข ซึ่งเป็น HTML ล้วนและคุม ARIA ได้ตรงกว่าการฝากไว้กับ DS สองเวอร์ชันที่ต่างกัน
+
+**`Preview` — กรอบโทรศัพท์จำลอง ไม่ผ่าน port** — สีอย่าง `#8ba7d0` คือสีวอลเปเปอร์แชทของ LINE เอง
+ไม่ใช่ token ของ design system ถ้าวาดด้วย `ui.Typography`/`ui.Flex` พรีวิวจะสืบทอด type scale
+และ spacing ของ Strapi admin เข้ามาแทน ซึ่งขัดกับหน้าที่ของ component นี้ที่ต้องจำลองว่าเมนูหน้าตา
+เป็นยังไง **ในแอป LINE** ไม่ใช่ในหน้า Strapi — component นี้ฝัง `CanvasEditor` ซึ่งเป็นข้อยกเว้นอยู่แล้ว
+ด้วย จึงมีบางส่วนที่ยกเว้นอยู่แล้วโดยปริยาย
 
 ### 5.3 หน้าจอ
 

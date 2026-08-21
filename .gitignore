@@ -30,3 +30,6 @@ reports/
 
 # SDD scratch (per-plan workspace)
 .superpowers/
+
+# Playwright MCP scratch output
+.playwright-mcp/

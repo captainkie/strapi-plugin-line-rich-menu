@@ -28,6 +28,8 @@
 - **ห้ามแสดงข้อความภาษาไทยหรืออังกฤษแบบ hardcode ใน component** — ทุกข้อความที่ผู้ใช้เห็นต้องผ่าน `port.t(key)` เท่านั้น (สเปก §12 ให้ `en` เป็นค่าเริ่มต้น)
 - `tsconfig` เปิด `noUncheckedIndexedAccess` · ESLint `@typescript-eslint/consistent-type-imports: error`, `prefer-const`
 - ทุก commit ใช้ Conventional Commits
+- **`packages/ui/src/index.ts` ถูกแตะโดยหลาย task** — Task 1 สร้าง จากนั้น Task 2–13 ให้ **เพิ่มบรรทัด `export *` ของตัวเองต่อท้าย** ห้ามเขียนทับ Task 14 มีรายการฉบับสมบูรณ์ไว้ตรวจทานตอนท้าย
+- **`git add` ในแต่ละ Step อาจไม่ครบ** — ถ้า task แก้ `src/index.ts` ให้ commit ไปด้วยเสมอ การปล่อยให้ export ค้างไม่ commit คือสถานะที่พัง
 
 ---
 
@@ -1594,9 +1596,8 @@ describe('TemplatePicker', () => {
   })
 
   it('วาด thumbnail จาก bounds เป็น SVG ไม่ใช่ไฟล์ภาพ', () => {
-    const { container } = { container: document.body }
     setup()
-    expect(container.querySelectorAll('svg').length).toBe(12)
+    expect(document.body.querySelectorAll('svg')).toHaveLength(12)
   })
 
   it('บอกจำนวนช่องของแต่ละแบบ', () => {
@@ -2801,7 +2802,7 @@ describe('RichMenuEditor', () => {
     setup()
     chooseTemplate()
     expect(screen.getAllByText(/×/).length).toBeGreaterThan(0)
-    fireEvent.click(screen.getByTestId('toggle-outlines'))
+    fireEvent.click(screen.getByLabelText('editor.showOutlines'))
     expect(screen.queryByText('2500×843')).not.toBeInTheDocument()
   })
 
@@ -2908,6 +2909,12 @@ export interface RichMenuEditorProps {
   aliasOptions: readonly string[]
   onSave(draft: RichMenuDraft, publish: boolean): Promise<void>
   onCancel(): void
+}
+
+/** ผู้ใช้กรอกอะไรลงช่องนี้ไปแล้วหรือยัง — ใช้ตัดสินว่าการเปลี่ยน template จะทำลายงานหรือไม่ */
+export function hasAnyActionConfigured(area: ActionFormState): boolean {
+  const { type: _type, mode: _mode, ...rest } = area
+  return Object.values(rest).some((value) => value !== '')
 }
 
 /** แปลง path ของ issue เช่น `areas.3.action.uri` เป็นเลข index ของช่อง */
@@ -3043,7 +3050,6 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
             checked={outlines}
             onChange={setOutlines}
           />
-          <span data-testid="toggle-outlines" onClick={() => setOutlines((v) => !v)} />
         </ui.Flex>
 
         <ui.Flex direction="column" gap={3}>
@@ -3107,7 +3113,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
       <TemplatePicker
         open={picking}
         currentKey={draft.templateKey}
-        hasConfiguredActions={draft.areas.some((a) => toAction(a) !== null && a.text + a.uri + a.data !== '')}
+        hasConfiguredActions={draft.areas.some(hasAnyActionConfigured)}
         onApply={applyTemplate}
         onClose={() => setPicking(false)}
       />
@@ -3134,6 +3140,7 @@ git commit -m "feat(ui): compose the editor as one scrolling form"
 
 **Files:**
 - Create: `packages/ui/src/api.ts`, `packages/ui/src/pages/RichMenuList.tsx`, `packages/ui/src/pages/ChannelSettings.tsx`
+- Modify: `packages/ui/src/components/ImageField.tsx` — เปลี่ยน `'/upload'` ที่ Task 10 hardcode ไว้ มาใช้ `ENDPOINTS.upload` ให้ path ประกาศที่เดียว (แก้เทสต์ของ ImageField ให้ตรงด้วย)
 - Test: `packages/ui/tests/list.test.tsx`, `packages/ui/tests/channels.test.tsx`
 
 **Interfaces:**
@@ -3502,7 +3509,7 @@ git commit -m "feat(ui): add the menu list, channel settings, and the adapter AP
 ## Task 13: i18n — `en` และ `th` พร้อมยามกันคีย์หาย
 
 **Files:**
-- Create: `packages/ui/src/i18n/en.json`, `packages/ui/src/i18n/th.json`, `packages/ui/src/i18n/index.ts`
+- Create: `packages/ui/src/i18n/en.ts`, `packages/ui/src/i18n/th.ts`, `packages/ui/src/i18n/index.ts`
 - Test: `packages/ui/tests/i18n.test.ts`
 
 **Interfaces:**
@@ -3595,15 +3602,19 @@ Expected: FAIL — module not found
 
 `packages/ui/src/i18n/index.ts`
 ```ts
-import en from './en.json' with { type: 'json' }
-import th from './th.json' with { type: 'json' }
+import { en } from './en.js'
+import { th } from './th.js'
 
 export const MESSAGES: Record<'en' | 'th', Record<string, string>> = { en, th }
 export const TRANSLATION_KEYS: readonly string[] = Object.keys(en).sort()
 ```
 
-`packages/ui/src/i18n/en.json` — สร้างคีย์ให้ครบทุกอันที่ component เรียกใช้ รวมคีย์ที่ประกอบตอน runtime ตามรายการในเทสต์ Step 1 ตัวอย่างรูปแบบ:
-```json
+**ทำไมเป็น `.ts` ไม่ใช่ `.json`:** การ import JSON ต้องเปิด `resolveJsonModule` และในสายตา
+`moduleResolution: Bundler` การเขียน `with { type: 'json' }` ยังไม่แน่นอน ส่วนไฟล์ `.ts` ที่ export
+ค่าคงที่ทำงานเหมือนกันทุกที่โดยไม่ต้องตั้งค่าอะไรเพิ่ม และ adapter ก็ import ได้ตรง ๆ เหมือนกัน
+
+`packages/ui/src/i18n/en.ts` — สร้างคีย์ให้ครบทุกอันที่ component เรียกใช้ รวมคีย์ที่ประกอบตอน runtime ตามรายการในเทสต์ Step 1 ห่อด้วย `export const en: Record<string, string> = { ... }` ตัวอย่างเนื้อใน:
+```ts
 {
   "common.cancel": "Cancel",
   "common.apply": "Apply",
@@ -3705,8 +3716,8 @@ export const TRANSLATION_KEYS: readonly string[] = Object.keys(en).sort()
 }
 ```
 
-`packages/ui/src/i18n/th.json` — คีย์ชุดเดียวกันทั้งหมด แปลเป็นไทย ตัวอย่างสองสามอัน:
-```json
+`packages/ui/src/i18n/th.ts` — `export const th: Record<string, string> = { ... }` คีย์ชุดเดียวกันทั้งหมด แปลเป็นไทย ตัวอย่างสองสามอัน:
+```ts
 {
   "common.cancel": "ยกเลิก",
   "editor.title.hint": "ชื่อนี้ใช้จัดการภายใน ผู้ใช้ปลายทางไม่เห็น",
@@ -3768,9 +3779,9 @@ export { MESSAGES, TRANSLATION_KEYS } from './i18n/index.js'
 
 `tools/ui-playground/src/App.tsx` — แทนที่ทั้งไฟล์
 ```tsx
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
-  MESSAGES, PortProvider, RichMenuEditor, createStubPort, emptyDraft,
+  MESSAGES, PortProvider, RichMenuEditor, createStubPort,
   type RichMenuDraft, type UIPort,
 } from '@fosivo/line-rich-menu-ui'
 
@@ -3805,7 +3816,12 @@ export function App() {
   const [lines, setLines] = useState<string[]>([])
   const [saved, setSaved] = useState<RichMenuDraft | null>(null)
 
-  const port = makePort(locale, (line) => setLines((prev) => [line, ...prev].slice(0, 8)))
+  // ต้อง memo ไว้ — หน้าที่มี useEffect ผูกกับ port.http จะ fetch วนไม่รู้จบถ้า port
+  // เป็น object ใหม่ทุกรอบ render
+  const port = useMemo(
+    () => makePort(locale, (line) => setLines((prev) => [line, ...prev].slice(0, 8))),
+    [locale],
+  )
 
   return (
     <PortProvider value={port}>

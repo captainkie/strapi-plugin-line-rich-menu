@@ -97,3 +97,67 @@ JavaScript adapter passing an empty environment variable rather than an unset on
 **A fractional `maxAttempts` sleeps once past its final attempt.** 1.5 falls out of the retry
 loop having already slept. This is also the path that makes the trailing `throw lastError`
 reachable and covered, so truncating the value would need another way to cover that line.
+
+---
+
+## From Plan 02's whole-branch review — accepted as Minor, not fixed
+
+Each was judged real but not merge-blocking. Recorded here because the working notes that held
+them are scratch, and a Minor nobody wrote down is a Minor nobody fixes.
+
+**The identical-string i18n guard only catches byte-identical values.** `th.json` has
+`"editor.actions": "Action"` against `en.json`'s `"Actions"` — untranslated English that slips
+past the allowlist by one character. Worth also flagging Thai values containing no Thai
+characters at all (`/[฀-๿]/`), with the same allowlist as the escape hatch.
+
+**`ImageField` owns its error while every sibling takes one as a prop.** So `applyTemplate`
+cannot clear it: upload a wrong-ratio image, switch large → compact, and the banner still
+reads "must match the template's proportions (2500×1686)" while the template is now 2500×843.
+Actively wrong information, not merely stale.
+
+**`TemplatePicker` still wraps two testids in `<span>` inside `ui.Button`** (the confirm and
+cancel-confirm buttons), sitting next to a correct `testId` on the apply button. Nothing false
+today because no test asserts `toBeDisabled()` on them — but it is the forbidden pattern
+beside the mandated one, which is how the pattern spreads.
+
+**The conditional-spread ceremony buys nothing.** `{...(x === undefined ? {} : { x })}` appears
+in five files while `ActionForm` passes `error={error}` directly. `exactOptionalPropertyTypes`
+is off in `tsconfig.base.json`, so the spreads carry the cost of the strict style without its
+guarantee. Either enable the flag — which would make them meaningful — or delete them.
+
+**`eslint-plugin-react-hooks` is not installed.** It is the linter that would have caught the
+split between `RichMenuList`'s `[channelId, http, t]` dependency array and `ChannelSettings`'s
+`useEffect(reload, [])` closing over `http`/`t`. Two idioms for one concern, in adjacent files.
+
+**`port.test.tsx` asserts `toBeGreaterThanOrEqual(15)`** under the title "stub port has
+everything UIPort declares". The stub has 16; deleting one still passes. Typecheck is the real
+guard so nothing is false, but the test does not prove its own title — assert the sorted key
+list.
+
+**`chatBar.defaultLabel` flows into a field capped at 14 characters with no guard.** Strapi apps
+routinely override plugin translations; a 20-character override produces a `too_big` error
+pointed at a field the user cannot edit, because it is disabled in default mode. Add a length
+assertion for both languages to `i18n.test.ts`.
+
+**`CanvasEditor` interpolates `url(${imageUrl})` unescaped.** Server-controlled today, so this
+is defence in depth rather than a live hole — but a `")` in the value breaks out of the token.
+
+**`packages/ui` pulls `sharp` into every consumer's install graph** via core's dependency. The
+`/browser` subpath keeps it out of the bundle, which two guards protect, but not out of the
+install. Worth an `optionalDependencies` or peer arrangement at release time.
+
+**Drag and resize are built, tested, and unreachable.** `Preview` never forwards
+`onBoundsChange`/`snap`, and it is the only place a page renders a `CanvasEditor`, so `editable`
+is always false and `canvas-editor-drag.test.tsx` covers a capability no user can reach. With no
+add/remove-area control either, "1–20 areas" tops out at whatever a template provides, and spec
+§5.2's claim that custom layout costs almost nothing extra is true but undelivered. **Decide in
+Plan 04 whether v1.0 ships custom layout or documents its absence.**
+
+## Release-task items
+
+`packages/ui/package.json` and `packages/core/package.json` have no `description`,
+`repository`, `author`, or `publishConfig.access: "public"`. The last one makes `npm publish`
+fail outright for a scoped package.
+
+`pnpm -r build` was never in the verified set for Plan 02. It is the only command that exercises
+`resolveJsonModule` through tsup's `dts: true`. Run it before tagging.
