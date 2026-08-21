@@ -33,3 +33,9 @@ reports/
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# ผลผลิตของ examples/* — `strapi build`, `npm pack` และ log ของ scripts/e2e.sh
+examples/*/.tmp*
+examples/*/build
+examples/*/.strapi
+examples/*/.pack

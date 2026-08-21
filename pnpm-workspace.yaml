@@ -1,9 +1,10 @@
 packages:
   - 'packages/*'
   - 'tools/*'
-  # examples/v4-app ติดตั้งด้วย npm ต่างหาก — ดูเหตุผลใน docs/.../03-server-and-v4.md Task 20
-  # มันต้องเป็นแอป Strapi 4 ที่เหมือนของลูกค้า ไม่ใช่แพ็กเกจในเวิร์กสเปซที่ได้ node_modules พิเศษ
+  # examples/* ติดตั้งด้วย npm ต่างหาก — ดูเหตุผลใน docs/.../03-server-and-v4.md Task 20
+  # มันต้องเป็นแอป Strapi ที่เหมือนของลูกค้า ไม่ใช่แพ็กเกจในเวิร์กสเปซที่ได้ node_modules พิเศษ
   - '!examples/v4-app'
+  - '!examples/v5-app'
 allowBuilds:
   esbuild: true
   msw: false

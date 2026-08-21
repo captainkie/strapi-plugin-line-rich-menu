@@ -1,0 +1,7 @@
+{
+  "name": "strapi-provider-upload-absolute-url",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.js",
+  "license": "AGPL-3.0-only"
+}
