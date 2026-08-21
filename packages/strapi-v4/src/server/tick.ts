@@ -13,33 +13,30 @@ const owner = (): string => `${hostname()}:${process.pid}`
  * แต่ละ schedule ผูกกับเมนู และแต่ละเมนูผูกกับ channel ของตัวเอง — client จึงต้องประกอบ
  * ตาม channel ของงานนั้น ไม่ใช่ channel เริ่มต้นของระบบ ไม่งั้น tick ในระบบที่มีหลาย OA
  * จะยิงเมนูของ OA หนึ่งด้วย token ของอีก OA หนึ่ง
+ *
+ * เดิมที่นี่วนทีละ channel แล้วสร้าง scheduler ที่ผูกกับ client ของ channel นั้นให้หนึ่งตัว
+ * ซึ่ง **ไม่ได้แก้อะไรเลย**: `createScheduler` เลือกงานจาก `state` อย่างเดียวไม่มีเงื่อนไข channel
+ * รอบแรกของลูปจึงคว้างานที่ถึงเวลาทั้งตาราง (รวมของ channel อื่น) ไปรันด้วย token ของ channel แรก
+ * แล้ว lock ก็กันไม่ให้รอบของเจ้าของจริงหยิบซ้ำ ตอนนี้ scheduler เป็นตัวถาม channel ของแต่ละงาน
+ * เอง (จากเมนูของงานนั้น) ลูปนี้จึงหายไปทั้งอัน — เหลือ tick เดียวต่อรอบ
  */
 export async function runTick(strapi: StrapiV4, services: Services): Promise<TickReport> {
-  const total: TickReport = { due: 0, claimed: 0, done: 0, failed: 0 }
+  const report = await createScheduler({
+    schedules: services.schedules,
+    lock: services.lock,
+    ops: {
+      menus: services.menus,
+      audit: services.audit,
+      clientFor: async (channelId) =>
+        services.clientFor(await services.channels.withSecrets().findOne(channelId)),
+    },
+    logger: services.logger,
+    now: () => new Date(),
+    owner: owner(),
+  }).tick()
 
-  for (const channel of await services.channels.list()) {
-    const withSecrets = await services.channels.withSecrets().findOne(channel.id)
-    const report = await createScheduler({
-      schedules: services.schedules,
-      lock: services.lock,
-      ops: {
-        client: services.clientFor(withSecrets),
-        menus: services.menus,
-        audit: services.audit,
-      },
-      logger: services.logger,
-      now: () => new Date(),
-      owner: owner(),
-    }).tick()
-
-    total.due += report.due
-    total.claimed += report.claimed
-    total.done += report.done
-    total.failed += report.failed
-  }
-
-  strapi.log.debug('line-rich-menu: scheduler tick finished', total)
-  return total
+  strapi.log.debug('line-rich-menu: scheduler tick finished', report)
+  return report
 }
 
 export function registerCron(strapi: StrapiV4): void {

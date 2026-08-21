@@ -1,9 +1,11 @@
+import type { LineClient } from '../line/client.js'
 import { errorCodeOf } from './audit.js'
+import type { AuditWriter } from './audit.js'
 import { MenuNotFoundError } from './errors.js'
 import type { ScheduleLock } from './lock.js'
-import { clearChannelDefault, setMenuAsDefault, swapMenuAlias, type MenuOpsDeps } from './menu-ops.js'
+import { clearChannelDefault, setMenuAsDefault, swapMenuAlias } from './menu-ops.js'
 import type { LoggerLike } from './scrub.js'
-import type { Repo, ScheduleRow } from './types.js'
+import type { Repo, RichMenuRow, ScheduleRow } from './types.js'
 
 export interface TickReport {
   due: number
@@ -12,10 +14,21 @@ export interface TickReport {
   failed: number
 }
 
+/**
+ * ต่างจาก `MenuOpsDeps` ตรงที่ไม่ถือ `client` ตัวเดียวไว้ล่วงหน้า — scheduler รันงานของหลาย
+ * channel ปนกันในรอบเดียว จึงต้องได้ client **ของ channel ที่งานนั้นสังกัด** เป็นราย ๆ ไป
+ * ตัว scheduler ไม่รู้ (และไม่ควรรู้) ว่า token ถูกเก็บ/ถอดรหัสอย่างไร adapter เป็นคนตอบให้
+ */
+export interface SchedulerOps {
+  menus: Repo<RichMenuRow>
+  audit: AuditWriter
+  clientFor(channelId: string): Promise<LineClient>
+}
+
 export interface SchedulerDeps {
   schedules: Repo<ScheduleRow>
   lock: ScheduleLock
-  ops: MenuOpsDeps
+  ops: SchedulerOps
   logger: LoggerLike
   now(): Date
   /** ตัวระบุ process ที่จะถูกเขียนลง `lockedBy` — v4 adapter ใช้ `${hostname}:${pid}` */
@@ -45,12 +58,23 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
 
       const report: TickReport = { due: due.length, claimed: 0, done: 0, failed: 0 }
 
+      // ประกอบ client ครั้งเดียวต่อ channel ต่อหนึ่งรอบ ไม่ใช่ครั้งเดียวต่อหนึ่งแถว — การประกอบ
+      // หมายถึงถอดรหัส access token หนึ่งครั้ง งานสิบแถวของ channel เดียวกันจึงไม่ต้องถอดสิบครั้ง
+      const clients = new Map<string, Promise<LineClient>>()
+      const clientFor = (channelId: string): Promise<LineClient> => {
+        const cached = clients.get(channelId)
+        if (cached !== undefined) return cached
+        const created = deps.ops.clientFor(channelId)
+        clients.set(channelId, created)
+        return created
+      }
+
       for (const row of due) {
         if (!await deps.lock.claim(row.id, deps.owner)) continue
         report.claimed += 1
 
         try {
-          await run(row)
+          await run(row, clientFor)
           report.done += 1
           await deps.lock.release(row.id, deps.owner, 'done', null)
         } catch (error) {
@@ -65,24 +89,36 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
     },
   }
 
-  async function run(row: ScheduleRow): Promise<void> {
+  async function run(
+    row: ScheduleRow,
+    clientFor: (channelId: string) => Promise<LineClient>,
+  ): Promise<void> {
     // cron ไม่มีผู้ใช้ที่กดปุ่ม — actor เป็น null และ content type ต้องยอมให้ null ได้ (Task 14)
     const actorId = null
 
+    // schedule ผูกกับเมนู และเมนูผูกกับ channel ของตัวเอง — channel ของงานนี้จึงอ่านจากเมนู
+    // ไม่ใช่รับมาจากผู้เรียก ตารางเวลาไม่มีคอลัมน์ channel และไม่ควรมี: เมนูย้าย channel เมื่อไหร่
+    // ค่าที่ denormalize ไว้จะค้างชี้ของเดิมทันที ส่วนการอ่านจากเมนูถูกเสมอตามนิยาม
+    const menu = await deps.ops.menus.findOne(row.richMenuId)
+    if (menu === null) throw new MenuNotFoundError(`rich menu ${row.richMenuId} does not exist`)
+
+    const ops = {
+      client: await clientFor(menu.channelId),
+      menus: deps.ops.menus,
+      audit: deps.ops.audit,
+    }
+
     switch (row.op) {
       case 'set-default':
-        await setMenuAsDefault(deps.ops, { menuId: row.richMenuId, actorId })
+        await setMenuAsDefault(ops, { menuId: row.richMenuId, actorId })
         return
       case 'swap-alias':
-        await swapMenuAlias(deps.ops, { menuId: row.richMenuId, actorId })
+        await swapMenuAlias(ops, { menuId: row.richMenuId, actorId })
         return
-      case 'clear-default': {
-        // clear-default เป็น op ระดับ channel แต่ schedule ผูกกับเมนู — ต้องหา channel จากเมนูนั้น
-        const menu = await deps.ops.menus.findOne(row.richMenuId)
-        if (menu === null) throw new MenuNotFoundError(`rich menu ${row.richMenuId} does not exist`)
-        await clearChannelDefault(deps.ops, { channelId: menu.channelId, actorId })
+      case 'clear-default':
+        // clear-default เป็น op ระดับ channel แต่ schedule ผูกกับเมนู — ใช้ channel ของเมนูนั้น
+        await clearChannelDefault(ops, { channelId: menu.channelId, actorId })
         return
-      }
     }
   }
 }
