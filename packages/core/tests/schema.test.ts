@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ValidationError, type ValidationIssue } from '../src/errors.js'
-import { validateRichMenu, VALIDATION_CODES } from '../src/schema.js'
+import { isDisplayPeriodValid, validateRichMenu, VALIDATION_CODES } from '../src/schema.js'
 
 /** เรียก validateRichMenu แล้วคืน issues ที่ได้ — ล้มเทสต์ถ้ามันดันผ่าน */
 function issuesOf(input: unknown): readonly ValidationIssue[] {
@@ -263,6 +263,37 @@ describe('validateRichMenu', () => {
 })
 
 import fc from 'fast-check'
+
+// สเปกงานนี้ #4 — ไม่มีการตรวจลำดับ startAt/endAt อยู่ที่ไหนเลยก่อนหน้านี้ (ไม่ใช่แค่ในฟอร์ม
+// ไม่ใช่แค่ใน packages/core ไม่ใช่ใน schema ของ adapter ไหนเลย) เมนูที่ endAt มาก่อน startAt
+// บันทึกผ่านได้เงียบ ๆ แล้วไม่แสดงให้ใครเห็นเลย
+describe('isDisplayPeriodValid', () => {
+  it('ปฏิเสธเมื่อ endAt มาก่อน startAt', () => {
+    expect(isDisplayPeriodValid('2026-09-30T00:00:00.000Z', '2026-09-01T00:00:00.000Z')).toBe(false)
+  })
+
+  // การตัดสินใจของเจ้าของโปรดักต์ (ไม่ใช่ค่าที่ LINE เอกสารไว้ — ดูคอมเมนต์ที่ schema.ts):
+  // endAt === startAt ถือว่าไม่ผ่าน เพราะเป็นช่วงเวลายาวเป็นศูนย์ ไม่แสดงเมนูให้ใครเลย
+  it('ปฏิเสธเมื่อ endAt เท่ากับ startAt เป๊ะ', () => {
+    expect(isDisplayPeriodValid('2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')).toBe(false)
+  })
+
+  it('ผ่านเมื่อ endAt อยู่หลัง startAt', () => {
+    expect(isDisplayPeriodValid('2026-09-01T00:00:00.000Z', '2026-09-30T00:00:00.000Z')).toBe(true)
+  })
+
+  it('ผ่านเมื่อฝั่งใดฝั่งหนึ่ง (หรือทั้งคู่) เป็น null — ยังไม่ระบุไม่ใช่ช่วงเวลาที่ต้องเรียงลำดับ', () => {
+    expect(isDisplayPeriodValid(null, '2026-09-30T00:00:00.000Z')).toBe(true)
+    expect(isDisplayPeriodValid('2026-09-01T00:00:00.000Z', null)).toBe(true)
+    expect(isDisplayPeriodValid(null, null)).toBe(true)
+  })
+
+  // ฟอร์มฝั่ง UI เก็บค่าที่ยังไม่ตั้งเป็น '' (ไม่ใช่ null) — ต้องรับได้เหมือนกันโดยไม่ต้องแปลงก่อนเรียก
+  it('ผ่านเมื่อฝั่งใดฝั่งหนึ่งเป็นสตริงว่าง เหมือนกับ null', () => {
+    expect(isDisplayPeriodValid('', '2026-09-30T00:00:00.000Z')).toBe(true)
+    expect(isDisplayPeriodValid('2026-09-01T00:00:00.000Z', '')).toBe(true)
+  })
+})
 
 describe('property: bounds ที่ล้นกรอบต้องถูกปฏิเสธเสมอ', () => {
   it('ไม่ว่าจะสุ่มยังไง ถ้า x+width เกิน 2500 ต้องไม่ผ่าน', () => {

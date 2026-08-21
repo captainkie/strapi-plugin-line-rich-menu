@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { actionSchema, boundsSchema } from '@fosivo/line-rich-menu-core'
+import { actionSchema, boundsSchema, DISPLAY_PERIOD_ORDER_CODE, isDisplayPeriodValid } from '@fosivo/line-rich-menu-core'
 
 /**
  * `actionSchema` / `boundsSchema` ยืมมาจาก core ไม่ประกาศซ้ำ — สองที่ที่ประกาศกฎเดียวกัน
@@ -51,7 +51,18 @@ export const menuInputSchema = z.object({
   aliasId: z.string().regex(/^[a-z0-9_-]+$/).max(32).nullable(),
   startAt: isoDate.nullable(),
   endAt: isoDate.nullable(),
-}).strict()
+}).strict().superRefine((value, ctx) => {
+  // สเปกงานนี้ #4 — บังคับที่ขอบของ route ด้วย ไม่ใช่แค่ในฟอร์ม: RBAC กันคนนอกได้ แต่ไม่ได้การันตี
+  // ว่าผู้เรียกคือฟอร์มของเรา (ดูคอมเมนต์เต็มที่ isDisplayPeriodValid ใน packages/core)
+  if (!isDisplayPeriodValid(value.startAt, value.endAt)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endAt'],
+      message: 'endAt must be strictly after startAt',
+      params: { code: DISPLAY_PERIOD_ORDER_CODE },
+    })
+  }
+})
 
 export type MenuInput = z.infer<typeof menuInputSchema>
 

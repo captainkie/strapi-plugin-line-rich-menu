@@ -295,6 +295,73 @@ describe('RichMenuEditor', () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
+  // สเปกงานนี้ #4 — ไม่มีการตรวจลำดับ startAt/endAt อยู่ที่ไหนเลยก่อนหน้านี้ เมนูที่ endAt มาก่อน
+  // (หรือเท่ากับ) startAt บันทึกผ่านได้เงียบ ๆ แล้วไม่แสดงให้ใครเห็นเลย — บล็อก**ทุกครั้งที่บันทึก**
+  // ไม่ใช่แค่ตอน publish (ต่างจาก custom label ว่างข้างบนที่บล็อกแค่ตอน publish) เพราะพิสูจน์แล้วจาก
+  // การกดจริงในเบราว์เซอร์ (ไม่ใช่แค่เทสต์นี้): schema ของ adapter ทั้งสองปฏิเสธคำขอเขียนทุกคำขอที่
+  // ลำดับผิด ไม่ว่าจะเป็น draft หรือ publish (ไม่มีทางแยกกันที่ POST/PUT) ถ้าฟอร์มเช็คแค่ตอน publish
+  // ผู้ใช้ที่กด "Save draft" ด้วยวันที่ผิดลำดับจะเจอ toast ทั่วไป "บันทึกไม่สำเร็จ" ที่ไม่บอกอะไรเลย
+  // ว่าช่องไหนผิด แทนที่จะเห็น error ชี้เป้าที่ช่องนั้น
+  describe('ช่วงเวลาแสดงผล — endAt ต้องอยู่หลัง startAt เสมอ ไม่ว่าจะบันทึกร่างหรือ publish', () => {
+    it('บันทึกร่างที่ endAt มาก่อน startAt ก็ถูกบล็อกเหมือนกัน — ไม่ปล่อยให้ทับ error ทั่วไปจากเซิร์ฟเวอร์', async () => {
+      const { onSave } = setup({
+        initial: { ...emptyDraft(), startAt: '2026-09-30T00:00:00.000Z', endAt: '2026-09-01T00:00:00.000Z' },
+      })
+      fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
+      await waitFor(() => expect(document.getElementById('endDate-error')).not.toBeNull())
+      expect(document.getElementById('endDate-error')?.textContent).toBe('editor.error.displayPeriodOrder')
+      expect(onSave).not.toHaveBeenCalled()
+    })
+
+    it('publish ที่ endAt มาก่อน startAt ไม่ได้ — error ขึ้นที่ช่องวันที่สิ้นสุด ไม่ใช่ปล่อยผ่านเงียบ ๆ', async () => {
+      const { onSave } = setup({
+        initial: { ...emptyDraft(), startAt: '2026-09-30T00:00:00.000Z', endAt: '2026-09-01T00:00:00.000Z' },
+      })
+      chooseTemplate('RICH_MENU_TEMPLATE_105')
+      fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+      await waitFor(() => expect(document.getElementById('endDate-error')).not.toBeNull())
+      expect(document.getElementById('endDate-error')?.textContent).toBe('editor.error.displayPeriodOrder')
+      expect(onSave).not.toHaveBeenCalled()
+    })
+
+    // การตัดสินใจของเจ้าของโปรดักต์ (ไม่ใช่ค่าที่ LINE เอกสารไว้ — ช่วงเวลาแสดงผลไม่ใช่แนวคิดของ
+    // LINE เอง ดูคอมเมนต์ที่ isDisplayPeriodValid ใน packages/core): เท่ากันเป๊ะถือว่าไม่ผ่าน
+    it('publish ที่ endAt เท่ากับ startAt เป๊ะ ก็ยังถูกบล็อกเหมือนกัน — ช่วงเวลายาวเป็นศูนย์ไม่แสดงเมนูให้ใครเลย', async () => {
+      const { onSave } = setup({
+        initial: { ...emptyDraft(), startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-01T00:00:00.000Z' },
+      })
+      chooseTemplate('RICH_MENU_TEMPLATE_105')
+      fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+      await waitFor(() => expect(document.getElementById('endDate-error')).not.toBeNull())
+      expect(onSave).not.toHaveBeenCalled()
+    })
+
+    it('publish ที่ endAt อยู่หลัง startAt จริง ผ่านเงื่อนไขนี้ได้ — publish สำเร็จทั้งกระบวนการ', async () => {
+      stubImageSize(2500, 843) // ขนาดของ RICH_MENU_TEMPLATE_105 (compact เดี่ยว — ดู templates.ts)
+      const post = vi.fn(async () => [{ id: 1, url: '/uploads/a.png', width: 2500, height: 843 }])
+      // 'chatBar.defaultLabel' ดิบยาว 21 ตัว เกินเพดาน chatBarText ของ schema (14) — ปลอมคำแปล
+      // เฉพาะคีย์นี้เหมือนกับเทสต์ publish สำเร็จอื่น ๆ ในไฟล์นี้ (ดู 'fix round 1' ด้านล่าง)
+      const t = (key: string) => (key === 'chatBar.defaultLabel' ? 'เมนู' : key)
+      const { onSave } = setup(
+        { initial: { ...emptyDraft(), startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-30T00:00:00.000Z' } },
+        { t, http: { ...createStubPort().http, post: post as unknown as HttpClient['post'] } },
+      )
+      chooseTemplate('RICH_MENU_TEMPLATE_105')
+      fireEvent.click(screen.getByTestId('area-header-0'))
+      fireEvent.change(
+        within(screen.getByTestId('area-body-0')).getByLabelText('action.field.text'),
+        { target: { value: 'ปุ่ม' } },
+      )
+      fireEvent.change(screen.getByTestId('image-input'), { target: { files: [file()] } })
+      await waitFor(() => expect(screen.getByTestId('image-remove')).toBeInTheDocument())
+
+      fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+      await waitFor(() => expect(onSave).toHaveBeenCalled())
+      expect(onSave.mock.calls[0]![1]).toBe(true)
+      expect(screen.queryByText('editor.error.displayPeriodOrder')).not.toBeInTheDocument()
+    })
+  })
+
   // A3 — MainSettings รับ prop errors มาตั้งแต่ fix round ของ Task 9 แต่ RichMenuEditor ไม่เคยส่งอะไร
   // เข้าไปเลย issue ที่ไม่ใช่ของช่อง (เช่น path "name") จึงตกไปอยู่ที่แบนเนอร์รวมแทนที่จะขึ้นที่ช่องชื่อ
   //

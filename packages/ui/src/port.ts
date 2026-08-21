@@ -19,6 +19,24 @@ export interface UIPrimitives {
   TextInput: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; hint?: string; error?: string; maxLength?: number; disabled?: boolean; placeholder?: string; type?: 'text' | 'password'; autoComplete?: string }>
   Textarea: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; error?: string; rows?: number }>
   Select: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; error?: string; disabled?: boolean; children?: ReactNode }>
+  /**
+   * ตัวเลือกวันที่ — สเปกงานนี้ #4 ("อย่าวาดปฏิทินเอง") ยืมจาก design system ของแต่ละเวอร์ชันแทน:
+   * DS v1 (Strapi 4) มี `DatePicker` ที่ห่อ Field ให้เองครบ ส่วน DS v2 (Strapi 5) ก็มี `DatePicker`
+   * เหมือนกันแต่ต้องห่อ `Field.Root` เอง (ดูแพทเทิร์นเดียวกับ `TextInput` ในไฟล์ primitives.tsx
+   * ของแต่ละ adapter) — ทั้งสองเวอร์ชันจึงได้ธีมมืด/สว่างของ Strapi, คีย์บอร์ด, locale และ
+   * accessibility มาฟรี ไม่ต้องเขียนเอง
+   *
+   * `value`/`onChange` เป็น `Date | null` ตรง ๆ ตาม prop ของ DS ทั้งสองเวอร์ชัน (ซึ่งใช้ `Date`
+   * เหมือนกัน ต่างแค่ `undefined` vs `| null` — ที่นี่บังคับ `| null` ให้ตรงกับแพทเทิร์น optional
+   * อื่นทั้งไฟล์นี้) เก็บแค่ "วันที่" (เวลาในนั้นไม่มีความหมาย ใช้ `ui.TimePicker` แยกสำหรับเวลา)
+   */
+  DatePicker: ComponentType<{ name: string; value: Date | null; onChange: (value: Date | null) => void; label?: string; error?: string; disabled?: boolean }>
+  /**
+   * ตัวเลือกเวลา — คู่กับ `ui.DatePicker` ด้านบนเสมอ (LINE เองก็แยกวันที่/เวลาเป็นสองช่อง ไม่ใช่
+   * ช่องเดียว — ดูคอมเมนต์ที่ `MainSettings.tsx`) `value` เป็นสตริง `'HH:mm'` แบบ 24 ชั่วโมงเสมอ
+   * (รูปแบบเดียวกับที่ DS ทั้งสองเวอร์ชันใช้ภายใน) ไม่ใช่ `Date` เพราะเวลาอย่างเดียวไม่มี "วัน" ผูกอยู่
+   */
+  TimePicker: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; error?: string; disabled?: boolean }>
   Option: ComponentType<{ value: string; children?: ReactNode }>
   Checkbox: ComponentType<{ name: string; checked: boolean; onChange: (checked: boolean) => void; children?: ReactNode }>
   /**

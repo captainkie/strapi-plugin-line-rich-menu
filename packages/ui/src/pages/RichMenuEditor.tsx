@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  SIZE_LADDER, TEMPLATES, ValidationError, canvasSizeChanged, validateRichMenu,
+  SIZE_LADDER, TEMPLATES, ValidationError, canvasSizeChanged, isDisplayPeriodValid, validateRichMenu,
   type Bounds, type RichMenuSizeName,
 } from '@fosivo/line-rich-menu-core/browser'
 import { emptyActionForm, toAction, type ActionFormState } from '../action-form.js'
@@ -191,6 +191,21 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
     setAreaErrors({})
     setMainErrors({})
     setChatBarError(null)
+
+    // สเปกงานนี้ #4 — ไม่มีการตรวจลำดับ startAt/endAt อยู่ที่ไหนเลยก่อนหน้านี้ เมนูที่ endAt มาก่อน
+    // (หรือเท่ากับ) startAt บันทึกผ่านได้เงียบ ๆ แล้วไม่แสดงให้ใครเห็นเลย ตรวจ**ทุกครั้งที่บันทึก**
+    // (ไม่ใช่แค่ตอน publish เหมือนที่เช็ค custom label ว่างด้านล่าง) เพราะ schema ของ adapter ทั้งสอง
+    // ตัวปฏิเสธคำขอเขียนทุกคำขอที่ลำดับผิด ไม่ว่า publish หรือไม่ (ดู `isDisplayPeriodValid` ใน
+    // packages/core และ superRefine ใน validation.ts ของทั้งสอง adapter — ที่นั่นไม่มีทางแยก "แค่
+    // ร่าง" ออกจาก "จะ publish" ได้เลย เพราะ POST/PUT ใช้ schema เดียวกันทั้งสองทาง) พิสูจน์แล้วจาก
+    // การกดจริงในเบราว์เซอร์: ถ้าเช็คแค่ตอน publish ผู้ใช้ที่กด "Save draft" ด้วยวันที่ผิดลำดับจะเจอ
+    // toast ทั่วไป "บันทึกไม่สำเร็จ" (editor.saveFailed) ที่ไม่บอกอะไรเลยว่าช่องไหนผิด เพราะคำขอ
+    // ไปถึงเซิร์ฟเวอร์แล้วโดนปฏิเสธที่นั่นแทน — เช็คที่นี่ก่อนเสมอเพื่อให้ error ชี้เป้าที่ช่องนั้นจริง
+    // ไม่ว่าจะกดปุ่มไหน
+    if (!isDisplayPeriodValid(draft.startAt, draft.endAt)) {
+      setMainErrors({ endAt: t('editor.error.displayPeriodOrder') })
+      return
+    }
 
     if (publish) {
       // เช็คจาก draft.bounds ไม่ใช่ templateKey — โหมดปรับผังเองเคลียร์ templateKey ทิ้งทันทีที่

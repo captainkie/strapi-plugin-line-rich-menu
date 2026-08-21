@@ -54,6 +54,37 @@ describe('menuInputSchema', () => {
     expect(() => menuInputSchema.parse({ ...validMenu, aliasId: 'Tab A!' })).toThrow(ZodError)
     expect(menuInputSchema.parse({ ...validMenu, aliasId: null }).aliasId).toBeNull()
   })
+
+  // สเปกงานนี้ #4 — เกตนี้ต้องอยู่ที่ขอบของ route ด้วย ไม่ใช่แค่ในฟอร์ม เพราะ RBAC กันคนนอกได้
+  // แต่ไม่ได้การันตีว่าผู้เรียกคือฟอร์มของเรา (คำขอที่ข้ามฟอร์มมาตรง ๆ ต้องโดนปฏิเสธเหมือนกัน)
+  describe('ช่วงเวลาแสดงผล (startAt/endAt)', () => {
+    it('ปฏิเสธเมื่อ endAt มาก่อน startAt', () => {
+      expect(() => menuInputSchema.parse({
+        ...validMenu, startAt: '2026-09-30T00:00:00.000Z', endAt: '2026-09-01T00:00:00.000Z',
+      })).toThrow(ZodError)
+    })
+
+    it('ปฏิเสธเมื่อ endAt เท่ากับ startAt เป๊ะ — ช่วงเวลายาวเป็นศูนย์ไม่แสดงเมนูให้ใครเลย', () => {
+      expect(() => menuInputSchema.parse({
+        ...validMenu, startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-01T00:00:00.000Z',
+      })).toThrow(ZodError)
+    })
+
+    it('ยอมรับเมื่อ endAt อยู่หลัง startAt', () => {
+      expect(() => menuInputSchema.parse({
+        ...validMenu, startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-30T00:00:00.000Z',
+      })).not.toThrow()
+    })
+
+    it('ยอมรับเมื่อฝั่งใดฝั่งหนึ่งเป็น null — ยังไม่ระบุไม่ใช่ช่วงเวลาที่ต้องเรียงลำดับ', () => {
+      expect(() => menuInputSchema.parse({
+        ...validMenu, startAt: null, endAt: '2026-09-30T00:00:00.000Z',
+      })).not.toThrow()
+      expect(() => menuInputSchema.parse({
+        ...validMenu, startAt: '2026-09-01T00:00:00.000Z', endAt: null,
+      })).not.toThrow()
+    })
+  })
 })
 
 describe('channelCreateSchema', () => {

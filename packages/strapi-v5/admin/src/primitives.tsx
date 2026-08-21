@@ -1,9 +1,11 @@
 import { createContext, isValidElement, useContext, useState, type ReactNode } from 'react'
 import {
-  Alert as DsAlert, Box, Button as DsButton, Checkbox as DsCheckbox, Divider as DsDivider,
+  Alert as DsAlert, Box, Button as DsButton, Checkbox as DsCheckbox,
+  DatePicker as DsDatePicker, Divider as DsDivider,
   Field, Flex as DsFlex, IconButton as DsIconButton, Loader as DsLoader, Modal as DsModal,
   Radio as DsRadio, SingleSelect, SingleSelectOption, Textarea as DsTextarea,
-  TextInput as DsTextInput, Toggle as DsToggle, Tooltip as DsTooltip, Typography as DsTypography,
+  TextInput as DsTextInput, TimePicker as DsTimePicker, Toggle as DsToggle, Tooltip as DsTooltip,
+  Typography as DsTypography,
 } from '@strapi/design-system'
 // `Page`/`Layouts` ไม่ได้อยู่ใน `@strapi/design-system` (ตรวจ 2.2.4 จริงแล้วไม่มี export ชื่อนี้)
 // แต่อยู่ใน `@strapi/admin/strapi-admin` — แพ็กเกจนี้ไม่ได้เป็น dependency ตรงของ strapi-v5 เอง
@@ -164,6 +166,47 @@ export const primitives: UIPrimitives = {
   },
 
   Option: ({ value, children }) => <SingleSelectOption value={value}>{children}</SingleSelectOption>,
+
+  /**
+   * สเปกงานนี้ #4 — ยืมปฏิทินของ DS v2 แทนวาดเอง ต่างจาก v4 ตรงที่ `DatePicker` ของ DS v2 ไม่ห่อ
+   * `Field.Root` ให้เอง (ดูคอมเมนต์ข้อ 1 ที่หัวไฟล์) จึงต้องห่อเองเหมือน `TextInput`/`Select` ข้างบน
+   * — port เก็บค่าเป็น `Date | null` (ไม่ใช่ `| undefined` แบบที่ DS ใช้เอง) แปลงตรงนี้ทั้งขาเข้า
+   * (`value ?? undefined`) และขาออก (`date ?? null`)
+   */
+  DatePicker: ({ name, value, onChange, label, error, disabled }) => {
+    const id = useLocalId('date-picker')
+    return (
+      <Field.Root id={id} name={name} error={error}>
+        {label === undefined ? null : <Field.Label>{label}</Field.Label>}
+        <DsDatePicker
+          name={name}
+          value={value ?? undefined}
+          onChange={(date) => onChange(date ?? null)}
+          disabled={disabled}
+          aria-label={label === undefined ? name : undefined}
+        />
+        <Field.Error />
+      </Field.Root>
+    )
+  },
+
+  // คู่กับ `DatePicker` ข้างบนเสมอ — `value` เป็นสตริง 'HH:mm' อยู่แล้วทั้งฝั่ง port และฝั่ง DS v2
+  TimePicker: ({ name, value, onChange, label, error, disabled }) => {
+    const id = useLocalId('time-picker')
+    return (
+      <Field.Root id={id} name={name} error={error}>
+        {label === undefined ? null : <Field.Label>{label}</Field.Label>}
+        <DsTimePicker
+          name={name}
+          value={value === '' ? undefined : value}
+          onChange={(next) => onChange(next ?? '')}
+          disabled={disabled}
+          aria-label={label === undefined ? name : undefined}
+        />
+        <Field.Error />
+      </Field.Root>
+    )
+  },
 
   // Radix: `onCheckedChange` ส่ง `boolean | 'indeterminate'` — `=== true` จึงจำเป็น
   // ไม่งั้น 'indeterminate' จะกลายเป็น truthy แล้วช่องติ๊กจะติดค้าง
