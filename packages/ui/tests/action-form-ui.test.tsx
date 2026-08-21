@@ -74,4 +74,16 @@ describe('ActionForm', () => {
     setup()
     expect(screen.getByLabelText('action.field.label')).toHaveAttribute('maxlength', '20')
   })
+
+  // สเปกงานนี้ #1 — ตัวนับต้องขึ้นเพดานที่ถูกต้อง (มาจากค่าคงที่เดียวกับ maxLength ไม่ใช่พิมพ์แยก)
+  // และต้องขยับตามค่าจริงที่พิมพ์ ไม่ใช่ค้างที่ 0 หรือค้างที่ตัวเลขคงที่
+  it('ตัวนับตัวอักษรของ label ขึ้นเพดานที่ถูกต้องและขยับตามค่าที่พิมพ์', () => {
+    setup({ ...emptyActionForm(), label: 'เมนู' })
+    expect(screen.getByText('4/20')).toBeInTheDocument()
+  })
+
+  it('ตัวนับตัวอักษรของ text (message) ขึ้นเพดาน 300 และขยับตามค่าที่พิมพ์', () => {
+    setup({ ...emptyActionForm(), type: 'message', text: 'สวัสดี' })
+    expect(screen.getByText('6/300')).toBeInTheDocument()
+  })
 })

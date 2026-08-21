@@ -1,4 +1,8 @@
 import { usePort } from '../port.js'
+import { CharCount } from './CharCount.js'
+
+/** จำนวนตัวอักษรสูงสุดของป้ายกำหนดเอง — ค่าเดียวที่ทั้ง `maxLength` และ `CharCount` ใช้ ไม่พิมพ์ซ้ำ */
+const CHAT_BAR_TEXT_MAX = 14
 
 export interface ChatBarValue {
   /**
@@ -43,12 +47,12 @@ export function ChatBarSettings({ value, onChange, error }: ChatBarSettingsProps
           name="chatBarText"
           label={t('chatBar.text')}
           value={value.text}
-          maxLength={14}
+          maxLength={CHAT_BAR_TEXT_MAX}
           disabled={value.mode !== 'custom'}
           onChange={(next) => onChange({ ...value, text: next })}
           {...(error === undefined ? {} : { error })}
         />
-        <ui.Typography variant="pi" textColor="neutral600">{value.text.length}/14</ui.Typography>
+        <CharCount value={value.text} max={CHAT_BAR_TEXT_MAX} />
       </ui.Flex>
 
       <ui.Flex direction="column" gap={1}>
