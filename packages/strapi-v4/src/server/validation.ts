@@ -8,6 +8,11 @@ import { actionSchema, boundsSchema } from '@fosivo/line-rich-menu-core'
  */
 export const idParam = z.string().regex(/^\d+$/, 'id must be numeric')
 
+// รูปแบบ richMenuId ของ LINE ไม่ตายตัวเหมือน aliasId (ไม่ใช่ slug ที่เราตั้งเอง) จึงคุมได้แค่
+// "ไม่ว่างและไม่ยาวเกินไป" — การยืนยันว่ามันคือกำพร้าจริงเกิดที่ deleteOrphan ของ core
+// (ต้องเรียก reconcile ซ้ำ) ไม่ใช่ที่ชั้น validation นี้
+export const lineRichMenuIdParam = z.string().min(1).max(64)
+
 const isoDate = z.string().datetime({ offset: true })
 
 export const channelCreateSchema = z.object({

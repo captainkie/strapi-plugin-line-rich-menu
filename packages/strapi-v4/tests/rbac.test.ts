@@ -61,6 +61,8 @@ describe('matrix ของ route × สิทธิ์', () => {
     expect(actionFor('POST', '/menus/:id/publish')).toBe(PERMISSION.publish)
     expect(actionFor('POST', '/menus/:id/default')).toBe(PERMISSION.publish)
     expect(actionFor('POST', '/schedules/tick')).toBe(PERMISSION.publish)
+    // ลบเมนูกำพร้าแตะของจริงบน LINE เหมือนกัน — ไม่ใช่แค่แก้ record ในฐานข้อมูลของเราเอง
+    expect(actionFor('DELETE', '/channels/:id/orphans/:lineRichMenuId')).toBe(PERMISSION.publish)
 
     // คนที่ publish ได้ ต้องไม่ได้สิทธิ์แตะ token มาด้วยโดยปริยาย และกลับกัน
     expect(PERMISSION.publish).not.toBe(PERMISSION.settings)
