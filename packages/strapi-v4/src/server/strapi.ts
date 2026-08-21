@@ -27,4 +27,6 @@ export interface StrapiV4 {
   db: { connection: unknown }
   admin: { services: { permission: { actionProvider: { registerMany(actions: unknown[]): Promise<void> } } } }
   cron: { add(jobs: Record<string, unknown>): void }
+  /** ใช้อ่านไฟล์ของ upload provider แบบ local ที่คืน url สัมพัทธ์ */
+  dirs: { static: { public: string } }
 }
