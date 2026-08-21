@@ -1,4 +1,16 @@
 module.exports = ({ env }) => ({
+  // ไม่มีบล็อกนี้มาก่อน — users-permissions พังเงียบ ๆ เฉพาะตอน production เท่านั้น: bootstrap
+  // ของมัน throw ทันทีถ้าไม่เจอ jwtSecret และ NODE_ENV ไม่ใช่ 'development' (ดูซอร์สที่
+  // node_modules/@strapi/plugin-users-permissions/dist/server/bootstrap/index.js) ตอน dev มันสุ่ม
+  // ค่าให้เองแล้วเขียนกลับลง .env ให้เงียบ ๆ ซึ่งเป็นเหตุผลที่ e2e.sh/CI (ไม่ได้ตั้ง NODE_ENV=production)
+  // ไม่เคยเจอ แต่ image ของ Dockerfile ตั้ง NODE_ENV=production และไม่มี .env ติดไปด้วย (ถูก
+  // .dockerignore กันไว้) จึง crash ทันทีที่บูต — เจอจริงตอนรัน image ใน task-15-report.md
+  'users-permissions': {
+    config: {
+      jwtSecret: env('JWT_SECRET'),
+    },
+  },
+
   'line-rich-menu': {
     enabled: true,
     config: {
