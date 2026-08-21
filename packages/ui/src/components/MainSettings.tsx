@@ -1,4 +1,8 @@
 import { usePort } from '../port.js'
+import { CharCount } from './CharCount.js'
+
+/** จำนวนตัวอักษรสูงสุดของ Title — ค่าเดียวที่ทั้ง `maxLength` และ `CharCount` ใช้ ไม่พิมพ์ซ้ำ */
+const TITLE_MAX = 30
 
 export interface MainSettingsValue {
   /** ชื่อสำหรับจัดการภายใน จำกัด 30 ตัว — คนละตัวกับ `name` ใน payload ของ LINE ที่ยอมได้ 300 */
@@ -26,12 +30,12 @@ export function MainSettings({ value, onChange, errors }: MainSettingsProps) {
           name="title"
           label={t('editor.title')}
           value={value.title}
-          maxLength={30}
+          maxLength={TITLE_MAX}
           hint={t('editor.title.hint')}
           onChange={(next) => set('title', next)}
           {...(errors?.title === undefined ? {} : { error: errors.title })}
         />
-        <ui.Typography variant="pi" textColor="neutral600">{value.title.length}/30</ui.Typography>
+        <CharCount value={value.title} max={TITLE_MAX} />
       </ui.Flex>
       <ui.Flex gap={2} alignItems="flex-end">
         <ui.TextInput name="startAt" label={t('editor.displayPeriod.start')} value={value.startAt}
