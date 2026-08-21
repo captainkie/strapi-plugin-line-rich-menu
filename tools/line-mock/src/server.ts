@@ -99,6 +99,11 @@ export function createServer(): FastifyInstance {
     return reply.send({})
   })
 
+  app.get('/v2/bot/user/all/richmenu', async (_req, reply) => {
+    if (store.defaultMenuId === null) return reply.code(404).send({ message: 'no default richmenu' })
+    return reply.send({ richMenuId: store.defaultMenuId })
+  })
+
   app.post('/v2/bot/user/all/richmenu/:id', async (req, reply) => {
     const { id } = req.params as { id: string }
     if (!store.menus.has(id)) return reply.code(404).send({ message: 'not found' })
@@ -128,6 +133,13 @@ export function createServer(): FastifyInstance {
     const { aliasId } = req.params as { aliasId: string }
     store.aliases.delete(aliasId)
     return reply.send({})
+  })
+
+  app.get('/v2/bot/richmenu/alias/:aliasId', async (req, reply) => {
+    const { aliasId } = req.params as { aliasId: string }
+    const richMenuId = store.aliases.get(aliasId)
+    if (richMenuId === undefined) return reply.code(404).send({ message: 'alias not found' })
+    return reply.send({ richMenuAliasId: aliasId, richMenuId })
   })
 
   app.get('/v2/bot/richmenu/alias/list', async () => ({

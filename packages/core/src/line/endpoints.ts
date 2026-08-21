@@ -11,6 +11,9 @@ export const endpoints = {
   uploadContent: (dataBase: string, id: string) => `${dataBase}/v2/bot/richmenu/${e(id)}/content`,
   setDefault: (base: string, id: string) => `${base}/v2/bot/user/all/richmenu/${e(id)}`,
   clearDefault: (base: string) => `${base}/v2/bot/user/all/richmenu`,
+  // URL เดียวกับ clearDefault ต่างกันแค่ method (GET อ่าน · DELETE ล้าง)
+  // ประกาศแยกชื่อเพราะจุดเรียกอ่านง่ายกว่า `endpoints.clearDefault(base)` ที่ตามด้วย method: 'GET'
+  defaultRichMenu: (base: string) => `${base}/v2/bot/user/all/richmenu`,
   alias: (base: string) => `${base}/v2/bot/richmenu/alias`,
   aliasById: (base: string, aliasId: string) => `${base}/v2/bot/richmenu/alias/${e(aliasId)}`,
   aliasList: (base: string) => `${base}/v2/bot/richmenu/alias/list`,
