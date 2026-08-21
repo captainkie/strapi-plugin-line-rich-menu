@@ -1,4 +1,4 @@
-import { Message } from '@strapi/icons'
+import { LineMark } from '@fosivo/line-rich-menu-ui'
 import { PERMISSION, PLUGIN_ID } from './plugin-id.js'
 import { trads } from './translations.js'
 
@@ -11,7 +11,9 @@ export default {
   register(app: AdminApp): void {
     app.addMenuLink({
       to: `/plugins/${PLUGIN_ID}`,
-      icon: Message,
+      // เครื่องหมาย LINE ที่วาดเอง (สเปกงานนี้ #2) แทนไอคอนกลาง ๆ ของ Strapi (`Message`) — บอกทันที
+      // ว่าปลั๊กอินนี้เกี่ยวกับ LINE โดยไม่ใช้โลโก้จริงของ LINE (ดูคอมเมนต์เต็มที่ LineMark.tsx)
+      icon: LineMark,
       intlLabel: { id: `${PLUGIN_ID}.plugin.name`, defaultMessage: 'LINE Rich Menu' },
       // เมนูฝั่งซ้ายซ่อนตัวเองจากคนที่ไม่มีสิทธิ์ `read` — ชั้นแรกของ deny by default
       // ชั้นที่บังคับจริงยังเป็น policy ที่ route (Task 5) ไม่ใช่ตรงนี้

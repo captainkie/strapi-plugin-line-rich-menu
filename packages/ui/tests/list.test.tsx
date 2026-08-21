@@ -43,6 +43,14 @@ describe('RichMenuList', () => {
     await waitFor(() => expect(screen.getByText('list.empty')).toBeInTheDocument())
   })
 
+  // สเปกงานนี้ #2 — empty-state คือจุดที่เครื่องหมาย LINE ที่วาดเองช่วยได้จริง ต้องแดงถ้ามีใครลบ
+  // <LineMark/> ออกจากที่นี่ทิ้ง (เช่นตอน refactor empty-state กลับไปเป็น ui.Typography เปล่า ๆ)
+  it('empty-state มีเครื่องหมาย LINE อยู่ด้วย ไม่ใช่แค่ข้อความ', async () => {
+    setup(vi.fn(async () => []))
+    await waitFor(() => expect(screen.getByText('list.empty')).toBeInTheDocument())
+    expect(document.querySelector('svg')).toBeInTheDocument()
+  })
+
   // S1 (STANDING-CORRECTIONS) — Alert primitive วาด role="status" ไม่ใช่ "alert"
   // ต้องเช็คข้อความจาก key ที่โค้ดส่งให้ t() จริง ไม่ใช่ getByRole('alert') ที่ไม่ match อะไรเลย
   it('แจ้งเตือนเมื่อโหลดไม่สำเร็จ ไม่ใช่ค้างที่ spinner', async () => {

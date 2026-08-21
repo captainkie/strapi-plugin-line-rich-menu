@@ -42,6 +42,7 @@ const EXPECTED_EXPORTS = [
   'CanvasEditor',
   'ChatBarSettings',
   'ImageField',
+  'LineMark',
   'MainSettings',
   'Preview',
   'TemplatePicker',
