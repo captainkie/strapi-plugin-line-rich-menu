@@ -211,6 +211,24 @@ describe('Preview', () => {
     })
   })
 
+  // สเปกงานนี้ #2 — เจ้าของ: "menu bar label ให้อยู่ตรงกลางด้วย ตอนนี้มันชิดซ้าย"
+  // ต้องอยู่กึ่งกลางทั้งสองสถานะ ไม่ใช่แค่ตอนกางหรือแค่ตอนยุบ
+  it('label ของแถบแชทอยู่กึ่งกลาง ทั้งตอนเมนูกางและยุบ', () => {
+    wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
+    expect(screen.getByTestId('preview-chat-bar-label').style.textAlign).toBe('center')
+    fireEvent.click(screen.getByTestId('preview-chat-bar'))
+    expect(screen.getByTestId('preview-chat-bar-label').style.textAlign).toBe('center')
+  })
+
+  // สเปกงานนี้ #2 — ตาม docs/files/example-ui/: ตอนเมนูกางแถบเป็นแถบเปล่าธรรมดา ไม่มีเม็ดมนพื้นสี
+  // (เม็ดมนเป็นของสถานะ "ยุบ" ที่ผู้ใช้กำลังพิมพ์อยู่เท่านั้น)
+  it('เม็ดมนพื้นช่องพิมพ์ข้อความหายไปตอนเมนูกาง และกลับมาตอนยุบ', () => {
+    wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="เมนู" expanded />)
+    expect(screen.getByTestId('preview-chat-bar-label').style.background).toBe('')
+    fireEvent.click(screen.getByTestId('preview-chat-bar'))
+    expect(screen.getByTestId('preview-chat-bar-label').style.background).toContain('242, 242, 243')
+  })
+
   it('ข้อความแถบแชทว่าง ใช้ label default แทน', () => {
     wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="" expanded />)
     expect(screen.getByTestId('preview-chat-bar').textContent).toContain('chatBar.defaultLabel')
