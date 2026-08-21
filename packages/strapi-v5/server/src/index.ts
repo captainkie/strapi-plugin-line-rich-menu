@@ -1,1 +1,5 @@
-export default {}
+import { contentTypes } from './content-types/index.js'
+
+export default {
+  contentTypes,
+}
