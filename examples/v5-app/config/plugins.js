@@ -20,12 +20,30 @@ module.exports = ({ env }) => ({
   // กิ่ง fetch จะไม่เคยถูกเดินเลยแม้แต่ครั้งเดียวในทั้งแผน การแยกด้วยชื่อไฟล์ทำให้ทั้งสองกิ่ง
   // ถูกพิสูจน์ในการบูตครั้งเดียว โดยที่เส้นทางหลัก (ไฟล์ชื่อธรรมดา) ยังเป็น local provider แท้ ๆ
   // เหมือนที่ลูกค้าได้ ไม่ได้ถูกดัดแปลง
-  upload: {
-    config: {
-      provider: 'strapi-provider-upload-absolute-url',
-      providerOptions: {
-        baseUrl: `http://${env('HOST', '127.0.0.1')}:${env.int('PORT', 1337)}`,
+  //
+  // The demo (docs/DEMO.md) switches this to Cloudinary whenever CLOUDINARY_NAME is present —
+  // Render free's disk is ephemeral, so anything saved to `public/uploads` vanishes on the
+  // next deploy or cold start, which would make the plugin look broken for a reason that has
+  // nothing to do with the plugin. e2e.sh, scripts/screenshots.sh and local `develop` never
+  // set CLOUDINARY_NAME, so they keep taking the local-provider branch unchanged.
+  upload: env('CLOUDINARY_NAME')
+    ? {
+        config: {
+          provider: 'cloudinary',
+          providerOptions: {
+            cloud_name: env('CLOUDINARY_NAME'),
+            api_key: env('CLOUDINARY_KEY'),
+            api_secret: env('CLOUDINARY_SECRET'),
+          },
+          actionOptions: { upload: {}, delete: {} },
+        },
+      }
+    : {
+        config: {
+          provider: 'strapi-provider-upload-absolute-url',
+          providerOptions: {
+            baseUrl: `http://${env('HOST', '127.0.0.1')}:${env.int('PORT', 1337)}`,
+          },
+        },
       },
-    },
-  },
 })
