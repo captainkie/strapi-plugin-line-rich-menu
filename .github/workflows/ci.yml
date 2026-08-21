@@ -64,15 +64,24 @@ jobs:
         # ลำดับคีย์ถูก · ทุกไฟล์ที่ exports อ้างถึงมีอยู่จริงบนดิสก์
         run: pnpm --filter strapi-plugin-line-rich-menu verify
 
-  e2e-v4:
+  # สเปก §13.4 — "e2e matrix: strapi[4.25.x, 5.x] × db[sqlite, postgres] × node 20"
+  # หนึ่ง job สองแกน แทนที่จะเป็นสอง job ที่ต้องแก้คู่กันตลอดไป — ทั้งสองแอปเรียกสคริปต์
+  # ตัวเดียวกับที่คนรันบนเครื่อง และใช้พอร์ตคนละชุด (1337/4010 กับ 1338/4011) จึงอยู่ร่วมกันได้
+  e2e:
     runs-on: ubuntu-latest
+    needs: quality
     strategy:
       fail-fast: false
-      # สเปก §13.4 — matrix db เป็นด่านที่พิสูจน์ว่า lock query ของ scheduler (คำนวณเส้นตาย
-      # ใน JS ไม่ใช่ INTERVAL ของ Postgres) ทำงานได้จริงทั้งสอง dialect ไม่ใช่แค่ที่เราเดา
+      # matrix db เป็นด่านที่พิสูจน์ว่า lock query ของ scheduler (คำนวณเส้นตายใน JS ไม่ใช่
+      # INTERVAL ของ Postgres) ทำงานได้จริงทั้งสอง dialect ไม่ใช่แค่ที่เราเดา — และในขา v5
+      # มันยังพิสูจน์ด้วยว่าคอลัมน์ `document_id` ที่ lock ยิงใส่มีอยู่จริงในสคีมาที่ Strapi 5 สร้าง
       matrix:
+        strapi: ['4', '5']
         db: [sqlite, postgres]
     services:
+      # service ของ postgres ถูกประกาศไว้ทั้งสี่ช่องของ matrix โดยตั้งใจ — GitHub Actions
+      # ไม่มีทางประกาศ service แบบมีเงื่อนไข การรัน container เปล่า ๆ ทิ้งไว้ในรอบ sqlite
+      # ราคาถูกกว่าการแตก workflow เป็นสองไฟล์ที่ต้องแก้คู่กันตลอดไป
       postgres:
         image: postgres:16-alpine
         env:
@@ -92,14 +101,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # เรียกสคริปต์ตัวเดียวกับที่คนรันบนเครื่อง ไม่ใช่เขียนลำดับขั้นซ้ำใน YAML —
-      # ลำดับใน scripts/e2e.sh มีด่านที่ตัดสินผลอยู่หลายจุด (ปลั๊กอินถูกโหลดจริงไหม, node_modules
-      # ได้ไบต์ของ tarball รอบนี้ไหม) การคัดลอกขั้นตอนมาไว้ที่นี่แปลว่า CI กับเครื่องจะเดินคนละทาง
-      # ทันทีที่ฝั่งใดฝั่งหนึ่งถูกแก้ ซึ่งเป็นวิธีที่ทำให้ gate เขียวโดยไม่ได้วัดของจริง
+      # ลำดับใน scripts/e2e.sh มีด่านที่ตัดสินผลอยู่หลายจุด (ปลั๊กอินถูกโหลดจริงไหม, บันเดิลของ
+      # แอดมินมีปลั๊กอินไหม, node_modules ได้ไบต์ของ tarball รอบนี้ไหม) การคัดลอกขั้นตอนมาไว้ที่นี่
+      # แปลว่า CI กับเครื่องจะเดินคนละทางทันทีที่ฝั่งใดฝั่งหนึ่งถูกแก้ ซึ่งเป็นวิธีที่ทำให้ gate
+      # เขียวโดยไม่ได้วัดของจริง
       #
       # ค่า DATABASE_* ส่งผ่าน env ไม่ใช่แก้ .env — สคริปต์ให้ env ภายนอกชนะไฟล์เสมอ
       # ถ้าไม่เป็นแบบนั้น ขา postgres จะถูก .env ดึงกลับไปเป็น sqlite แล้วเขียวทั้งสองขา
       # โดยไม่เคยแตะ Postgres เลย
-      - name: acceptance gate — Strapi 4.25.11 ตัวจริง + ปลั๊กอินจาก tarball
+      - name: acceptance gate — Strapi ${{ matrix.strapi }} ตัวจริง + ปลั๊กอินจาก tarball
         env:
           DATABASE_CLIENT: ${{ matrix.db }}
           DATABASE_HOST: 127.0.0.1
@@ -107,16 +117,16 @@ jobs:
           DATABASE_NAME: strapi
           DATABASE_USERNAME: strapi
           DATABASE_PASSWORD: strapi
-        run: pnpm e2e:v4
+        run: pnpm e2e:v${{ matrix.strapi }}
 
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: e2e-v4-${{ matrix.db }}
+          name: e2e-v${{ matrix.strapi }}-${{ matrix.db }}
           path: |
-            examples/v4-app/test-results
-            examples/v4-app/.tmp-strapi.log
-            examples/v4-app/.tmp-line-mock.log
+            examples/v${{ matrix.strapi }}-app/test-results
+            examples/v${{ matrix.strapi }}-app/.tmp-strapi.log
+            examples/v${{ matrix.strapi }}-app/.tmp-line-mock.log
 
   mutation:
     runs-on: ubuntu-latest

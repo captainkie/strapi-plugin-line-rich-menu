@@ -4,13 +4,13 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   // docs/ เก็บสเปก แผน และโค้ดอ้างอิงจากโปรเจกต์อื่น — ไม่ใช่ซอร์สของแพ็กเกจนี้
-  // examples/v4-app/{build,.strapi,.tmp,.pack} เป็นผลผลิตของ `strapi build` และ `npm pack`
+  // examples/*/{build,.strapi,.tmp,.pack} เป็นผลผลิตของ `strapi build` และ `npm pack`
   // ไม่ใช่ซอร์ส — ถ้าไม่กันออก `pnpm lint` จะไปไล่บันเดิลของ admin ทั้งก้อน (หมื่นกว่า error)
   {
     ignores: [
       '**/dist/**', '**/coverage/**', '**/.stryker-tmp/**', 'docs/**',
-      'examples/v4-app/build/**', 'examples/v4-app/.strapi/**',
-      'examples/v4-app/.tmp/**', 'examples/v4-app/.pack/**',
+      'examples/*/build/**', 'examples/*/.strapi/**',
+      'examples/*/.tmp/**', 'examples/*/.pack/**',
     ],
   },
   js.configs.recommended,
@@ -51,9 +51,9 @@ export default tseslint.config(
     },
   },
   {
-    // examples/v4-app เป็นแอป Strapi 4 ของลูกค้า ไม่ใช่แพ็กเกจในเวิร์กสเปซ — config กับ script
-    // ของมันเป็น CommonJS ตามที่ Strapi 4 กำหนด ไม่ใช่ทางเลือกด้านสไตล์ที่จะแก้ให้ตรงกันได้
-    files: ['examples/v4-app/**/*.js'],
+    // examples/* เป็นแอป Strapi ของลูกค้า ไม่ใช่แพ็กเกจในเวิร์กสเปซ — config กับ script
+    // ของมันเป็น CommonJS ตามที่ Strapi กำหนด (ทั้ง 4 และ 5) ไม่ใช่ทางเลือกด้านสไตล์
+    files: ['examples/*/**/*.js'],
     languageOptions: {
       sourceType: 'commonjs',
       globals: {
@@ -68,7 +68,7 @@ export default tseslint.config(
   {
     // `__dirname` อยู่ในนี้เพราะ playwright.config.ts ต้องใช้มันแทน `import.meta.url` —
     // Playwright แปลง config เป็น CJS และ `import.meta` ทำให้ Node สลับไปโหลดเป็น ESM แล้วล้ม
-    files: ['examples/v4-app/**/*.ts'],
+    files: ['examples/*/**/*.ts'],
     languageOptions: {
       globals: { process: 'readonly', Buffer: 'readonly', console: 'readonly', __dirname: 'readonly' },
     },
