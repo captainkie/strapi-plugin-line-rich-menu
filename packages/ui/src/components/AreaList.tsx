@@ -52,6 +52,11 @@ export function AreaList({
               {t('editor.layout.add')}
             </ui.Button>
           )}
+          {/* ปุ่มเพิ่มถูก disable ไว้เฉย ๆ ที่ 20 ช่องบอกอะไรผู้ใช้ไม่ได้เลยว่าทำไมกดไม่ได้ —
+              ข้อความนี้ตอบคำถามนั้นตรง ๆ แทนที่จะปล่อยให้เดาว่าเป็นบั๊กหรือของจริง */}
+          {onAdd !== undefined && areas.length >= 20 ? (
+            <ui.Typography variant="pi" textColor="neutral600">{t('editor.layout.limit')}</ui.Typography>
+          ) : null}
         </ui.Flex>
       </ui.Flex>
 
