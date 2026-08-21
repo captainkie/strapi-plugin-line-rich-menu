@@ -107,6 +107,18 @@ async function theChannel(request: APIRequestContext, token: string): Promise<{ 
   return rows[0]
 }
 
+/** เหตุผลเดียวกับ `theChannel` — อ่าน id กลับจาก API เสมอ ไม่ใช่ถือ id ค้างจากเทสต์อื่น */
+async function theMenu(request: APIRequestContext, token: string, channelId: string): Promise<Record<string, unknown>> {
+  const list = await request.get(`/line-rich-menu/menus?channel=${channelId}`, auth(token))
+  expect(list.status(), await list.text()).toBe(200)
+  const rows = await list.json()
+  expect(rows.length, 'เทสต์แรกของชุดต้องสร้างเมนูไว้ให้แล้ว').toBeGreaterThan(0)
+
+  const detail = await request.get(`/line-rich-menu/menus/${rows[0].id}`, auth(token))
+  expect(detail.status(), await detail.text()).toBe(200)
+  return detail.json()
+}
+
 test.describe('เส้นทางหลัก', () => {
   test('login → สร้าง channel → สร้างเมนู → อัปรูป → publish → เห็น published', async ({ request }) => {
     const token = await login(request, ADMIN)
@@ -207,11 +219,39 @@ test.describe('เส้นทางหลัก', () => {
     expect(await report.json()).toEqual({ orphans: [], missing: [] })
   })
 
-  test('tick ที่ยิงจากภายนอกทำงานได้และไม่ล้ม', async ({ request }) => {
+  /**
+   * I3 — `claim`/`release` ของ knex lock ไม่เคยรันกับฐานข้อมูลจริงมาก่อนเลย: ด่านนี้เคยยิง tick
+   * กับตารางที่ไม่มี schedule ค้างอยู่สักแถว (`due: 0`) ทำให้ทั้งสองเมธอดได้เจอแค่ของปลอมของ
+   * เทสต์ระดับ unit เท่านั้น ความล้มเหลวสองแบบของ lock ตัวจริงก็เงียบทั้งคู่: ชื่อคอลัมน์ผิด
+   * โยน error ที่ถูกกลืนเข้า log บรรทัดเดียวทุกนาที ส่วนค่าผิด (เช่นเทียบ state ผิดค่า) ทำให้
+   * `claim` คืน false ตลอดกาล ซึ่งดูเหมือน contention เฉย ๆ ไม่มีอะไรบอกว่าตารางเวลาไม่เคยรันเลย
+   *
+   * ด่านนี้จึงต้อง seed schedule ที่ due จริง ๆ ผ่านเส้นทางที่ผู้ใช้ใช้จริง — PUT เมนูพร้อม
+   * `startAt` ในอดีต (ไม่ใช่เขียนแถวลง DB ตรง ๆ) เพื่อพิสูจน์ทั้งขา `writeDisplayPeriod` ที่สร้าง
+   * schedule และขา lock/tick ที่ claim/run มันในคำสั่งเดียวกัน แล้วยืนยันว่า `due`/`claimed`/`done`
+   * ไม่ใช่แค่ตัวเลขคงที่จากของปลอมอีกต่อไป
+   */
+  test('tick ที่ยิงจากภายนอกทำงานได้และไม่ล้ม — เจองาน due จริงและ claim/run ผ่าน DB จริง', async ({ request }) => {
     const token = await login(request, ADMIN)
+    const channelId = (await theChannel(request, token)).id
+    const menu = await theMenu(request, token, channelId)
+
+    const past = new Date(Date.now() - 60_000).toISOString()
+    const updated = await request.put(`/line-rich-menu/menus/${menu['id']}`, {
+      ...auth(token),
+      data: {
+        name: menu['name'], channelId: menu['channelId'], size: menu['size'],
+        chatBarText: menu['chatBarText'], chatBarMode: menu['chatBarMode'], selected: menu['selected'],
+        templateKey: menu['templateKey'], areas: menu['areas'], imageFileId: menu['imageFileId'],
+        areaImages: menu['areaImages'], aliasId: menu['aliasId'],
+        startAt: past, endAt: null,
+      },
+    })
+    expect(updated.status(), await updated.text()).toBe(200)
+
     const response = await request.post('/line-rich-menu/schedules/tick', { ...auth(token), data: {} })
     expect(response.status(), await response.text()).toBe(200)
-    expect(await response.json()).toEqual({ due: 0, claimed: 0, done: 0, failed: 0 })
+    expect(await response.json()).toEqual({ due: 1, claimed: 1, done: 1, failed: 0 })
   })
 
   test('ImageStore.read เดินกิ่ง fetch ได้จริงเมื่อ provider คืน url แบบสัมบูรณ์', async ({ request }) => {

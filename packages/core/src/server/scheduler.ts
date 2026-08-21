@@ -85,6 +85,18 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
         }
       }
 
+      // (I3) มีงานถึงเวลาแล้วแต่ claim ไม่ติดสักงานเดียว — สองคำอธิบายที่เป็นไปได้คือ worker อื่น
+      // แย่ง lock ไปหมดพอดี (ชนกันจริง ไม่ใช่บั๊ก) กับ `claim` พังเงียบ ๆ ทุกครั้ง (ชื่อ/ค่าคอลัมน์ผิด
+      // แล้ว UPDATE ไม่โดนแถวไหนเลยตลอดไป) ทั้งสองเคสแยกจากกันไม่ได้จากรายงานตัวเลขล้วน ๆ แต่ทั้งคู่
+      // สมควรมีคนมาดู — ยิ่งเคสหลังอันตรายเพราะไม่มี error ให้เห็นเลย มีแต่ `{ due: N, claimed: 0 }`
+      // เงียบ ๆ ทุกนาทีจนกว่าจะมีคนสังเกตว่าตารางเวลาไม่เคยรันสักงาน (ดูรายละเอียดที่ lock.ts)
+      if (report.due > 0 && report.claimed === 0) {
+        deps.logger.warn(
+          'line-rich-menu: schedules are due but none could be claimed — total lock contention or a broken lock',
+          report,
+        )
+      }
+
       return report
     },
   }
