@@ -7,10 +7,11 @@ export default defineConfig({
     name: 'strapi-v4',
     environment: 'node',
     include: ['tests/**/*.test.{ts,tsx}'],
-    // Design System v1 เป็น ESM ที่ import ของจาก `@strapi/ui-primitives` ซึ่งเป็น CommonJS —
-    // Node แกะ named export ออกจาก CJS ให้ไม่ได้ ต้องให้ Vite เป็นคน transform ให้ก่อน
-    // (`Named export 'useCallbackRef' not found` คือหน้าตาของความพังนี้)
-    server: { deps: { inline: [/@strapi\/design-system/] } },
+    // แพ็กเกจฝั่งแอดมินของ Strapi 4 ทั้งสองตัวเขียนมาให้ bundler กิน ไม่ใช่ให้ Node กินตรง ๆ:
+    // DS v1 import named export จาก `@strapi/ui-primitives` ที่เป็น CommonJS และ helper-plugin
+    // import `lodash/isEmpty` แบบไม่มีนามสกุล — ทั้งคู่ ESM loader ของ Node ปฏิเสธ ให้ Vite
+    // เป็นคน resolve ให้เหมือนที่ webpack ทำในแอดมินจริง
+    server: { deps: { inline: [/@strapi\/(design-system|helper-plugin)/] } },
   },
   esbuild: { jsx: 'automatic' },
   resolve: {

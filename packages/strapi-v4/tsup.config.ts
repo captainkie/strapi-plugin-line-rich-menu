@@ -26,7 +26,7 @@ export default defineConfig([
     sourcemap: true,
     external: [
       'react', 'react-dom', 'react/jsx-runtime',
-      'react-router-dom', 'styled-components',
+      'react-router-dom', 'styled-components', 'react-intl',
       '@strapi/design-system', '@strapi/design-system/Icon',
       '@strapi/helper-plugin', '@strapi/icons',
     ],
