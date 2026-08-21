@@ -22,7 +22,8 @@
     "strapi-server.js",
     "strapi-admin.js",
     "LICENSE",
-    "COMMERCIAL-LICENSE.md"
+    "COMMERCIAL-LICENSE.md",
+    "README.md"
   ],
   "strapi": {
     "name": "line-rich-menu",
