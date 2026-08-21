@@ -1,3 +1,4 @@
+import { contentTypes } from './content-types/index.js'
 import type { StrapiV4 } from './strapi.js'
 
 export default {
@@ -7,7 +8,7 @@ export default {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   bootstrap(_context: { strapi: StrapiV4 }): void {},
   config: { default: {}, validator(): void {} },
-  contentTypes: {},
+  contentTypes,
   controllers: {},
   routes: {},
   services: {},
