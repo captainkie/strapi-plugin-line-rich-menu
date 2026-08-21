@@ -155,4 +155,22 @@ declare module '@strapi/design-system' {
 
   export const ThemeProvider: ComponentType<{ theme: unknown; children?: ReactNode }>
   export const lightTheme: unknown
+
+  /** `<main>` ที่โฟกัสได้ตอนเปลี่ยนหน้า (สเปกการเข้าถึงของ Strapi เอง) — ไม่มีพร็อพที่ใช้จริงที่นี่ */
+  export const Main: ComponentType<{ children?: ReactNode }>
+
+  /**
+   * ส่วนหัวมาตรฐานของหน้าแอดมิน — วาด `<h1>` จริงจาก `title`, พร็อพที่เหลือเป็น optional ทั้งหมด
+   * `primaryAction` มักเป็นกลุ่มปุ่มที่มุมขวาบน (ดู primitives.tsx: `ui.Page`)
+   */
+  export const HeaderLayout: ComponentType<{
+    title: string
+    subtitle?: ReactNode
+    primaryAction?: ReactNode
+    secondaryAction?: ReactNode
+    navigationAction?: ReactNode
+  }>
+
+  /** ให้ padding ซ้าย-ขวาของเนื้อหาหน้า อยู่ใต้ `HeaderLayout` เสมอ */
+  export const ContentLayout: ComponentType<{ children?: ReactNode }>
 }

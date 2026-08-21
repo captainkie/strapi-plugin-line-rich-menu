@@ -156,6 +156,30 @@ describe('Button / IconButton', () => {
   })
 })
 
+describe('Page', () => {
+  // ยามคู่กับเทสต์ "จับคู่ครบทุกตัว" ข้างบน — completeness เช็คแค่ว่า key มีอยู่และเป็นฟังก์ชัน
+  // ไม่เคยเรียกมันจริง `Page` ที่ลืมวาง `children` ไว้ (เช่น implement แล้วส่ง children ต่อผิดจุด)
+  // จะยังผ่าน completeness ได้สบาย ๆ ทั้งที่หน้าจอทุกหน้าที่ห่อด้วย Page จะว่างเปล่า
+  it('วาด title เป็น heading จริงและวาด children ให้ครบ ไม่ใช่กลืนทิ้ง', () => {
+    const html = draw(
+      <primitives.Page title="หัวข้อหน้า">
+        <span>เนื้อหาหน้า</span>
+      </primitives.Page>,
+    )
+    expect(html).toMatch(/<h1[^>]*>หัวข้อหน้า<\/h1>/)
+    expect(html).toContain('เนื้อหาหน้า')
+  })
+
+  it('วาด actions ที่ส่งมาด้วย ไม่ใช่แค่ title กับ children', () => {
+    const html = draw(
+      <primitives.Page title="หัวข้อ" actions={<button type="button">save</button>}>
+        เนื้อหา
+      </primitives.Page>,
+    )
+    expect(html).toContain('>save<')
+  })
+})
+
 describe('ข้อความที่ผู้ใช้เห็นซึ่ง DS v1 บังคับให้ adapter เป็นคนตั้ง', () => {
   // สเปก §12 — ห้าม hardcode ข้อความที่ผู้ใช้เห็น แม้แต่ aria-label ของปุ่มปิด Alert
   it('closeLabel ของ Alert มาจาก port.t ไม่ใช่สตริงอังกฤษที่ฝังไว้', () => {
