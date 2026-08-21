@@ -1,7 +1,7 @@
 {
   "name": "strapi-plugin-line-rich-menu-v4",
   "version": "0.0.0",
-  "description": "LINE rich menu builder for Strapi 4.25.x — a bridge while you migrate to Strapi 5",
+  "description": "LINE rich menu builder for Strapi 4.25.x \u2014 a bridge while you migrate to Strapi 5",
   "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=20.15.0"
@@ -22,11 +22,11 @@
   },
   "scripts": {
     "build": "tsup",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:deps": "node scripts/check-runtime-deps.mjs"
   },
   "dependencies": {
-    "@fosivo/line-rich-menu-core": "workspace:*",
-    "@fosivo/line-rich-menu-ui": "workspace:*",
+    "sharp": "^0.35.3",
     "zod": "^3.23.8"
   },
   "peerDependencies": {
@@ -41,6 +41,8 @@
     "styled-components": "^5.3.3"
   },
   "devDependencies": {
+    "@fosivo/line-rich-menu-core": "workspace:*",
+    "@fosivo/line-rich-menu-ui": "workspace:*",
     "@strapi/design-system": "^1.19.0",
     "@strapi/helper-plugin": "^4.25.23",
     "@strapi/icons": "^1.19.0",
