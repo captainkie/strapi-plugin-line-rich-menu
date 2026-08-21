@@ -36,7 +36,31 @@ function deepContains(value: unknown, needle: string): boolean {
   return false
 }
 
-/** strapi ปลอมที่มีเฉพาะสิ่งที่ controller เดินผ่านจริง */
+/**
+ * เทียบ filter กับแถวหนึ่งแถวแบบเดียวกับที่ `entityService` ของ v4 ทำ
+ *
+ * relation ถูกเก็บเป็นเลข FK ดิบ ๆ เหมือนคอลัมน์จริงในตาราง (ดู `statefulScheduleStrapi` ใน
+ * repo.test.ts ที่ทำแบบเดียวกัน) — `mapFilters` ของแต่ละ repo แปลง `channelId`/`richMenuId`
+ * ในชั้น service เป็นชื่อ relation กับเลขให้แล้วก่อนถึงตรงนี้ จึงเทียบค่าตรง ๆ ได้
+ */
+function matchesFilters(row: Record<string, unknown>, filters: Record<string, unknown>): boolean {
+  return Object.entries(filters).every(([key, want]) => {
+    const value = row[key]
+    const actual = value !== null && typeof value === 'object' && 'id' in (value as object)
+      ? (value as { id: unknown }).id
+      : value
+    return actual === want
+  })
+}
+
+/**
+ * strapi ปลอมที่มีเฉพาะสิ่งที่ controller เดินผ่านจริง
+ *
+ * `findMany` เคย **ทิ้ง `filters` ทั้งก้อน** แล้วคืนทั้งตาราง ซึ่งแปลว่า `assertChannelIdFree`,
+ * `clearOtherDefaults`, `reconcileChannel`, `assertAliasFree` และ `readDisplayPeriod` ทุกตัว
+ * ทำงานกับทั้งตารางในเทสต์ชุดนี้ ไม่มี assertion ไหนเปลี่ยนเพราะแต่ละเทสต์ seed ไว้ไม่เกินหนึ่งแถว
+ * เท่านั้นเอง — ของปลอมที่ใจกว้างกว่าระบบที่มันยืนแทน ทำให้ข้อบกพร่องข้ามแถวมองไม่เห็นทั้งหมด
+ */
 function fakeStrapi(seed: { channels?: unknown[]; menus?: unknown[] } = {}) {
   const rows: Record<string, Record<string, unknown>[]> = {
     'plugin::line-rich-menu.line-channel': (seed.channels ?? []) as Record<string, unknown>[],
@@ -58,7 +82,8 @@ function fakeStrapi(seed: { channels?: unknown[]; menus?: unknown[] } = {}) {
       admin: { services: { permission: { actionProvider: { registerMany: async () => {} } } } },
       cron: { add: vi.fn() },
       entityService: {
-        findMany: async (uid: string) => rows[uid] ?? [],
+        findMany: async (uid: string, params?: { filters?: Record<string, unknown> }) =>
+          (rows[uid] ?? []).filter((row) => matchesFilters(row, params?.filters ?? {})),
         findOne: async (uid: string, id: number | string) => (rows[uid] ?? []).find((r) => r['id'] === Number(id)) ?? null,
         create: async (uid: string, params: { data: Record<string, unknown> }) => {
           const row = { id: next++, ...params.data }
@@ -101,6 +126,34 @@ describe('channels controller', () => {
 
     expect(deepContains(context.body, TOKEN)).toBe(false)
     expect(deepContains(context.body, 'v1.')).toBe(false)
+  })
+
+  /**
+   * เทสต์นี้เป็นไปไม่ได้เลยตอนที่ `findMany` ทิ้ง filters: `assertChannelIdFree` จะเห็นทั้งตาราง
+   * แล้วสรุปว่า channelId ถูกใช้ไปแล้ว → ลูกค้าที่มี OA ตัวที่สองสร้าง channel ตัวที่สองไม่ได้เลย
+   */
+  it('สร้าง channel ตัวที่สองด้วย channelId คนละตัวได้ — ไม่ใช่ชนกับตัวแรกทุกครั้ง', async () => {
+    const { strapi } = fakeStrapi()
+    const controller = controllers.channels({ strapi })
+    await controller.create(ctx({ request: { body: { name: 'ร้าน A', channelId: '1650000000', channelAccessToken: TOKEN } } }))
+
+    const context = ctx({ request: { body: { name: 'ร้าน B', channelId: '1660000000', channelAccessToken: TOKEN } } })
+    await controller.create(context)
+
+    expect(context.status).toBe(200)
+    expect(context.body).toMatchObject({ name: 'ร้าน B', channelId: '1660000000' })
+  })
+
+  it('channelId ที่ซ้ำกับ channel ที่มีอยู่ยังถูกปฏิเสธด้วย 400 เหมือนเดิม', async () => {
+    const { strapi } = fakeStrapi()
+    const controller = controllers.channels({ strapi })
+    await controller.create(ctx({ request: { body: { name: 'ร้าน A', channelId: '1650000000', channelAccessToken: TOKEN } } }))
+
+    const context = ctx({ request: { body: { name: 'ร้าน B', channelId: '1650000000', channelAccessToken: TOKEN } } })
+    await controller.create(context)
+
+    expect(context.status).toBe(400)
+    expect(context.body).toMatchObject({ error: { code: 'validation_failed', issues: [{ path: 'channelId' }] } })
   })
 
   it('body ที่มีฟิลด์แปลกปลอมถูกปฏิเสธด้วย 400 ไม่ใช่ 500', async () => {
@@ -158,6 +211,36 @@ describe('channels controller > deleteOrphan', () => {
 
     expect(context.status).toBe(409)
     expect(context.body).toMatchObject({ error: { code: 'menu_not_ready' } })
+  })
+})
+
+describe('menus controller > reconcile', () => {
+  /**
+   * reconcile ของ channel หนึ่งต้องนับเฉพาะเมนูของ channel นั้น — เมนูของ channel อื่นที่บังเอิญ
+   * ถือ lineRichMenuId เดียวกันต้องไม่ทำให้มัน "รู้จัก" id นั้น ตอนที่ `findMany` ทิ้ง filters
+   * เมนูของทุก channel ถูกนับรวมกันหมด id ที่กำพร้าจริงจึงหายไปจากรายงานเงียบ ๆ
+   */
+  it('reconcile นับเฉพาะเมนูของ channel ที่ถาม ไม่ใช่ทั้งตาราง', async () => {
+    const { strapi, rows } = fakeStrapi()
+    const controller = controllers.channels({ strapi })
+    const createCtx = ctx({ request: { body: { name: 'ร้าน A', channelId: '1650000000', channelAccessToken: TOKEN } } })
+    await controller.create(createCtx)
+    const channelId = (createCtx.body as { id: string }).id
+
+    // เมนูของ channel **อื่น** (id 999) ที่ชี้ id เดียวกับที่อยู่บน LINE ของ channel A
+    rows['plugin::line-rich-menu.rich-menu']!.push({
+      id: 500, channel: 999, status: 'published', lineRichMenuId: 'richmenu-stray', areas: [], areaImages: [],
+    })
+
+    lineServer.use(
+      http.get('https://api.line.me/v2/bot/richmenu/list', () =>
+        HttpResponse.json({ richmenus: [{ richMenuId: 'richmenu-stray' }] })),
+    )
+
+    const context = ctx({ params: { id: channelId } })
+    await controllers.menus({ strapi }).reconcile(context)
+
+    expect(context.body).toMatchObject({ orphans: ['richmenu-stray'], missing: [] })
   })
 })
 

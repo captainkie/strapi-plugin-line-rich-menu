@@ -11,6 +11,17 @@ const READER = { email: process.env['E2E_READER_EMAIL']!, password: process.env[
 const LINE_MOCK = process.env['LINE_API_BASE_URL'] ?? 'http://127.0.0.1:4010'
 
 /**
+ * token ที่ channel ของชุดนี้ถือ — ต้องเป็นตัวเดียวกับที่ใช้ยิงถาม mock ตรง ๆ ด้วย
+ *
+ * mock แยก store ตาม access token (หนึ่ง token = หนึ่ง OA) เหมือน LINE จริง การถามด้วย token
+ * อื่นจึงได้ store เปล่าของ OA ที่ไม่มีอะไรอยู่เลย ไม่ใช่สิ่งที่ปลั๊กอินเพิ่งเขียนลงไป — และนั่นคือ
+ * คุณสมบัติที่ต้องการ ไม่ใช่ความไม่สะดวก: ก่อนหน้านี้ mock ใช้ store ใบเดียวไม่ว่า token เป็นอะไร
+ * ข้อบกพร่องข้าม channel ทุกชนิดจึงมองไม่เห็นจากด่านนี้โดยโครงสร้าง
+ */
+const CHANNEL_ACCESS_TOKEN = process.env['E2E_CHANNEL_ACCESS_TOKEN'] ?? 'e2e-access-token-ABCD'
+const lineAuth = { headers: { Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` } }
+
+/**
  * `createImageStore.write` สร้างโฟลเดอร์ชั่วคราวชื่อขึ้นต้นด้วย prefix นี้แล้วลบทิ้งใน finally
  * ต้องเป็น tmpdir **ตัวเดียวกับที่โปรเซส Strapi ใช้** ไม่งั้นด่านนี้จะเขียวโดยไม่ได้มองอะไรเลย
  * สคริปต์ `scripts/e2e.sh` ตั้ง TMPDIR ให้ทั้งสองฝั่งเท่ากันแล้วส่งค่ามาทาง E2E_TMPDIR
@@ -102,13 +113,13 @@ test.describe('เส้นทางหลัก', () => {
 
     const channelResponse = await request.post('/line-rich-menu/channels', {
       ...auth(token),
-      data: { name: 'ร้านทดสอบ', channelId: '1650000000', channelAccessToken: 'e2e-access-token-ABCD' },
+      data: { name: 'ร้านทดสอบ', channelId: '1650000000', channelAccessToken: CHANNEL_ACCESS_TOKEN },
     })
     expect(channelResponse.status(), await channelResponse.text()).toBe(200)
     const channel = await channelResponse.json()
     const channelId = channel.id as string
     // สเปก §11.2 — token เต็มต้องไม่เคยออกจากฝั่งเซิร์ฟเวอร์
-    expect(JSON.stringify(channel)).not.toContain('e2e-access-token-ABCD')
+    expect(JSON.stringify(channel)).not.toContain(CHANNEL_ACCESS_TOKEN)
     expect(channel).toEqual({
       id: channel.id,
       name: 'ร้านทดสอบ',
@@ -163,7 +174,7 @@ test.describe('เส้นทางหลัก', () => {
     // นี่คือจุดที่ ImageStore.write → read → uploadContent ถูกพิสูจน์ครบวงเป็นครั้งแรก
     const onLine = await (await request.get(
       `${LINE_MOCK}/v2/bot/richmenu/${outcome.lineRichMenuId}`,
-      { headers: { Authorization: 'Bearer e2e-mock' } },
+      lineAuth,
     )).json()
     expect(onLine.image).toEqual({
       mime: 'image/jpeg',
