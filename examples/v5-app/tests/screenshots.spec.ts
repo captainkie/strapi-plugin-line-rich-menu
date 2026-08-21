@@ -398,18 +398,11 @@ test('ถ่ายภาพสี่ภาพที่ README ใช้', async 
   await expect(channelSection.getByText('Demo LINE OA')).toBeVisible()
   const panelBox = await channelSection.boundingBox()
   if (panelBox === null) throw new Error('หา bounding box ของ channel section ไม่เจอ')
-  const raw = await page.screenshot({ clip: panelBox })
-  // element screenshot ปกติ (ที่รอบก่อนใช้) ครอปแนบชิดขอบ element เป๊ะ ไม่มี margin เหลือเลย —
-  // "Add an account" เป็นปุ่มเต็มความกว้าง ชนขอบขวาของ viewport พอดีอยู่แล้วโดยตัว component เอง
-  // (ไม่มี padding รอบเนื้อหาในหน้านี้เลยสักที่ — ListPage.tsx ไม่ได้ห่อด้วย Layouts.Root ที่ปกติ
-  // ให้ padding มาฟรี) จะขยาย viewport ให้กว้างขึ้นก็ไม่ช่วยเพราะ layout เป็น fluid เต็มความกว้าง
-  // เสมอ ทางแก้ที่ควบคุมได้จริงคือ "วาด" กรอบ padding เองด้วย sharp หลังถ่ายภาพ ไม่ใช่พึ่งพื้นที่ว่าง
-  // ที่ไม่มีอยู่จริงในหน้า — สีพื้นหลังอ่านจาก body ตรง ๆ (ไม่ hardcode) เพื่อให้กรอบกลืนกับพื้นหลัง
-  // จริงของแอดมิน ไม่ใช่สีที่เดาไว้ตายตัวซึ่งอาจเพี้ยนถ้าธีมเปลี่ยน
-  const bodyBackground = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
-  const sharp = (await import('sharp')).default
-  await sharp(raw)
-    .extend({ top: BOTTOM_PAD, bottom: BOTTOM_PAD, left: BOTTOM_PAD, right: BOTTOM_PAD, background: bodyBackground })
-    .png()
-    .toFile(`${OUT}channel.png`)
+  // รอบก่อนวาดกรอบ padding 24px ทับด้วย sharp หลังถ่ายภาพ เพราะตอนนั้นหน้านี้ไม่มี padding ของ
+  // ตัวเองเลยสักที่ (ListPage.tsx วาด ui.Flex เปล่า ๆ เป็นราก) — ช่องว่างนั้นถูกวาดเข้าไป ไม่ได้
+  // มีอยู่จริงในแอปที่ผู้ใช้เห็น ตอนนี้ ListPage ห่อด้วย ui.Page แล้ว (Task 17) ซึ่งจับคู่กับ
+  // Layouts.Content ของ Strapi 5 ที่ให้ padding ซ้าย-ขวาจริงมาฟรี "Add an account" จึงไม่ชนขอบ
+  // viewport อีกต่อไป — ครอปตรงจากภาพจริงเลย ไม่ต้องวาดอะไรเพิ่มเติม เพราะการวาดต่อตอนนี้จะเป็น
+  // การโกหกว่าผู้ใช้เห็นระยะห่างที่ไม่มีอยู่จริง
+  await page.screenshot({ path: `${OUT}channel.png`, clip: panelBox })
 })
