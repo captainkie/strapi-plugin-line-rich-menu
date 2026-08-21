@@ -16,8 +16,12 @@ import { usePort, type UIPrimitives } from '@fosivo/line-rich-menu-ui'
  * 1. **อินพุตไม่ถือ label/hint/error ของตัวเองอีกแล้ว** — ทั้งสามย้ายไป `Field.Root` +
  *    `Field.Label` + `Field.Hint` + `Field.Error` ที่ครอบอยู่ อินพุตที่ไม่ถูกครอบจะไม่มีชื่อ
  *    ใน accessibility tree เลย ซึ่งไม่ใช่เรื่องความสวยงามแต่คือช่องที่ screen reader อ่านไม่ออก
- * 2. **พร็อพ polymorphic เปลี่ยนจาก `as` เป็น `tag`** — ส่ง `as` ต่อไปไม่เกิด error แต่ถูกเมิน
- *    ผลคือ `Typography as="h2"` ออกมาเป็น `<span>` และทั้งหน้าไม่มีหัวข้อสักตัว
+ * 2. **พร็อพ polymorphic เปลี่ยนจาก `as` เป็น `tag`** — ตรวจกับ DS 2.2.4 จริงแล้วได้ผลนี้:
+ *    ส่ง `as` ยัง "ได้ element ตามที่ขอ" อยู่ เพราะ Typography เป็น styled-component และ
+ *    styled-components v6 รู้จัก `as` ของมันเอง แต่มันข้าม Box ของ DS ไปเลย ผลลัพธ์คือ
+ *    `<h2 tag="span" class="…">` — มี attribute `tag` หลุดลง DOM และคลาสของ Box หายไปหนึ่งตัว
+ *    `tag` จึงเป็นทางเดียวที่ถูก ส่วนสิ่งที่ทำให้ทั้งหน้าไม่มีหัวข้อคือการ "กลืน" `as` ทิ้ง
+ *    (เช่นตั้ง `tag="span"` ตายตัว) ซึ่งเป็นความพังที่ tests/admin/primitives.test.tsx จับไว้
  * 3. **หลายตัววางอยู่บน Radix** — `Checkbox` ใช้ `onCheckedChange` ไม่ใช่ `onValueChange`,
  *    `Radio` เป็น `Group`/`Item` ที่ `Item` นอก `Group` ใช้ไม่ได้เลย, `Modal` เป็น compound
  *    component ที่ `Root` ถือ `open`/`onOpenChange`

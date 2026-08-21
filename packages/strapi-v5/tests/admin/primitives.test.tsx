@@ -43,8 +43,11 @@ describe('primitives', () => {
 })
 
 describe('Typography', () => {
-  // DS v2 เปลี่ยนพร็อพ polymorphic จาก `as` เป็น `tag` — ส่ง `as` ต่อไปตรง ๆ จะไม่มี error
-  // แต่ element ที่ออกมาเป็น span เสมอ แปลว่าหน้าจอไม่มีหัวข้อเลยทั้งหน้า
+  // DS v2 เปลี่ยนพร็อพ polymorphic จาก `as` เป็น `tag` — ด่านนี้จับ "การกลืน `as` ทิ้ง"
+  // ซึ่งทำให้ทั้งหน้าไม่มีหัวข้อสักตัว (พิสูจน์แล้วด้วยการตั้ง `tag="span"` ตายตัวแล้วดูมันแดง)
+  // ไม่ได้จับการส่ง `as` ต่อไปตรง ๆ เพราะ styled-components v6 รู้จัก `as` ของมันเองและยังคืน
+  // element ที่ขอ — เสียแค่ attribute `tag` หลุดลง DOM กับคลาสของ Box หายไป ดูคอมเมนต์ข้อ 2
+  // ที่หัวไฟล์ primitives.tsx
   it('`as` ของ port ออกมาเป็น element จริงผ่าน `tag` ของ DS v2', () => {
     const { container } = draw(<primitives.Typography as="h2" variant="delta">หัวข้อ</primitives.Typography>)
     expect(container.querySelector('h2')).toHaveTextContent('หัวข้อ')
