@@ -45,7 +45,7 @@ describe('ChannelSettings', () => {
     fireEvent.click(screen.getByTestId('save-channel'))
     // S4 — ยืนยันทั้ง body ที่ส่งไป ไม่ใช่ objectContaining บางฟิลด์ (ที่ยังผ่านได้แม้ฟิลด์อื่นหายไป)
     await waitFor(() => expect(post).toHaveBeenCalledWith(ENDPOINTS.channels, {
-      name: 'ร้านใหม่', channelId: '1660000000', channelSecret: '', accessToken: 'token',
+      name: 'ร้านใหม่', channelId: '1660000000', channelSecret: '', channelAccessToken: 'token',
     }))
   })
 

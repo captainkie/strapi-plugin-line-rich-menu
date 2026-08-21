@@ -43,6 +43,7 @@
   "devDependencies": {
     "@fosivo/line-rich-menu-core": "workspace:*",
     "@fosivo/line-rich-menu-ui": "workspace:*",
+    "@testing-library/react": "^16.3.2",
     "@strapi/design-system": "^1.19.0",
     "@strapi/helper-plugin": "^4.25.23",
     "@strapi/icons": "^1.19.0",
