@@ -1,5 +1,5 @@
 import { hostname } from 'node:os'
-import { createScheduler, type TickReport } from '@fosivo/line-rich-menu-core'
+import { createScheduler, createScrubbedLogger, type TickReport } from '@fosivo/line-rich-menu-core'
 import { getServices, type Services } from './container.js'
 import type { StrapiV4 } from './strapi.js'
 
@@ -35,18 +35,24 @@ export async function runTick(strapi: StrapiV4, services: Services): Promise<Tic
     owner: owner(),
   }).tick()
 
-  strapi.log.debug('line-rich-menu: scheduler tick finished', report)
+  // services.logger คือ createScrubbedLogger ตัวเดียวกับที่ container.ts ประกอบไว้ — สเปก §11.2
+  // บังคับว่าการกรองใช้กับทุก log level ไม่ใช่แค่ error ตัวนี้เคยยิงผ่าน strapi.log ตรง ๆ
+  // ซึ่งข้าม scrub ไปเลยหนึ่งเส้นทาง
+  services.logger.debug('line-rich-menu: scheduler tick finished', report)
   return report
 }
 
+/** ล้มเงียบ ๆ เป็น null ให้ผู้เรียกตัดสินใจเอง — getServices อาจล้มได้ตอนบูต (เช่นยังไม่ได้ตั้ง APP_KEYS) */
+function tryGetServices(strapi: StrapiV4): Services | null {
+  try {
+    return getServices(strapi)
+  } catch {
+    return null
+  }
+}
+
 export function registerCron(strapi: StrapiV4): void {
-  const services = (() => {
-    try {
-      return getServices(strapi)
-    } catch {
-      return null
-    }
-  })()
+  const services = tryGetServices(strapi)
 
   // อ่าน config ตรง ๆ แทนการพึ่ง services เพราะ getServices อาจล้มได้ตอนบูต
   // (เช่นยังไม่ได้ตั้ง APP_KEYS) และการปิด scheduler ไว้ต้องยังทำงานได้ในสภาพนั้น
@@ -61,9 +67,15 @@ export function registerCron(strapi: StrapiV4): void {
       try {
         await runTick(strapi, services ?? getServices(strapi))
       } catch (error) {
-        // cron runner ของ Strapi ไม่จับ error ให้ — error ที่หลุดออกไปจะกลายเป็น
-        // unhandled rejection ที่ทำให้ process ตายทั้งตัวในทุก ๆ นาที
-        strapi.log.error('line-rich-menu: scheduler tick failed', error)
+        // ต้อง scrub ทุกครั้งไม่ว่า services จะประกอบสำเร็จหรือไม่ (สเปก §11.2 "ทุก log level")
+        // error ที่หลุดออกมาจาก tick อาจพก payload ของ knex ที่มี credential envelope ติดมาด้วย
+        // ยิงเข้า strapi.log.error ตรง ๆ แบบเดิมคือช่องทางเดียวที่ยัง unscrubbed อยู่ในทั้งไฟล์นี้ —
+        // และเป็นช่องที่ยิงทุกนาทีถ้า tick ล้มซ้ำ ๆ (เช่นชื่อคอลัมน์ผิดหลัง migration เปลี่ยน schema)
+        // ลอง services ที่ resolve ไว้ตอน register ก่อน แล้วค่อยลองใหม่เผื่อรอบนี้สร้างสำเร็จ
+        // (เช่น boot แรกยังไม่ตั้ง APP_KEYS แต่ตั้งตามทีหลัง) — ไม่มีทางไหนสำเร็จก็ยัง fallback ไปที่
+        // createScrubbedLogger ตรง ๆ ได้เสมอ ไม่ต้องพึ่ง services เลย
+        const logger = (services ?? tryGetServices(strapi))?.logger ?? createScrubbedLogger(strapi.log)
+        logger.error('line-rich-menu: scheduler tick failed', error)
       }
     },
   })
