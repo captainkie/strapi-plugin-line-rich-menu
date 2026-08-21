@@ -193,3 +193,29 @@ The function metric is structurally low for React components, since every inline
 counts as a function — a realistic `functions` floor for `packages/ui` is nearer 70 than 90,
 which the current glob threshold already reflects. The branch gaps are genuine and worth
 closing.
+
+---
+
+## From Plan 03's whole-branch review — accepted tradeoffs, for Plan 04 to check
+
+**The stale-publish guard depends on `updatedAt` being touched on every write.** I4's fix refuses
+a second publish while one is running, and recovers from a crashed publish by treating the
+`publishing` row as stale after a TTL. That TTL is read from `updatedAt`, which Strapi 4 bumps on
+every write. **This was not verified for Strapi 5's document service.** If v5 does not bump it the
+same way, a crashed publish wedges that menu permanently — check before porting.
+
+**The in-memory fake `Repo` does not simulate `updatedAt` being bumped.** This already cost one
+genuinely confusing debugging session: the guard silently failed to fire and the test looked like
+an infinite loop. Plan 04's v5 tests will hit the same thing unless the fake bumps it.
+
+**`PUBLISHING_STALE_AFTER_MS` is five minutes by reasoning, not by measurement.** Nobody has timed
+a real publish against a slow LINE response with a large image. Worth measuring once there is real
+usage rather than guessing again.
+
+**The stale-publish guard is check-then-set, not compare-and-swap.** `Repo<T>` has no conditional
+update primitive, and adding one would mean every adapter implementing it. The race window shrank
+from the whole publish duration to a single `await`, which is a large improvement and not a
+guarantee. Accepted deliberately; revisit if concurrent publishes ever become common.
+
+**Mutation testing was not re-run after the two fix rounds.** The nightly job covers it, but the
+score has not been checked against the ~120 tests added since.
