@@ -2,7 +2,12 @@
 .omc/
 
 # ต้นทางจากโปรเจกต์ลูกค้า — ใช้อ้างอิงระหว่าง port เท่านั้น ห้ามขึ้น repo สาธารณะ
+# LINE's own assets, kept locally for design work and never committed: this repository
+# publishes under AGPL to public npm, and committing them would mean granting a licence
+# over someone else's work that we do not hold. The Design guide modal links to LINE's
+# hosted copy instead.
 docs/files/
+docs/assets/files/
 
 # deps & build
 node_modules/
