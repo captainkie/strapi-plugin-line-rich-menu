@@ -103,6 +103,7 @@
   "preview.accountName": "บัญชีทางการ LINE",
   "preview.greeting": "สวัสดีครับ!",
   "preview.reply": "รับทราบค่ะ ขอบคุณที่แจ้งนะคะ",
+  "preview.toggleMenu": "กาง/ยุบ rich menu",
   "status.draft": "ร่าง",
   "status.failed": "ล้มเหลว",
   "status.published": "เผยแพร่แล้ว",

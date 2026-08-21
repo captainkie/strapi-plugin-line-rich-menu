@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { Bounds, RichMenuSize } from '@fosivo/line-rich-menu-core/browser'
 import { usePort } from '../port.js'
 import { CanvasEditor } from './CanvasEditor.js'
@@ -7,6 +8,15 @@ export interface PreviewProps {
   bounds: readonly Bounds[]
   imageUrl?: string
   chatBarText: string
+  /**
+   * ค่าที่ตัวเลือก "Default behavior" ของแถบแชทต้องการให้พรีวิวเป็น (สเปกงานนี้ #3) —
+   * "Shown" → true, "Collapsed" → false เปลี่ยนค่านี้ (เช่นเปลี่ยน radio) แล้วพรีวิวจะรีเซ็ต
+   * กลับไปที่สถานะนั้นเสมอ (ดู useEffect ข้างล่าง) เพื่อให้ตัวเลือกนี้สาธิตตัวเองได้จริง
+   * ระหว่างนั้นผู้ใช้แตะที่แถบแชทในพรีวิวเพื่อสลับเปิด/ปิดเองได้ ไม่ผูกกับค่านี้ตลอดไป — เหมือน
+   * แอป LINE จริงที่ผู้ใช้ปลายทางแตะแถบแชทเพื่อกาง/ยุบเมนูได้เสมอไม่ว่าค่าเริ่มต้นจะเป็นอะไร
+   * ตรงนี้คือทางแก้ที่ทำให้ทั้งสองข้อจริงพร้อมกัน: ตัวเลือกมีผลจริง และคนแก้ผังไม่มีวันเสีย
+   * canvas ที่กำลังแก้อยู่ไปเฉย ๆ เพราะกด "Collapsed" ไว้
+   */
   expanded: boolean
   /** ช่องที่เลือกอยู่ ส่งมาเมื่อ canvas ในนี้ถูกใช้เป็นตัวควบคุมจริง (ดูคอมเมนต์ที่ตัว CanvasEditor) */
   activeIndex?: number | null
@@ -34,6 +44,25 @@ export interface PreviewProps {
  * (บาง/หนาเกินไป, island ไม่ได้สัดส่วนกับความกว้างจอ)
  */
 const REFERENCE_WIDTH = 375
+
+/**
+ * ความสูงรวมของ "วอลเปเปอร์ + เมนู" คงที่เสมอไม่ว่าจะมีเมนูหรือไม่ (สเปกงานนี้ #7) — เดิมงานก่อน
+ * หน้านี้ถูกสั่งให้ "บีบวอลเปเปอร์" เป็นความสูงตายตัว 132 หน่วย ซึ่งแก้ปัญหากรอบสูงเกิน 1000px ได้
+ * จริงตอนมีเมนู แต่ตอนไม่มีเมนู (ยังไม่เลือก template) กรอบทั้งอันจะเหลือแค่วอลเปเปอร์ก้อนเดียว
+ * แล้วยุบลงเป็นสี่เหลี่ยมเตี้ย ๆ ที่ดูเหมือนบัค
+ *
+ * ทางแก้ที่ถูกคือกลับด้าน: ให้ "พื้นที่รวม" นี้คงที่แทน แล้วให้วอลเปเปอร์เป็น flex:1 ยืด/หดเติมเต็ม
+ * ส่วนที่เหลือจากเมนู (ซึ่งสูงตามสัดส่วนจริงของ template ที่เลือก ไม่ถูกบีบ) — มีเมนูก็ได้กรอบเดียวกัน
+ * กับไม่มีเมนู ไม่ใช่กรอบสั้นกรอบยาวคนละแบบ ตัวเลขนี้คำนวณจากแถวอื่นในกรอบ (status bar 44 + หัวแชท
+ * ~46 + แถบแชท ~44 + home indicator ~20 ≈ 154) บวกเพดานพื้นที่นี้ (340) แล้วคูณด้วย `s` ที่ width={480}
+ * (s=1.28) ได้กรอบรวม ~663px บวกขอบเครื่อง (bezel) อีก ~31px ≈ 694px — ยังอยู่ใต้เพดาน ~700px ที่
+ * งานนี้ขอไว้ ด้วยระยะเผื่อพอสมควร แม้ template ขนาด large (2500×1686) ซึ่งกินพื้นที่เมนูมากที่สุด
+ * (~237 หน่วยจาก 340) ก็ยังเหลือที่ให้วอลเปเปอร์ไม่ต่ำกว่า ~100 หน่วย พอสำหรับสองข้อความเสมอ
+ *
+ * ทุกความสูงในกรอบนี้คูณด้วย `s` เท่ากันหมด อัตราส่วนกว้าง:สูงของกรอบทั้งก้อนจึงคงที่ไม่ว่า `width`
+ * จะเป็น 320 หรือ 480 — ที่ width={320} (s=0.853) กรอบรวมจะย่อลงตามสัดส่วนเดียวกัน ไม่ใช่กรอบคนละทรง
+ */
+const CONTENT_HEIGHT = 340
 
 /**
  * แถบสถานะของกรอบนี้พื้นขาว (จอแชทของ LINE เป็นพื้นขาว ไม่ใช่พื้นเข้มแบบ lock screen) — ไอคอน
@@ -147,6 +176,20 @@ export function Preview({
   const { t } = usePort()
   const s = width / REFERENCE_WIDTH
 
+  // เปิด/ปิดจริงของพรีวิว — เริ่มที่ค่าของ `expanded` แล้วผู้ใช้แตะแถบแชทเพื่อสลับเองได้จากตรงนั้น
+  // useEffect รีเซ็ตกลับไปที่ `expanded` ทุกครั้งที่มันเปลี่ยน (เช่นผู้ใช้เปลี่ยน radio "Default
+  // behavior") — ตัวเลือกนั้นจึงสาธิตตัวเองเสมอ ไม่ใช่แค่ตอน mount ครั้งแรก
+  const [open, setOpen] = useState(expanded)
+  useEffect(() => setOpen(expanded), [expanded])
+
+  // ไม่มีผังให้แสดงเลย (ยังไม่เลือก template) — ไม่มีอะไรให้กาง/ยุบ ไม่ว่า `open` จะเป็นอะไร
+  // wallpaper ต้องยืดเต็มพื้นที่แทน (สเปกงานนี้ #7) การแตะแถบแชทตอนนี้จึงไม่ทำอะไรเลย ไม่ใช่แค่
+  // "ดูเหมือนไม่ทำอะไร" — กันไว้ไม่ให้ผู้ใช้แตะเล่นตอนยังไม่มี template แล้วค่า `open` เพี้ยนไปจาก
+  // radio เงียบ ๆ พอเลือก template จริงทีหลัง
+  const hasContent = bounds.length > 0
+  const showMenu = hasContent && open
+  const toggleMenu = () => { if (hasContent) setOpen((current) => !current) }
+
   return (
     <div
       style={{
@@ -203,87 +246,110 @@ export function Preview({
         </div>
 
         {/*
-          วอลเปเปอร์แชท — #8ba7d0 คือสีวอลเปเปอร์แชทของ LINE เอง ไม่ใช่ token ของ design system
-          (จึงจงใจไม่ผ่าน ui.* เหมือนที่เหลือของไฟล์นี้ทั้งหมด — ดูคอมเมนต์ที่หัว component)
-          ความสูงคงที่ (ไม่ผูกกับ s มากนัก) ตามเหตุผลเรื่อง "กับดักความสูง" ด้านบน — พอสำหรับ
-          สองข้อความเสมอ ไม่ใช่พื้นที่ที่ยืดตามความสูงจริงของอุปกรณ์
+          วอลเปเปอร์ + เมนู — พื้นที่รวมสูงคงที่ (CONTENT_HEIGHT ด้านบน) วอลเปเปอร์เป็น flex:1
+          ยืด/หดเติมเต็มส่วนที่เมนูไม่ได้ใช้ (สเปกงานนี้ #7) ไม่ใช่ความสูงตายตัวแบบเดิมที่ทำให้กรอบ
+          ยุบเป็นสี่เหลี่ยมเตี้ยตอนไม่มีเมนู — overflow: hidden กันไว้อีกชั้นเผื่อ template ที่กว้าง
+          ผิดสัดส่วนเกินคาดทำให้เนื้อหาสูงเกิน CONTENT_HEIGHT ก็ยังไม่ทะลุกรอบออกไป
         */}
-        <div style={{ background: '#8ba7d0', height: 132 * s, padding: 12 * s, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 * s }}>
-            {/* บับเบิลขาเข้า — มีหางเล็ก ๆ ชี้ลงซ้ายล่าง ตามรูปทรงบับเบิลแชทมาตรฐาน */}
-            <div style={{ display: 'flex' }}>
-              <span
-                style={{
-                  position: 'relative', background: '#fff', color: '#060606',
-                  borderRadius: 14 * s, padding: `${6 * s}px ${10 * s}px`,
-                  fontSize: 13 * s, maxWidth: '70%',
-                }}
-              >
-                {t('preview.greeting')}
+        <div style={{ height: CONTENT_HEIGHT * s, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/*
+            #8ba7d0 คือสีวอลเปเปอร์แชทของ LINE เอง ไม่ใช่ token ของ design system (จึงจงใจไม่ผ่าน
+            ui.* เหมือนที่เหลือของไฟล์นี้ทั้งหมด — ดูคอมเมนต์ที่หัว component) minHeight: 0 จำเป็นกับ
+            flex item ที่มี overflow เนื้อหาข้างในเสมอ ไม่งั้น flexbox จะไม่ยอมหดต่ำกว่าความสูงเนื้อหา
+            ตามธรรมชาติ (min-content) ซึ่งจะทำลายการยืด/หดเติมพื้นที่ที่ทั้งบล็อกนี้พึ่งอยู่
+          */}
+          <div style={{ background: '#8ba7d0', flex: '1 1 auto', minHeight: 0, padding: 12 * s, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 * s }}>
+              {/* บับเบิลขาเข้า — มีหางเล็ก ๆ ชี้ลงซ้ายล่าง ตามรูปทรงบับเบิลแชทมาตรฐาน */}
+              <div style={{ display: 'flex' }}>
                 <span
-                  aria-hidden
                   style={{
-                    position: 'absolute', left: -4 * s, bottom: 2 * s,
-                    width: 0, height: 0,
-                    borderTop: `${6 * s}px solid transparent`,
-                    borderRight: `${7 * s}px solid #fff`,
+                    position: 'relative', background: '#fff', color: '#060606',
+                    borderRadius: 14 * s, padding: `${6 * s}px ${10 * s}px`,
+                    fontSize: 13 * s, maxWidth: '70%',
                   }}
-                />
-              </span>
-            </div>
-            {/* บับเบิลขาออก — เขียว LINE ชิดขวา ให้อ่านเป็นบทสนทนาจริงแทนข้อความลอยเดียว */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <span
-                style={{
-                  position: 'relative', background: '#06c755', color: '#fff',
-                  borderRadius: 14 * s, padding: `${6 * s}px ${10 * s}px`,
-                  fontSize: 13 * s, maxWidth: '70%',
-                }}
-              >
-                {t('preview.reply')}
+                >
+                  {t('preview.greeting')}
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'absolute', left: -4 * s, bottom: 2 * s,
+                      width: 0, height: 0,
+                      borderTop: `${6 * s}px solid transparent`,
+                      borderRight: `${7 * s}px solid #fff`,
+                    }}
+                  />
+                </span>
+              </div>
+              {/* บับเบิลขาออก — เขียว LINE ชิดขวา ให้อ่านเป็นบทสนทนาจริงแทนข้อความลอยเดียว */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <span
-                  aria-hidden
                   style={{
-                    position: 'absolute', right: -4 * s, bottom: 2 * s,
-                    width: 0, height: 0,
-                    borderTop: `${6 * s}px solid transparent`,
-                    borderLeft: `${7 * s}px solid #06c755`,
+                    position: 'relative', background: '#06c755', color: '#fff',
+                    borderRadius: 14 * s, padding: `${6 * s}px ${10 * s}px`,
+                    fontSize: 13 * s, maxWidth: '70%',
                   }}
-                />
-              </span>
+                >
+                  {t('preview.reply')}
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'absolute', right: -4 * s, bottom: 2 * s,
+                      width: 0, height: 0,
+                      borderTop: `${6 * s}px solid transparent`,
+                      borderLeft: `${7 * s}px solid #06c755`,
+                    }}
+                  />
+                </span>
+              </div>
             </div>
           </div>
+
+          {showMenu ? (
+            // canvas ตัวนี้คือ **ตัวควบคุมจริง** ไม่ใช่ภาพประกอบ — ผัง §5.7 วาดช่อง A/B/C ไว้ในกรอบโทรศัพท์
+            // นี้ช่องเดียว พร้อมสวิตช์ "Show template outlines" อยู่ใต้กรอบ ไม่ได้มี canvas แยกอีกตัวข้างๆ
+            // เคยมีสองตัวอยู่ช่วงหนึ่ง (ตัวแก้ไขได้ตัวหนึ่ง กับตัวในนี้อีกตัว) ซึ่งทำให้ทุกช่องโผล่ซ้ำสองชุด
+            // ใน accessibility tree จึงเคยต้องปิดชุดนี้ด้วย aria-hidden — ห้ามใส่กลับ ตอนนี้มีชุดเดียวและ
+            // เป็นของจริง ถ้าซ่อนจะเท่ากับเอา editor ออกจากมือคนใช้ screen reader ทั้งหมด (ยังคงเป็นจริง
+            // หลังปรับหน้าตาเป็นกรอบ iPhone: บับเบิล/status bar/หัวแชทรอบข้างเป็นแค่ sibling ไม่ใช่บรรพบุรุษ
+            // ของ div นี้ จึงไม่มีทาง aria-hidden ทับลงมาจากข้างบนโดยไม่ได้ตั้งใจ)
+            //
+            // flexShrink: 0 — เมนูสูงตามสัดส่วนจริงของ template (aspect-ratio) เสมอ ไม่ยอมให้ flexbox
+            // บีบมันเพื่อเอาที่ให้วอลเปเปอร์ (ตัวที่ยืด/หดคือวอลเปเปอร์ ไม่ใช่เมนู — ดูคอมเมนต์ที่ห่อ)
+            <div data-testid="preview-menu" style={{ flexShrink: 0 }}>
+              <CanvasEditor
+                size={size}
+                bounds={bounds}
+                showOutlines={showOutlines ?? imageUrl === undefined}
+                activeIndex={activeIndex ?? null}
+                onSelect={onSelect ?? (() => {})}
+                {...(errors === undefined ? {} : { errors })}
+                {...(imageUrl === undefined ? {} : { imageUrl })}
+                {...(onBoundsChange === undefined ? {} : { onBoundsChange })}
+                {...(snap === undefined ? {} : { snap })}
+              />
+            </div>
+          ) : null}
         </div>
 
-        {expanded ? (
-          // canvas ตัวนี้คือ **ตัวควบคุมจริง** ไม่ใช่ภาพประกอบ — ผัง §5.7 วาดช่อง A/B/C ไว้ในกรอบโทรศัพท์
-          // นี้ช่องเดียว พร้อมสวิตช์ "Show template outlines" อยู่ใต้กรอบ ไม่ได้มี canvas แยกอีกตัวข้างๆ
-          // เคยมีสองตัวอยู่ช่วงหนึ่ง (ตัวแก้ไขได้ตัวหนึ่ง กับตัวในนี้อีกตัว) ซึ่งทำให้ทุกช่องโผล่ซ้ำสองชุด
-          // ใน accessibility tree จึงเคยต้องปิดชุดนี้ด้วย aria-hidden — ห้ามใส่กลับ ตอนนี้มีชุดเดียวและ
-          // เป็นของจริง ถ้าซ่อนจะเท่ากับเอา editor ออกจากมือคนใช้ screen reader ทั้งหมด (ยังคงเป็นจริง
-          // หลังปรับหน้าตาเป็นกรอบ iPhone: บับเบิล/status bar/หัวแชทรอบข้างเป็นแค่ sibling ไม่ใช่บรรพบุรุษ
-          // ของ div นี้ จึงไม่มีทาง aria-hidden ทับลงมาจากข้างบนโดยไม่ได้ตั้งใจ)
-          <div data-testid="preview-menu">
-            <CanvasEditor
-              size={size}
-              bounds={bounds}
-              showOutlines={showOutlines ?? imageUrl === undefined}
-              activeIndex={activeIndex ?? null}
-              onSelect={onSelect ?? (() => {})}
-              {...(errors === undefined ? {} : { errors })}
-              {...(imageUrl === undefined ? {} : { imageUrl })}
-              {...(onBoundsChange === undefined ? {} : { onBoundsChange })}
-              {...(snap === undefined ? {} : { snap })}
-            />
-          </div>
-        ) : null}
-
-        {/* แถบแชทสไตล์ LINE — ปุ่มเปิดเมนูซ้าย, ป้าย label ตรงกลางในเม็ดมน, ไอคอนขวา */}
-        <div
+        {/*
+          แถบแชทสไตล์ LINE — ปุ่มเปิดเมนูซ้าย, ป้าย label ตรงกลางในเม็ดมน, ไอคอนขวา
+          ทั้งแถบเป็น <button> เดียว (สเปกงานนี้ #3) — แตะที่ไหนของแถบนี้ในแอป LINE จริงก็สลับกาง/
+          ยุบเมนูได้เหมือนกันหมด ไม่ใช่แค่ตัว chevron ตัวเดียว `aria-expanded` สะท้อน `showMenu` ตรง ๆ
+          (ไม่ใช่ `open` ดิบ) เพราะนั่นคือสิ่งที่ผู้ใช้ screen reader ควรได้ยิน: มีเมนูกางอยู่จริงไหม
+          ไม่ใช่ค่าภายในที่ไม่มีผลอะไรตอนยังไม่มี template (ดู `showMenu`/`toggleMenu` ด้านบน)
+        */}
+        <button
+          type="button"
           data-testid="preview-chat-bar"
+          aria-expanded={showMenu}
+          aria-label={t('preview.toggleMenu')}
+          onClick={toggleMenu}
           style={{
-            display: 'flex', alignItems: 'center', gap: 10 * s,
-            borderTop: '1px solid #ececec', padding: `${8 * s}px ${14 * s}px`,
+            display: 'flex', alignItems: 'center', gap: 10 * s, width: '100%',
+            border: 'none', borderTop: '1px solid #ececec', borderRadius: 0,
+            background: 'none', font: 'inherit', textAlign: 'left', cursor: 'pointer',
+            padding: `${8 * s}px ${14 * s}px`, boxSizing: 'border-box',
           }}
         >
           <div aria-hidden style={{ display: 'flex', flexDirection: 'column', gap: 3 * s, flexShrink: 0 }}>
@@ -297,7 +363,9 @@ export function Preview({
               padding: `${6 * s}px ${12 * s}px`, fontSize: 13 * s, color: '#060606',
             }}
           >
-            {chatBarText === '' ? t('chatBar.defaultLabel') : chatBarText} ▾
+            {/* ▾ ชี้ลง = แตะแล้วยุบ (กางอยู่ตอนนี้) · ▴ ชี้ขึ้น = แตะแล้วกาง (ยุบอยู่ตอนนี้) — ทิศทาง
+                เดียวกับที่แอป LINE จริงใช้ ชี้ไปทิศที่แตะแล้วจะเกิดอะไรขึ้น ไม่ใช่ทิศทางของเมนูเอง */}
+            {chatBarText === '' ? t('chatBar.defaultLabel') : chatBarText} {showMenu ? '▾' : '▴'}
           </div>
           <div
             aria-hidden
@@ -306,7 +374,7 @@ export function Preview({
               border: `${1.6 * s}px solid #8e8e93`, boxSizing: 'border-box',
             }}
           />
-        </div>
+        </button>
 
         {/* Home indicator — แถบมนสั้น ๆ กึ่งกลางล่างสุด */}
         <div aria-hidden style={{ display: 'flex', justifyContent: 'center', padding: `${8 * s}px 0` }}>

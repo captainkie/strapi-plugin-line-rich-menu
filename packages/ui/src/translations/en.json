@@ -103,6 +103,7 @@
   "preview.accountName": "LINE Official Account",
   "preview.greeting": "Hello!",
   "preview.reply": "Sure, thanks for letting me know!",
+  "preview.toggleMenu": "Show or hide the rich menu",
   "status.draft": "Draft",
   "status.failed": "Failed",
   "status.published": "Published",

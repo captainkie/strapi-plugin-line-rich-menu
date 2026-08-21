@@ -290,14 +290,13 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
               size={size}
               bounds={draft.bounds}
               chatBarText={draft.chatBar.mode === 'custom' ? draft.chatBar.text : ''}
-              // ไม่ผูกกับ draft.chatBar.selected: นั่นคือค่าที่บอกว่า "ผู้ใช้ปลายทางเปิดแชทแล้วเห็นเมนู
-              // กางอยู่ไหม" ถ้าเอามาคุมการวาด canvas ตรงนี้ด้วย คนที่เลือก Collapsed จะเสีย canvas
-              // ที่กำลังแก้อยู่ไปทั้งอัน แก้ต่อไม่ได้เลย ในหน้า editor จึงกางเสมอเมื่อมีผังให้แก้
-              //
-              // ต้องเช็คจาก draft.bounds ไม่ใช่ template !== null — โหมดปรับผังเองเคลียร์ templateKey
-              // ทิ้งทันทีที่ผู้ใช้ขยับ/เพิ่ม/ลบช่องแรก (ดู moveBounds/addArea/removeArea) ถ้ายังผูกกับ
-              // template อยู่ canvas ทั้งก้อนจะหายไปจากจอทันทีที่แก้ครั้งแรก ทั้งที่ areas.length ยังไม่ว่าง
-              expanded={draft.bounds.length > 0}
+              // ผูกกับ draft.chatBar.selected ตรง ๆ (สเปกงานนี้ #3) — ก่อนหน้านี้จงใจไม่ผูกเพราะ
+              // กลัวว่าคนที่เลือก Collapsed จะเสีย canvas ที่กำลังแก้อยู่ไปทั้งอัน เหตุผลนั้นถูกต้อง
+              // แต่ทางแก้ที่ถูกไม่ใช่ตัดการเชื่อมนี้ทิ้ง (ซึ่งทำให้ตัวเลือก "Default behavior" ไม่มีผล
+              // อะไรเลยบนจอ อ่านเป็นของพัง) — Preview เองจัดการเรื่องนี้แล้วด้วยการให้แตะที่แถบแชท
+              // ในพรีวิวสลับกาง/ยุบเองได้เสมอ (ดูคอมเมนต์ที่ `PreviewProps.expanded`) คนที่เลือก
+              // Collapsed จึงยังแตะเพื่อกลับไปแก้ผังได้ตลอด ไม่ใช่เสีย canvas ไปเฉย ๆ
+              expanded={draft.chatBar.selected}
               activeIndex={active}
               onSelect={setActive}
               showOutlines={outlines}
