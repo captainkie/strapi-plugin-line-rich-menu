@@ -4,6 +4,7 @@ import { LineNotFoundError, LineServerError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
 import { MenuNotFoundError, MenuNotReadyError, PublishRateLimitedError } from '../../src/server/errors.js'
 import { createRateLimiter } from '../../src/server/rate-limit.js'
+import { reconcileChannel } from '../../src/server/menu-ops.js'
 import { publishMenu } from '../../src/server/publish.js'
 import type { ImageStore } from '../../src/server/images.js'
 import type { AuditRow, Repo, RichMenuRow } from '../../src/server/types.js'
@@ -108,6 +109,9 @@ function fakeLine(initial: { defaultId?: string | null; aliases?: Record<string,
       },
       async getDefault() { return state.defaultId },
       async getAlias(aliasId: string) { return state.aliases.get(aliasId) ?? null },
+      // มีไว้ให้ `reconcileChannel` เดินบน store เดียวกับที่ publish เพิ่งแตะ — ผลของ publish
+      // ที่ล้มจึงถูกตรวจด้วยสายตาของรายงานที่ผู้ใช้เห็นจริง ไม่ใช่แค่ของเทสต์เอง
+      async listRichMenus() { return [...state.menus].map((richMenuId) => ({ richMenuId })) },
     },
   }
 }
@@ -276,6 +280,43 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     expect(menus.rows[0]!.status).toBe('draft')
   })
 
+  /**
+   * re-publish ที่ล้ม เคยเขียน `lineRichMenuId: null` ทับ โดยอ้างว่า "เมนูตัวนั้นถูกลบไปแล้ว" —
+   * จริงกับเมนูที่รอบนี้เพิ่งสร้าง แต่ไม่จริงกับเมนูเวอร์ชันก่อนหน้า ซึ่งยังอยู่บน LINE และยังเป็น
+   * default อยู่ ผลคือเมนูที่ลูกค้าใช้งานอยู่จริงไม่มีแถวไหนอ้างถึงอีก
+   */
+  it('re-publish ล้ม → แถวยังชี้เมนูเวอร์ชันก่อนหน้าที่ยังอยู่บน LINE ไม่ใช่ถูกเคลียร์เป็น null', async () => {
+    const line = fakeLine({ defaultId: 'richmenu-old' })
+    line.failAt('upload', new LineServerError(500))
+    const menus = menuRepo([menuRow({ status: 'published', lineRichMenuId: 'richmenu-old' })])
+    const { deps: d } = deps(line, menus)
+
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+
+    expect(menus.rows[0]!.status).toBe('failed')
+    expect(menus.rows[0]!.lineRichMenuId).toBe('richmenu-old')
+    // และ id ที่แถวชี้อยู่ต้องเป็นเมนูที่ยังมีจริงบน LINE ไม่ใช่ id ที่ถูกลบไปแล้ว
+    expect(line.state.menus.has('richmenu-old')).toBe(true)
+    expect(line.state.defaultId).toBe('richmenu-old')
+  })
+
+  /**
+   * ความเสียหายจริงของบั๊กนี้ไม่ได้อยู่ที่คอลัมน์ในตาราง แต่อยู่ที่รายงานที่ผู้ใช้เห็น: เมนูที่ยังเป็น
+   * default อยู่จะถูกรายงานเป็น "กำพร้า" แล้วหน้า ChannelSettings ยื่นปุ่มลบให้กด — และ
+   * `deleteOrphan` ก็จะเห็นด้วย เพราะตามนิยามของมันเองมันกำพร้าจริง
+   */
+  it('re-publish ล้มแล้ว reconcile ต้องไม่รายงานเมนูที่ยังเป็น default ว่าเป็นกำพร้า', async () => {
+    const line = fakeLine({ defaultId: 'richmenu-old' })
+    line.failAt('upload', new LineServerError(500))
+    const menus = menuRepo([menuRow({ status: 'published', lineRichMenuId: 'richmenu-old' })])
+    const { deps: d } = deps(line, menus)
+
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+
+    const report = await reconcileChannel(d as never, { channelId: '10' })
+    expect(report.orphans).toEqual([])
+  })
+
   it('ถูก rate limit → ไม่แตะ LINE เลย และไม่สร้างแถว audit', async () => {
     const line = fakeLine()
     const menus = menuRepo([menuRow()])
@@ -350,6 +391,12 @@ describe('property: ล้มที่ขั้นไหนก็ไม่ทิ
           // ถูกตรวจว่า *เปลี่ยนจริง* ไม่ใช่ปล่อยผ่านไปเฉย ๆ
           if (failed) {
             expect(after).toEqual(before)
+            // เดิม property นี้เฝ้าแต่สถานะฝั่ง LINE ไม่เคยดูแถวใน DB เลย — C2 จึงมองไม่เห็น
+            // ทั้งที่ทุก scenario ที่ `hadPrevious` เดินผ่านมันทุกรอบ ข้อกำหนดคือ "แถวต้องชี้สิ่งที่
+            // ยังอยู่จริงบน LINE" ซึ่งหลัง publish ที่ล้มก็คือค่าเดิมก่อนเริ่มเสมอ
+            const pointer = menus.rows[0]!.lineRichMenuId
+            expect(pointer).toBe(scenario.hadPrevious ? 'richmenu-old' : null)
+            if (pointer !== null) expect(line.state.menus.has(pointer)).toBe(true)
             return
           }
 

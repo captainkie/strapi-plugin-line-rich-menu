@@ -136,9 +136,15 @@ export async function publishMenu(deps: PublishDeps, request: PublishRequest): P
         await menus.update(menu.id, {
           status: 'failed',
           lastError: errorCodeOf(error),
-          // เคลียร์ id ทิ้งเพราะเมนูตัวนั้นถูกลบไปแล้วในบรรทัดข้างบน — ถ้าปล่อยไว้
-          // publish รอบหน้าจะพยายาม deleteOld id ที่ไม่มีอยู่จริง
-          lineRichMenuId: null,
+          // คืนค่าที่อ่านไว้ตอนต้น (บรรทัด `menus.findOne`) ไม่ใช่ null — เมนูที่ถูกลบไปข้างบนคือ
+          // `createdId` ของรอบนี้เท่านั้น ส่วนเมนูเวอร์ชันก่อนหน้ายังอยู่บน LINE และถูก
+          // `restorePriorState` ตั้งกลับเป็น default ให้แล้ว
+          //
+          // การเคลียร์เป็น null ทำให้เมนูที่ยังใช้งานอยู่จริงไม่มีแถวไหนอ้างถึงอีก `reconcileChannel`
+          // จึงรายงานมันเป็น **กำพร้า** แล้วหน้า ChannelSettings ยื่นปุ่มลบให้ผู้ใช้กด — ผู้ใช้ที่มีสิทธิ์
+          // publish จะลบเมนูที่ลูกค้ากำลังใช้อยู่ทิ้งจากรายงานที่บอกเขาว่ามันเป็นขยะ และ `deleteOrphan`
+          // ก็เห็นด้วยเพราะตามนิยามของมันเองมันกำพร้าจริง
+          lineRichMenuId: menu.lineRichMenuId,
         })
         throw error
       }
