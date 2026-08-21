@@ -1,6 +1,6 @@
 import { ValidationError } from '../errors.js'
 import { ChannelNotFoundError } from './errors.js'
-import { openChannelSecrets, sealChannelSecrets, toChannelRecord } from './secrets.js'
+import { openChannelSecrets, sealAccessToken, sealChannelSecrets, sealSecret, toChannelRecord } from './secrets.js'
 import type { ChannelRecord, ChannelRow, ChannelWithSecrets, Repo } from './types.js'
 
 export interface ChannelInput {
@@ -78,14 +78,24 @@ export function createChannelService(deps: { repo: Repo<ChannelRow>; key: Buffer
       const current = await rowOrThrow(id)
       if (input.channelId !== undefined) await assertChannelIdFree(input.channelId, id)
 
-      // ไม่ส่ง token มา = ไม่ได้ตั้งใจเปลี่ยน token ไม่ใช่ตั้งใจล้างทิ้ง
-      // ถ้าปิดผนึก undefined ทับ envelope เดิม channel ที่ใช้งานอยู่จะพังทันทีที่ผู้ใช้แก้แค่ชื่อ
-      const resealed = input.channelAccessToken === undefined
-        ? {}
-        : sealChannelSecrets(
-            { channelAccessToken: input.channelAccessToken, channelSecret: input.channelSecret },
-            key,
-          )
+      // ปิดผนึกแต่ละฟิลด์แยกกัน คนละเงื่อนไข ไม่ผูกกับอีกฟิลด์เลย — ของเดิมส่งทั้งคู่เข้า
+      // `sealChannelSecrets` ก้อนเดียว ซึ่งมีสองบั๊ก: (1) `PUT { channelAccessToken }` ส่ง
+      // `channelSecret: undefined` เข้าไปด้วย ฟังก์ชันคืน `channelSecret: null` แล้วทับ envelope
+      // เดิมทิ้ง — หมุน token ซึ่งเป็นสิ่งที่ผู้ใช้ทำพอดีตอนสงสัยว่า credential รั่ว กลับไปทำลาย secret
+      // ที่ไม่ได้แตะเลย (2) `PUT { channelSecret }` อย่างเดียวไม่ส่ง token มา จึง `resealed = {}`
+      // ทั้งก้อน — ได้ 200 แต่ไม่มีอะไรเปลี่ยนจริงสักฟิลด์
+      //
+      // ใช้ `sealAccessToken`/`sealSecret` แยกตัว ไม่ใช่ `sealChannelSecrets` ก้อนเดียว เพราะฟิลด์
+      // ที่ไม่ถูกส่งมาต้อง **ไม่ถูกแตะเลย** — จะเอา ciphertext เดิมของ `current` มาผ่าน
+      // `sealChannelSecrets` อีกฟิลด์ไม่ได้ เพราะฟังก์ชันนั้น encrypt สิ่งที่รับเข้ามาเสมอ ถ้าป้อน
+      // ciphertext เข้าไปจะกลายเป็นเข้ารหัสซ้อนสองชั้นแล้วถอดกลับไม่ได้อีกเลย
+      const resealed: Partial<{ channelAccessToken: string; accessTokenLast4: string; channelSecret: string | null }> = {}
+      if (input.channelAccessToken !== undefined) {
+        Object.assign(resealed, sealAccessToken(input.channelAccessToken, key))
+      }
+      if (input.channelSecret !== undefined) {
+        resealed.channelSecret = sealSecret(input.channelSecret, key)
+      }
 
       await repo.update(id, {
         ...(input.name === undefined ? {} : { name: input.name }),
