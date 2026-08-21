@@ -79,6 +79,7 @@ function fakeLine(initial: { defaultId?: string | null; aliases?: Record<string,
   }
   let counter = 0
   const failures = new Map<string, Error>()
+  const applied = new Map<string, Error>()
   const seen = new Map<string, number>()
 
   /** บันทึกการเรียกหนึ่งครั้งแล้วคืน error ที่ถูกสั่งไว้สำหรับ "ครั้งนี้" ถ้ามี */
@@ -89,8 +90,23 @@ function fakeLine(initial: { defaultId?: string | null; aliases?: Record<string,
     return failures.get(`${call}#${nth}`) ?? failures.get(call) ?? null
   }
 
+  /**
+   * "LINE รับคำสั่งไปแล้ว แต่ผู้เรียกได้ error" — เรียกหลังเปลี่ยนสถานะแล้ว จึงจำลอง socket ที่ตาย
+   * หลัง LINE apply การเปลี่ยนแปลงไปเรียบร้อย ซึ่ง `client.ts` ไม่มี try/catch รอบ `await fetchImpl`
+   * เลยส่งต่อออกมาเป็น error ตรง ๆ ของเดิมไม่มีวิธีแสดงเคสนี้เลย จึงแยก "ล้มก่อน" กับ "ล้มหลัง"
+   * ออกจากกันไม่ได้ และ C5 ก็มองไม่เห็นทั้งชุด
+   */
+  function afterEffect(call: string): void {
+    const nth = seen.get(call) ?? 0
+    const f = applied.get(`${call}#${nth}`) ?? applied.get(call)
+    if (f) throw f
+  }
+
   return {
-    calls, state, failAt: (call: string, error: Error) => failures.set(call, error),
+    calls,
+    state,
+    failAt: (call: string, error: Error) => failures.set(call, error),
+    failAfter: (call: string, error: Error) => applied.set(call, error),
     client: {
       async validateRichMenu() { const f = record('validate'); if (f) throw f },
       async createRichMenu() {
@@ -103,10 +119,12 @@ function fakeLine(initial: { defaultId?: string | null; aliases?: Record<string,
       async createAlias(aliasId: string, richMenuId: string) {
         const f = record('createAlias'); if (f) throw f
         state.aliases.set(aliasId, richMenuId)
+        afterEffect('createAlias')
       },
       async updateAlias(aliasId: string, richMenuId: string) {
         const f = record('updateAlias'); if (f) throw f
         state.aliases.set(aliasId, richMenuId)
+        afterEffect('updateAlias')
       },
       async deleteAlias(aliasId: string) {
         const f = record('deleteAlias'); if (f) throw f
@@ -115,6 +133,7 @@ function fakeLine(initial: { defaultId?: string | null; aliases?: Record<string,
       async setDefault(id: string) {
         const f = record('setDefault'); if (f) throw f
         state.defaultId = id
+        afterEffect('setDefault')
       },
       async clearDefault() {
         const f = record('clearDefault'); if (f) throw f
@@ -403,6 +422,58 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     expect(line.state.menus.size).toBe(0)
   })
 
+  /**
+   * `client.ts` ไม่มี try/catch รอบ `await fetchImpl` — socket ที่ตายหลัง LINE รับคำสั่งไปแล้ว
+   * จึงโผล่เป็น error ตรง ๆ ทั้งที่ผลถูก apply ไปแล้วจริง compensation ที่ไล่จากขั้นที่ *สำเร็จ*
+   * จะเห็นว่า `setDefault` ไม่เคยเกิด ไม่คืนค่าอะไรเลย แล้วลบเมนูใหม่ทิ้ง → ปลายทางเดียวกับ C4 เป๊ะ
+   */
+  it('LINE รับ setDefault ไปแล้วแต่ socket ตายก่อนได้ response → ต้องคืน default ไม่ใช่ปล่อยชี้เมนูที่ถูกลบ', async () => {
+    const line = fakeLine({ defaultId: 'richmenu-old' })
+    line.failAfter('setDefault#1', new LineServerError(500))
+    const menus = menuRepo([menuRow({ status: 'published', lineRichMenuId: 'richmenu-old' })])
+    const { deps: d } = deps(line, menus)
+
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+
+    expect(line.state.defaultId).toBe('richmenu-old')
+    expect(line.state.menus.has(line.state.defaultId!)).toBe(true)
+    expect(line.state.menus.has('richmenu-new-1')).toBe(false)
+  })
+
+  /**
+   * เวอร์ชัน alias แย่กว่า: alias ที่เพิ่งถูกสร้างขึ้นจะไม่มีใครมาเก็บกวาดอีกเลย ไม่มีแถวไหนใน DB
+   * รู้จักมัน และ reconcile ก็ดูแต่เมนู ไม่ได้ดู alias
+   */
+  it('LINE รับ createAlias ไปแล้วแต่ socket ตายก่อนได้ response → alias ที่เกิดจริงต้องถูกลบ', async () => {
+    const line = fakeLine()
+    line.failAfter('createAlias#1', new LineServerError(500))
+    const menus = menuRepo([menuRow({ aliasId: 'tab-a' })])
+    const { deps: d } = deps(line, menus)
+
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })).rejects.toThrow()
+
+    expect(line.state.aliases.has('tab-a')).toBe(false)
+    expect(line.state.menus.size).toBe(0)
+  })
+
+  /**
+   * ด้านกลับของการไล่จากขั้นที่ "พยายาม": ตอนนี้ `deleteAlias` ถูกเรียกทุกครั้งที่ `createAlias` ล้ม
+   * รวมถึงครั้งที่ alias ยังไม่ทันเกิด ซึ่ง LINE ตอบ 404 — ถ้านับว่าเป็นการคืนค่าที่ล้ม เมนูใหม่จะถูก
+   * ปล่อยค้างทุกครั้งที่ createAlias ล้ม ทั้งที่ไม่มีอะไรต้องคืนเลย
+   */
+  it('createAlias ล้มก่อน alias จะเกิด → deleteAlias ได้ 404 ซึ่งคือผลลัพธ์ที่ต้องการ เมนูใหม่ยังถูกลบตามปกติ', async () => {
+    const line = fakeLine()
+    line.failAt('createAlias', new LineServerError(500))
+    line.failAt('deleteAlias', new LineNotFoundError('alias not found'))
+    const menus = menuRepo([menuRow({ aliasId: 'tab-a' })])
+    const { deps: d } = deps(line, menus)
+
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })).rejects.toThrow()
+
+    expect(line.calls).toContain('deleteAlias')
+    expect(line.state.menus.size).toBe(0)
+  })
+
   it('ถูก rate limit → ไม่แตะ LINE เลย และไม่สร้างแถว audit', async () => {
     const line = fakeLine()
     const menus = menuRepo([menuRow()])
@@ -450,8 +521,12 @@ describe('property: ล้มที่ขั้นไหนก็ไม่ทิ
             menus: [...line.state.menus].sort(),
           }
           const failCall = scenario.failStep === 'deleteOld' ? 'deleteRichMenu' : scenario.failStep
+          // `#1` = ล้มเฉพาะการเรียกครั้งแรก ซึ่งคือขั้น **เดินหน้า** เสมอ — property นี้พูดถึง
+          // "ขั้นเดินหน้าล้มแล้วต้องไม่เหลืออะไรค้าง" ไม่ใช่ "LINE ล่มทั้งตัวจนแม้แต่การคืนค่าก็ล้ม"
+          // กรณีหลังเป็นคนละข้อกำหนดและมีคำตอบตรงข้าม (C4: ปล่อยเมนูค้างดีกว่าให้ LINE ชี้เมนูที่
+          // ถูกลบ) จึงมีเทสต์ของตัวเองแยกไว้ ถ้าใช้คีย์รวมตรงนี้ property จะไปทับข้อกำหนดนั้น
           line.failAt(
-            scenario.failStep === 'deleteOld' ? 'deleteRichMenu:richmenu-old' : scenario.failStep,
+            scenario.failStep === 'deleteOld' ? 'deleteRichMenu:richmenu-old' : `${scenario.failStep}#1`,
             new LineServerError(500),
           )
 

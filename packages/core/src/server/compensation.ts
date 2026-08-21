@@ -1,3 +1,4 @@
+import { LineNotFoundError } from '../errors.js'
 import type { Step } from '../publish/machine.js'
 import type { LoggerLike } from './scrub.js'
 
@@ -63,10 +64,14 @@ export interface RestoreOutcome {
 export async function restorePriorState(
   client: LineRestorer,
   prior: PriorState,
-  input: { aliasId: string | null; completed: readonly Step[] },
+  /**
+   * `attempted` คือขั้นที่ถูก *พยายาม* ไม่ใช่ขั้นที่ทำสำเร็จ — ขั้นที่ล้มหลัง LINE รับคำสั่งไปแล้ว
+   * (socket ตายก่อนได้ response) ต้องถูกคืนค่าด้วย ดูเหตุผลเต็มที่ `publish.ts`
+   */
+  input: { aliasId: string | null; attempted: readonly Step[] },
   logger: LoggerLike,
 ): Promise<RestoreOutcome> {
-  const did = (kind: Step['kind']) => input.completed.some((step) => step.kind === kind)
+  const did = (kind: Step['kind']) => input.attempted.some((step) => step.kind === kind)
 
   async function attempt(what: string, run: () => Promise<void>): Promise<boolean> {
     try {
@@ -92,8 +97,17 @@ export async function restorePriorState(
   if (did('upsertAlias') && input.aliasId !== null) {
     const aliasId = input.aliasId
     aliasRestored = await attempt(`alias ${aliasId}`, async () => {
-      if (prior.aliasTarget === null) await client.deleteAlias(aliasId)
-      else await client.updateAlias(aliasId, prior.aliasTarget)
+      if (prior.aliasTarget === null) {
+        // ปลายทางที่ต้องการคือ "alias นี้ไม่มีอยู่" — 404 แปลว่ามันไม่มีอยู่แล้ว ซึ่ง *คือ* ผลลัพธ์นั้น
+        // ไม่ใช่ความล้มเหลว เคสนี้เกิดจริงตั้งแต่ compensation ไล่จากขั้นที่ถูก "พยายาม": `upsertAlias`
+        // ที่ล้มก่อน alias จะถูกสร้างจะพามาถึงตรงนี้ทุกครั้ง และถ้านับว่าล้ม เมนูใหม่จะถูกปล่อยค้าง
+        // ทุกครั้งที่ createAlias ล้ม (ดู `safeToDelete` ใน publish.ts)
+        await client.deleteAlias(aliasId).catch((error: unknown) => {
+          if (!(error instanceof LineNotFoundError)) throw error
+        })
+      } else {
+        await client.updateAlias(aliasId, prior.aliasTarget)
+      }
     })
   }
 

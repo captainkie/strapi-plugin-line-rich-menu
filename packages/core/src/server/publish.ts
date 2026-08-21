@@ -85,11 +85,23 @@ export async function publishMenu(deps: PublishDeps, request: PublishRequest): P
         willSetDefault: request.setAsDefault,
       })
 
-      const completed: Step[] = []
+      /**
+       * ขั้นที่ถูก **พยายาม** ไม่ใช่ขั้นที่ *ทำสำเร็จ* — `client.ts` ไม่มี try/catch รอบ `await fetchImpl`
+       * socket ที่ตายหลัง LINE รับคำสั่งไปแล้วจึงโผล่เป็น error ตรง ๆ ทั้งที่ผลถูก apply ไปแล้วจริง
+       * ถ้าไล่ compensation จากขั้นที่สำเร็จ `did('setDefault')` จะเป็น false การคืนค่าไม่ถูกเดินเลย
+       * แล้วเมนูใหม่ถูกลบทิ้ง → default บน LINE ชี้เมนูที่ไม่มีอยู่ ซึ่งเป็นสถานะเดียวกับ C4 เป๊ะ ๆ
+       * (เวอร์ชัน `upsertAlias` แย่กว่า เพราะ alias ที่เพิ่งเกิดขึ้นจะไม่มีใครมาเก็บกวาดอีกเลย)
+       *
+       * ปลอดภัยเพราะการคืนค่าทุกตัว idempotent และสองเคสที่ "เกินไป" โดยไม่มีพิษภัย —
+       * `deleteAlias` กับ alias ที่ไม่เคยมี และ `clearDefault` ตอนที่ไม่เคยมี default — ตอบ 404/200
+       * ซึ่ง `restorePriorState` ถือว่าเป็นผลลัพธ์ที่ต้องการอยู่แล้ว ไม่ใช่การคืนค่าที่ล้ม
+       */
+      const attempted: Step[] = []
       let createdId: string | null = null
 
       try {
         for (const step of steps) {
+          attempted.push(step)
           switch (step.kind) {
             case 'validate':
               await client.validateRichMenu(payload)
@@ -118,10 +130,9 @@ export async function publishMenu(deps: PublishDeps, request: PublishRequest): P
               })
               break
           }
-          completed.push(step)
         }
       } catch (error) {
-        const restored = await restorePriorState(client, prior, { aliasId: menu.aliasId, completed }, logger)
+        const restored = await restorePriorState(client, prior, { aliasId: menu.aliasId, attempted }, logger)
 
         // เมนูค้างหนึ่งตัวแย่กว่า "LINE ชี้เมนูที่ถูกลบไปแล้ว" เสมอ: อย่างแรกกินโควตาและมีปุ่มให้เก็บกวาด
         // ทีหลัง (reconcile) ส่วนอย่างหลังคือ end user ทุกคนเปิดแชทมาไม่เห็นเมนูเลย และเก็บกวาดไม่ได้
@@ -129,7 +140,7 @@ export async function publishMenu(deps: PublishDeps, request: PublishRequest): P
         // เมนูอื่นที่ไม่เกี่ยวกับ publish รอบนี้เลยด้วย
         const safeToDelete = restored.defaultRestored && restored.aliasRestored
 
-        for (const action of compensate(completed)) {
+        for (const action of compensate(attempted)) {
           if (action.kind === 'deleteCreated' && createdId !== null) {
             if (!safeToDelete) {
               logger.error(
