@@ -269,128 +269,125 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
   )
 
   return (
-    <ui.Flex direction="column" gap={4}>
-      <ui.Flex justifyContent="space-between" alignItems="center">
-        <ui.Typography as="h1" variant="alpha">{t('editor.heading')}</ui.Typography>
-        {actions}
-      </ui.Flex>
+    <ui.Page title={t('editor.heading')} actions={actions}>
+      <ui.Flex direction="column" gap={4}>
+        {formError === null ? null : <ui.Alert variant="danger">{formError}</ui.Alert>}
 
-      {formError === null ? null : <ui.Alert variant="danger">{formError}</ui.Alert>}
+        <MainSettings
+          value={{ title: draft.title, startAt: draft.startAt, endAt: draft.endAt }}
+          onChange={(next) => setDraft((prev) => ({ ...prev, ...next }))}
+          errors={mainErrors}
+        />
 
-      <MainSettings
-        value={{ title: draft.title, startAt: draft.startAt, endAt: draft.endAt }}
-        onChange={(next) => setDraft((prev) => ({ ...prev, ...next }))}
-        errors={mainErrors}
-      />
+        <ui.Divider />
 
-      <ui.Divider />
-
-      <ui.Flex gap={4} alignItems="flex-start">
-        {/* ผัง §5.7 วาด canvas ไว้ใน "กรอบโทรศัพท์" ช่องเดียว พร้อมสวิตช์ outline อยู่ใต้กรอบ
-            ไม่ใช่พรีวิวหนึ่งตัวกับ canvas ที่แก้ไขได้อีกตัวข้างๆ — Preview จึงเป็นตัวควบคุมจริง
-            ที่รับ activeIndex/onSelect/showOutlines/errors มาจากหน้านี้ */}
-        <ui.Flex direction="column" gap={2}>
-          <Preview
-            size={size}
-            bounds={draft.bounds}
-            chatBarText={draft.chatBar.mode === 'custom' ? draft.chatBar.text : ''}
-            // ไม่ผูกกับ draft.chatBar.selected: นั่นคือค่าที่บอกว่า "ผู้ใช้ปลายทางเปิดแชทแล้วเห็นเมนู
-            // กางอยู่ไหม" ถ้าเอามาคุมการวาด canvas ตรงนี้ด้วย คนที่เลือก Collapsed จะเสีย canvas
-            // ที่กำลังแก้อยู่ไปทั้งอัน แก้ต่อไม่ได้เลย ในหน้า editor จึงกางเสมอเมื่อมีผังให้แก้
-            //
-            // ต้องเช็คจาก draft.bounds ไม่ใช่ template !== null — โหมดปรับผังเองเคลียร์ templateKey
-            // ทิ้งทันทีที่ผู้ใช้ขยับ/เพิ่ม/ลบช่องแรก (ดู moveBounds/addArea/removeArea) ถ้ายังผูกกับ
-            // template อยู่ canvas ทั้งก้อนจะหายไปจากจอทันทีที่แก้ครั้งแรก ทั้งที่ areas.length ยังไม่ว่าง
-            expanded={draft.bounds.length > 0}
-            activeIndex={active}
-            onSelect={setActive}
-            showOutlines={outlines}
-            errors={areaErrors}
-            // 320 (ดีฟอลต์ของ Preview) พอสำหรับภาพนิ่ง แต่ตรงนี้ canvas กดเลือกช่องได้จริงและเมนูมีได้
-            // ถึง 20 ช่อง — ที่ 320px ผืนผ้าใบขนาด large (2500×1686) ย่อเหลือ ~320×216 ทำให้ hit target
-            // ของแต่ละช่องเล็กเกินไป ทั้งเรื่องใช้งานจริงและ WCAG 2.5.8 (ขนาดเป้าหมายขั้นต่ำ) กว้างขึ้นเป็น
-            // 480 ให้พื้นที่กดพอสมควรโดยยังเหลือที่ให้คอลัมน์ Template/Image/Actions ทางขวา
-            width={480}
-            {...(draft.image === null ? {} : { imageUrl: draft.image.url })}
-            {...(customLayout ? { onBoundsChange: moveBounds, snap: 10 } : {})}
-          />
-          <ui.Toggle
-            name="outlines"
-            label={t('editor.showOutlines')}
-            checked={outlines}
-            onChange={setOutlines}
-          />
-          <ui.Toggle
-            name="custom-layout"
-            label={t('editor.layout.custom')}
-            checked={customLayout}
-            onChange={setCustomLayout}
-          />
-        </ui.Flex>
-
-        <ui.Flex direction="column" gap={3}>
-          <ui.Flex gap={2} alignItems="center">
-            <ui.Typography>{t('editor.template')}</ui.Typography>
-            <ui.Button variant="secondary" testId="open-template-picker" onClick={() => setPicking(true)}>
-              {draft.templateKey === null ? t('common.select') : t('common.change')}
-            </ui.Button>
-          </ui.Flex>
-
-          <ui.Flex gap={2} alignItems="center">
-            <ui.Typography>{t('editor.image')}</ui.Typography>
-            <ImageField
-              value={draft.image}
+        <ui.Flex gap={4} alignItems="flex-start">
+          {/* ผัง §5.7 วาด canvas ไว้ใน "กรอบโทรศัพท์" ช่องเดียว พร้อมสวิตช์ outline อยู่ใต้กรอบ
+              ไม่ใช่พรีวิวหนึ่งตัวกับ canvas ที่แก้ไขได้อีกตัวข้างๆ — Preview จึงเป็นตัวควบคุมจริง
+              ที่รับ activeIndex/onSelect/showOutlines/errors มาจากหน้านี้ */}
+          <ui.Flex direction="column" gap={2}>
+            <Preview
               size={size}
-              // เช็คจาก draft.bounds ไม่ใช่ templateKey — เหตุผลเดียวกับ guard ใน save() ด้านบน
-              // โหมดปรับผังเองเคลียร์ templateKey ทิ้งทันทีที่ขยับช่องแรก ถ้าปิดช่องรูปตาม
-              // templateKey ผู้ใช้จะอัปโหลดรูปให้ผังที่เพิ่งปรับเองไม่ได้เลย ทั้งที่ LINE ปฏิเสธการ
-              // เผยแพร่เมนูที่ไม่มีรูปเสมอ — ผังนั้นจะเผยแพร่ไม่ได้ตลอดไปแม้จะแก้ guard ข้างบนแล้วก็ตาม
-              disabled={draft.bounds.length === 0}
-              onChange={(next) => setDraft((prev) => ({ ...prev, image: next }))}
-              onErrorChange={setImageError}
-              {...(imageError === null ? {} : { error: imageError })}
+              bounds={draft.bounds}
+              chatBarText={draft.chatBar.mode === 'custom' ? draft.chatBar.text : ''}
+              // ไม่ผูกกับ draft.chatBar.selected: นั่นคือค่าที่บอกว่า "ผู้ใช้ปลายทางเปิดแชทแล้วเห็นเมนู
+              // กางอยู่ไหม" ถ้าเอามาคุมการวาด canvas ตรงนี้ด้วย คนที่เลือก Collapsed จะเสีย canvas
+              // ที่กำลังแก้อยู่ไปทั้งอัน แก้ต่อไม่ได้เลย ในหน้า editor จึงกางเสมอเมื่อมีผังให้แก้
+              //
+              // ต้องเช็คจาก draft.bounds ไม่ใช่ template !== null — โหมดปรับผังเองเคลียร์ templateKey
+              // ทิ้งทันทีที่ผู้ใช้ขยับ/เพิ่ม/ลบช่องแรก (ดู moveBounds/addArea/removeArea) ถ้ายังผูกกับ
+              // template อยู่ canvas ทั้งก้อนจะหายไปจากจอทันทีที่แก้ครั้งแรก ทั้งที่ areas.length ยังไม่ว่าง
+              expanded={draft.bounds.length > 0}
+              activeIndex={active}
+              onSelect={setActive}
+              showOutlines={outlines}
+              errors={areaErrors}
+              // 320 (ดีฟอลต์ของ Preview) พอสำหรับภาพนิ่ง แต่ตรงนี้ canvas กดเลือกช่องได้จริงและเมนูมีได้
+              // ถึง 20 ช่อง — ที่ 320px ผืนผ้าใบขนาด large (2500×1686) ย่อเหลือ ~320×216 ทำให้ hit target
+              // ของแต่ละช่องเล็กเกินไป ทั้งเรื่องใช้งานจริงและ WCAG 2.5.8 (ขนาดเป้าหมายขั้นต่ำ) กว้างขึ้นเป็น
+              // 480 ให้พื้นที่กดพอสมควรโดยยังเหลือที่ให้คอลัมน์ Template/Image/Actions ทางขวา
+              width={480}
+              {...(draft.image === null ? {} : { imageUrl: draft.image.url })}
+              {...(customLayout ? { onBoundsChange: moveBounds, snap: 10 } : {})}
+            />
+            <ui.Toggle
+              name="outlines"
+              label={t('editor.showOutlines')}
+              checked={outlines}
+              onChange={setOutlines}
+            />
+            <ui.Toggle
+              name="custom-layout"
+              label={t('editor.layout.custom')}
+              checked={customLayout}
+              onChange={setCustomLayout}
             />
           </ui.Flex>
 
-          <AreaList
-            areas={draft.areas}
-            activeIndex={active}
-            view={view}
-            onViewChange={setView}
-            onSelect={setActive}
-            onChange={(index, next) =>
-              setDraft((prev) => ({
-                ...prev,
-                areas: prev.areas.map((a, i) => (i === index ? next : a)),
-              }))}
-            aliasOptions={aliasOptions}
-            errors={areaErrors}
-            {...(customLayout ? { onAdd: addArea, onRemove: removeArea } : {})}
-          />
+          <ui.Flex direction="column" gap={3}>
+            <ui.Flex gap={2} alignItems="center">
+              <ui.Typography>{t('editor.template')}</ui.Typography>
+              <ui.Button variant="secondary" testId="open-template-picker" onClick={() => setPicking(true)}>
+                {draft.templateKey === null ? t('common.select') : t('common.change')}
+              </ui.Button>
+            </ui.Flex>
+
+            <ui.Flex gap={2} alignItems="center">
+              <ui.Typography>{t('editor.image')}</ui.Typography>
+              <ImageField
+                value={draft.image}
+                size={size}
+                // เช็คจาก draft.bounds ไม่ใช่ templateKey — เหตุผลเดียวกับ guard ใน save() ด้านบน
+                // โหมดปรับผังเองเคลียร์ templateKey ทิ้งทันทีที่ขยับช่องแรก ถ้าปิดช่องรูปตาม
+                // templateKey ผู้ใช้จะอัปโหลดรูปให้ผังที่เพิ่งปรับเองไม่ได้เลย ทั้งที่ LINE ปฏิเสธการ
+                // เผยแพร่เมนูที่ไม่มีรูปเสมอ — ผังนั้นจะเผยแพร่ไม่ได้ตลอดไปแม้จะแก้ guard ข้างบนแล้วก็ตาม
+                disabled={draft.bounds.length === 0}
+                onChange={(next) => setDraft((prev) => ({ ...prev, image: next }))}
+                onErrorChange={setImageError}
+                {...(imageError === null ? {} : { error: imageError })}
+              />
+            </ui.Flex>
+
+            <AreaList
+              areas={draft.areas}
+              activeIndex={active}
+              view={view}
+              onViewChange={setView}
+              onSelect={setActive}
+              onChange={(index, next) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  areas: prev.areas.map((a, i) => (i === index ? next : a)),
+                }))}
+              aliasOptions={aliasOptions}
+              errors={areaErrors}
+              {...(customLayout ? { onAdd: addArea, onRemove: removeArea } : {})}
+            />
+          </ui.Flex>
         </ui.Flex>
-      </ui.Flex>
 
-      <ui.Divider />
+        <ui.Divider />
 
-      <ChatBarSettings
-        value={draft.chatBar}
-        onChange={(next) => setDraft((prev) => ({ ...prev, chatBar: next }))}
-        {...(chatBarError === null ? {} : { error: chatBarError })}
-      />
-
-      <ui.Flex justifyContent="flex-end">{actions}</ui.Flex>
-
-      {/* mount ใหม่ทุกครั้งที่เปิด ไม่ใช่ mount ค้างแล้วสั่งซ่อน — state ภายในของ picker
-          (แบบที่เลือกไว้ / กล่องยืนยัน) จะได้เริ่มใหม่ทุกรอบ ดูเหตุผลเต็มที่หัว TemplatePicker.tsx */}
-      {picking ? (
-        <TemplatePicker
-          currentKey={draft.templateKey}
-          hasConfiguredActions={draft.areas.some(hasAnyActionConfigured)}
-          hasImage={draft.image !== null}
-          onApply={applyTemplate}
-          onClose={() => setPicking(false)}
+        <ChatBarSettings
+          value={draft.chatBar}
+          onChange={(next) => setDraft((prev) => ({ ...prev, chatBar: next }))}
+          {...(chatBarError === null ? {} : { error: chatBarError })}
         />
-      ) : null}
-    </ui.Flex>
+
+        <ui.Flex justifyContent="flex-end">{actions}</ui.Flex>
+
+        {/* mount ใหม่ทุกครั้งที่เปิด ไม่ใช่ mount ค้างแล้วสั่งซ่อน — state ภายในของ picker
+            (แบบที่เลือกไว้ / กล่องยืนยัน) จะได้เริ่มใหม่ทุกรอบ ดูเหตุผลเต็มที่หัว TemplatePicker.tsx */}
+        {picking ? (
+          <TemplatePicker
+            currentKey={draft.templateKey}
+            hasConfiguredActions={draft.areas.some(hasAnyActionConfigured)}
+            hasImage={draft.image !== null}
+            onApply={applyTemplate}
+            onClose={() => setPicking(false)}
+          />
+        ) : null}
+      </ui.Flex>
+    </ui.Page>
   )
 }

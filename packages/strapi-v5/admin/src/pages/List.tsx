@@ -36,33 +36,33 @@ export function ListPage() {
   }, [http])
 
   return (
-    <ui.Flex direction="column" gap={4}>
-      <ui.Typography as="h1" variant="alpha">{t('plugin.name')}</ui.Typography>
+    <ui.Page title={t('plugin.name')}>
+      <ui.Flex direction="column" gap={4}>
+        <ui.Flex gap={2} alignItems="flex-end">
+          <ui.Select
+            name="channel"
+            label={t('list.channel')}
+            value={channelId ?? ''}
+            onChange={setChannelId}
+            disabled={channels.length === 0}
+          >
+            {channels.map((channel) => (
+              <ui.Option key={channel.id} value={channel.id}>{channel.name}</ui.Option>
+            ))}
+          </ui.Select>
+          <ui.Button
+            testId="create-menu"
+            disabled={channelId === null}
+            onClick={() => navigate(`${BASE}/rich-menus/new?channel=${channelId ?? ''}`)}
+          >
+            {t('list.create')}
+          </ui.Button>
+        </ui.Flex>
 
-      <ui.Flex gap={2} alignItems="flex-end">
-        <ui.Select
-          name="channel"
-          label={t('list.channel')}
-          value={channelId ?? ''}
-          onChange={setChannelId}
-          disabled={channels.length === 0}
-        >
-          {channels.map((channel) => (
-            <ui.Option key={channel.id} value={channel.id}>{channel.name}</ui.Option>
-          ))}
-        </ui.Select>
-        <ui.Button
-          testId="create-menu"
-          disabled={channelId === null}
-          onClick={() => navigate(`${BASE}/rich-menus/new?channel=${channelId ?? ''}`)}
-        >
-          {t('list.create')}
-        </ui.Button>
+        <RichMenuList channelId={channelId} />
+        <ui.Divider />
+        <ChannelSettings />
       </ui.Flex>
-
-      <RichMenuList channelId={channelId} />
-      <ui.Divider />
-      <ChannelSettings />
-    </ui.Flex>
+    </ui.Page>
   )
 }
