@@ -51,6 +51,13 @@ RUN npm run build
 # ---------- stage 3: runtime ----------
 FROM node:20.20.0-bookworm-slim AS runtime
 WORKDIR /app
+# `WORKDIR /app` creates /app as root, and `COPY --chown` only chowns what it lays down —
+# the pre-existing /app directory entry itself stays root:root, 755. Strapi creates
+# database/migrations and .tmp under /app at boot (not at build time), and USER node below
+# cannot mkdir a new top-level entry under a directory it does not own — verified by running
+# this image without this line and hitting `EACCES: permission denied, mkdir '/app/.tmp'`
+# (see task-15-report.md).
+RUN chown node:node /app
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=1337
 COPY --from=build --chown=node:node /app /app
 # Carries the plugin stage's already-installed pnpm workspace forward so tools/line-mock can
