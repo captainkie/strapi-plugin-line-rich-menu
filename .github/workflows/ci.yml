@@ -40,6 +40,16 @@ jobs:
             echo "::error::sharp ถูก import เข้า packages/core/dist/browser.{js,cjs} — subpath \"./browser\" ต้องรันในเบราว์เซอร์ได้โดยไม่มี sharp"
             exit 1
           fi
+      - name: ตรวจว่า dist/browser.{js,cjs} ไม่มีชั้น server หลุดเข้ามา
+        # เทสต์ import-guard ตรวจที่ต้นทาง (src) ขั้นนี้ตรวจที่ dist ซึ่งเป็นสิ่งที่ผู้บริโภคได้จริง
+        # SERVER_MODULE_MARKER เป็นค่าคงที่ที่มีอยู่ที่เดียวในโค้ดเบส การเจอมันใน browser bundle
+        # แปลว่า tree-shaking ไม่ได้ตัด server/ ออก ไม่ว่าจะเข้ามาทางไหน
+        run: |
+          if grep -n "line-rich-menu/server" \
+            packages/core/dist/browser.js packages/core/dist/browser.cjs; then
+            echo "::error::ชั้น server หลุดเข้า packages/core/dist/browser.{js,cjs} — subpath \"./browser\" ต้องไม่มีโค้ดฝั่งเซิร์ฟเวอร์"
+            exit 1
+          fi
 
   mutation:
     runs-on: ubuntu-latest
