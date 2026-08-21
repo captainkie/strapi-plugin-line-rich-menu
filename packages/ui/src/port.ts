@@ -119,6 +119,34 @@ export interface Nav {
   Link: ComponentType<{ to: string; children?: ReactNode }>
 }
 
+/**
+ * สีจากธีมของ Strapi ที่ต้องใช้ตรง ๆ นอกเหนือจาก `ui.Typography`/พร็อพสำเร็จรูปของ primitive ตัวอื่น
+ * (งานนี้ #5 — dark mode) — `CanvasEditor`/`AreaList`/`TemplatePicker` เคย hardcode ค่าพวกนี้เป็น
+ * hex ของธีมสว่างตรง ๆ (`#dcdce4`, `#eaeaef`, `#32324d`, `#666687` — ตรวจแล้วเป็นค่าเดียวกับ
+ * `colors.neutral200/150/800/600` ของ `@strapi/design-system` เป๊ะ ไม่ใช่เรื่องบังเอิญ) พอ Strapi
+ * อยู่ในธีมมืด สีพวกนี้จึงกลายเป็นเส้นขอบซีดและตัวอักษรเกือบดำบนพื้นเข้ม อ่านไม่ออก
+ *
+ * ทำไมไม่ใช้ `ui.Typography`/`ui.Box` แทนไปเลย: `Typography` คุมได้แค่สีตัวอักษร ไม่มีพื้นหลัง และ
+ * variant ของมันมีขนาดตัวอักษรตายตัวตาม DS ซึ่งไม่ตรงกับ label กำหนดขนาดเอง (`fontSize: '1.5rem'`)
+ * ที่ CanvasEditor วาดทับ canvas อยู่แล้ว — เพิ่มสมาชิกตรงนี้แทนเพิ่ม `ui.Box` ใหม่ทั้งตัว เพราะที่ต้อง
+ * ใช้จริงมีแค่ "ค่าสี" ไม่ใช่ component ใหม่ (เหตุผลเดียวกับที่ `OUTLINE_COLOR`/`ACTIVE_FILL` ใน
+ * styles.ts เป็นค่าคงที่ ไม่ใช่ component)
+ *
+ * `CanvasEditor`/`Preview` ยกเว้นจากตัวนี้เฉพาะสีของ LINE เอง (วอลเปเปอร์ #8ba7d0, เขียว LINE) —
+ * ไม่ใช่ตัว `theme` นี้ ซึ่งเป็นสี "chrome" ของ Strapi ที่ควรตามธีมเสมอ (ดูคอมเมนต์ที่หัวไฟล์
+ * CanvasEditor.tsx และคอมเมนต์ตรงจุดที่ใช้แต่ละสี)
+ */
+export interface ThemeColors {
+  /** เส้นขอบพาเนล/การ์ด — เทียบเท่า `colors.neutral200` (แทน `#dcdce4` เดิม) */
+  border: string
+  /** พื้นหลังพาเนลเรียบ เช่น ผืนผ้าใบก่อนมีรูป — เทียบเท่า `colors.neutral150` (แทน `#eaeaef` เดิม) */
+  surface: string
+  /** ข้อความ/ไอคอนเข้ม — เทียบเท่า `textColor="neutral800"` ของ Typography (แทน `#32324d` เดิม) */
+  strongText: string
+  /** ข้อความ/ไอคอนรอง — เทียบเท่า `textColor="neutral600"` ของ Typography (แทน `#666687` เดิม) */
+  mutedText: string
+}
+
 export interface UIPort {
   ui: UIPrimitives
   http: HttpClient
@@ -126,6 +154,7 @@ export interface UIPort {
   nav: Nav
   /** สเปก §12 — ข้อความที่ผู้ใช้เห็นต้องผ่านตัวนี้เสมอ ห้าม hardcode ใน component */
   t(key: string, values?: Record<string, string | number>): string
+  theme: ThemeColors
 }
 
 const PortContext = createContext<UIPort | null>(null)

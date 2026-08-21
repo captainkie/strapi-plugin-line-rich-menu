@@ -173,7 +173,7 @@ export function Preview({
   activeIndex, onSelect, showOutlines, errors, width = 320,
   onBoundsChange, snap,
 }: PreviewProps) {
-  const { t } = usePort()
+  const { t, theme } = usePort()
   const s = width / REFERENCE_WIDTH
 
   // เปิด/ปิดจริงของพรีวิว — เริ่มที่ค่าของ `expanded` แล้วผู้ใช้แตะแถบแชทเพื่อสลับเองได้จากตรงนั้น
@@ -323,6 +323,9 @@ export function Preview({
                 showOutlines={showOutlines ?? imageUrl === undefined}
                 activeIndex={activeIndex ?? null}
                 onSelect={onSelect ?? (() => {})}
+                // CanvasEditor เองไม่แตะ usePort (ดูคอมเมนต์ที่ CanvasEditorProps.theme) — Preview
+                // เป็นคนดึงจาก port แล้วส่งต่อให้ ที่นี่จุดเดียว (สเปกงานนี้ #5)
+                theme={{ surface: theme.surface, strongText: theme.strongText, mutedText: theme.mutedText }}
                 {...(errors === undefined ? {} : { errors })}
                 {...(imageUrl === undefined ? {} : { imageUrl })}
                 {...(onBoundsChange === undefined ? {} : { onBoundsChange })}

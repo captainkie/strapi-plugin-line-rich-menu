@@ -1,6 +1,18 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { areaLabel, type Bounds, type RichMenuSize } from '@fosivo/line-rich-menu-core/browser'
+import type { ThemeColors } from '../port.js'
 import { ACTIVE_FILL, INVALID_COLOR, OUTLINE_COLOR, injectStylesOnce } from '../styles.js'
+
+/**
+ * ค่าเริ่มต้นตรงกับธีมสว่างของ Strapi เป๊ะ (ดูคอมเมนต์ที่ `ThemeColors` ใน port.ts) — ใช้เมื่อผู้เรียก
+ * ไม่ส่ง `theme` มา เพื่อให้จุดเรียกเดิม (และเทสต์ที่ render CanvasEditor ตรง ๆ โดยไม่มี PortProvider
+ * ครอบ — ดูเทสต์ "ไม่แตะ UIPort เลย" ใน canvas-editor.test.tsx) ได้ผลลัพธ์เหมือนเดิมทุกประการ
+ */
+const DEFAULT_THEME: Pick<ThemeColors, 'surface' | 'strongText' | 'mutedText'> = {
+  surface: '#eaeaef',
+  strongText: '#32324d',
+  mutedText: '#666687',
+}
 
 export interface CanvasEditorProps {
   size: RichMenuSize
@@ -13,6 +25,13 @@ export interface CanvasEditorProps {
   errors?: Readonly<Record<number, string>>
   /** ขนาดช่องกริดในหน่วยพิกเซลของผืนผ้าใบ ไม่ใช่พิกเซลบนจอ */
   snap?: number
+  /**
+   * สีพื้นหลัง placeholder ก่อนมีรูป / ป้ายช่อง / ขนาดพิกเซล — ต้องตามธีมมืด/สว่างของ Strapi จริง
+   * (สเปกงานนี้ #5) CanvasEditor เองจงใจไม่แตะ `usePort` เลย (component ตัวนี้ต้อง render ได้โดยไม่มี
+   * `PortProvider` ครอบ — ดูคอมเมนต์ที่หัวไฟล์เรื่องเหตุผลที่ไม่ผ่าน `ui.*`) ผู้เรียกที่มี port จริง
+   * (`Preview`) จึงเป็นคนดึงจาก `usePort().theme` แล้วส่งลงมาให้แทน — ไม่ส่งมา = ใช้ค่าธีมสว่าง
+   */
+  theme?: Pick<ThemeColors, 'surface' | 'strongText' | 'mutedText'>
 }
 
 /** แปลงพิกเซลจริงเป็นเปอร์เซ็นต์ เพื่อให้ overlay ตรงกับรูปไม่ว่าจะย่อขยายแค่ไหน */
@@ -56,6 +75,7 @@ const cssUrl = (value: string): string =>
 
 export function CanvasEditor({
   size, bounds, imageUrl, showOutlines, activeIndex, onSelect, onBoundsChange, errors, snap,
+  theme = DEFAULT_THEME,
 }: CanvasEditorProps) {
   useEffect(injectStylesOnce, [])
 
@@ -96,7 +116,12 @@ export function CanvasEditor({
     position: 'relative',
     width: '100%',
     aspectRatio: `${size.width} / ${size.height}`,
-    backgroundColor: '#eaeaef',
+    // สีพื้นหลังตอนยังไม่มีรูป (placeholder ระหว่างแก้ผัง) เป็น chrome ของเราเอง ไม่ใช่สิ่งที่ผู้ใช้
+    // ปลายทางของ LINE เห็นจริง (เขาเห็นได้แค่เมนูที่เผยแพร่แล้ว ซึ่งมีรูปเสมอ) จึงต้องตามธีมของ
+    // Strapi เหมือน chrome อื่นทั้งหมด ไม่ใช่ข้อยกเว้นแบบวอลเปเปอร์/บับเบิลของ Preview — เดิม
+    // hardcode เป็น #eaeaef (ตรงกับ colors.neutral150 ของธีมสว่างเป๊ะ) พอ Strapi อยู่ธีมมืดเลยเป็น
+    // พื้นเทาสว่างแปลกตาอยู่กลางหน้าเข้ม (สเปกงานนี้ #5)
+    backgroundColor: theme.surface,
     backgroundSize: 'cover',
     backgroundPosition: 'center',
     ...(imageUrl === undefined ? {} : { backgroundImage: cssUrl(imageUrl) }),
@@ -166,9 +191,13 @@ export function CanvasEditor({
             onPointerDown={beginDrag(index, 'move')}
           >
             {showOutlines ? (
+              // ป้ายช่อง (A, B, …) กับขนาดพิกเซล เป็น chrome ของเราเองที่ผู้ใช้ปลายทางของ LINE ไม่เห็น
+              // เลย (เหมือนพื้นหลัง placeholder ด้านบน) — ต้องอ่านออกได้ทั้งสองธีม เดิม hardcode
+              // #32324d/#666687 (ตรงกับ colors.neutral800/600 ของธีมสว่างเป๊ะ) ซึ่งเป็นตัวอักษรเกือบ
+              // ดำบนพื้นเข้มพอสลับธีมมืด — นี่คือบักที่เจ้าของรายงานไว้ตรง ๆ ("ป้ายช่องอ่านแทบไม่ออก")
               <>
-                <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#32324d' }}>{label}</span>
-                <span style={{ fontSize: '0.7rem', color: '#666687', fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ fontSize: '1.5rem', fontWeight: 700, color: theme.strongText }}>{label}</span>
+                <span style={{ fontSize: '0.7rem', color: theme.mutedText, fontVariantNumeric: 'tabular-nums' }}>
                   {b.width}×{b.height}
                 </span>
               </>

@@ -35,7 +35,7 @@ function sizesLabel(name: RichMenuSizeName): string {
 export function TemplatePicker({
   currentKey, hasConfiguredActions, hasImage, onApply, onClose,
 }: TemplatePickerProps) {
-  const { ui, t } = usePort()
+  const { ui, t, theme } = usePort()
   const [selected, setSelected] = useState<string | null>(currentKey)
   const [confirming, setConfirming] = useState(false)
 
@@ -88,7 +88,10 @@ export function TemplatePicker({
               // ต้องกลับมาทบทวนบรรทัดนี้ก่อน
               dangerouslySetInnerHTML={{ __html: renderTemplateSvg(tpl.bounds, tpl.size) }}
             />
-            <span style={{ display: 'block', padding: '.4rem', fontSize: '.8rem', color: '#32324d' }}>
+            {/* จำนวนช่องใต้ thumbnail เป็น chrome ของ Strapi (modal นี้ไม่ใช่ LINE) ต้องตามธีม —
+                เดิม hardcode #32324d (ตรงกับ colors.neutral800 ของธีมสว่างเป๊ะ) อ่านแทบไม่ออกบน
+                พื้นเข้ม (สเปกงานนี้ #5) */}
+            <span style={{ display: 'block', padding: '.4rem', fontSize: '.8rem', color: theme.strongText }}>
               {/* อังกฤษต้องแยกรูปเอกพจน์ ไม่งั้นแบบที่มีช่องเดียวจะขึ้นว่า "1 areas" — ภาษาไทยใช้
                   สตริงเดียวกันทั้งสองรูปเพราะไม่มีพหูพจน์ แต่ต้องมีคีย์ครบทั้งสองภาษาเท่ากันอยู่ดี */}
               {t(

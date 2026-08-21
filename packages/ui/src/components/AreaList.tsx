@@ -28,7 +28,7 @@ export interface AreaListProps {
 export function AreaList({
   areas, activeIndex, view, onViewChange, onSelect, onChange, aliasOptions, errors, onAdd, onRemove,
 }: AreaListProps) {
-  const { ui, t } = usePort()
+  const { ui, t, theme } = usePort()
 
   return (
     <ui.Flex direction="column" gap={2}>
@@ -64,7 +64,10 @@ export function AreaList({
         const error = errors?.[index]
         const open = view === 'expanded' || activeIndex === index
         return (
-          <section key={index} style={{ border: '1px solid #dcdce4', borderRadius: 4 }}>
+          // เส้นขอบการ์ดแต่ละช่องเป็น chrome ของ Strapi ล้วน ๆ (ไม่ใช่ของ LINE) ต้องตามธีมมืด/สว่าง
+          // จริง — เดิม hardcode #dcdce4 (ตรงกับ colors.neutral200 ของธีมสว่างเป๊ะ) ซึ่งเป็นเส้นขอบซีด
+          // แทบมองไม่เห็นบนพื้นเข้ม (สเปกงานนี้ #5)
+          <section key={index} style={{ border: `1px solid ${theme.border}`, borderRadius: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <button
                 type="button"

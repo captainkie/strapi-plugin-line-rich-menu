@@ -181,6 +181,19 @@ export function createRejectingHttpClient(reason: unknown = new Error('stub_http
   return { get: reject, post: reject, put: reject, del: reject }
 }
 
+/**
+ * ค่าของธีมสว่างของ Strapi ตรง ๆ (ตรวจแล้วตรงกับ `colors.neutral200/150/800/600` ของ
+ * `@strapi/design-system` — ดูคอมเมนต์ที่ `ThemeColors` ใน port.ts) เทสต์กับ playground ของแพ็กเกจนี้
+ * ไม่มีธีมมืดให้สลับ (ไม่ใช่ Strapi จริง) ค่าคงที่ชุดเดียวจึงพอ — adapter จริงสองตัวเป็นคนอ่านค่า
+ * จากธีมของ Strapi เองแล้วสลับตามธีมมืด/สว่างจริง (ดู usePluginPort ของ strapi-v4/v5)
+ */
+const LIGHT_THEME_COLORS = {
+  border: '#dcdce4',
+  surface: '#eaeaef',
+  strongText: '#32324d',
+  mutedText: '#666687',
+}
+
 export function createStubPort(overrides: Partial<UIPort> = {}): UIPort {
   return {
     ui: primitives,
@@ -193,6 +206,7 @@ export function createStubPort(overrides: Partial<UIPort> = {}): UIPort {
     toast: () => {},
     nav: { push: () => {}, Link: ({ to, children }) => <a href={to}>{children}</a> },
     t: defaultT,
+    theme: LIGHT_THEME_COLORS,
     ...overrides,
   }
 }

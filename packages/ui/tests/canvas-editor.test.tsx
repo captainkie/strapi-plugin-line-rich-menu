@@ -39,6 +39,22 @@ describe('CanvasEditor', () => {
     expect(screen.getAllByText('833×843').length).toBeGreaterThan(0)
   })
 
+  // สเปกงานนี้ #5 — ไม่ส่ง `theme` มา ต้องได้ค่าธีมสว่างของ Strapi เป๊ะเหมือนเดิมทุกประการ
+  // (จุดเรียกเดิม/เทสต์ที่ render ตรง ๆ โดยไม่มี PortProvider ต้องไม่เปลี่ยนพฤติกรรม)
+  it('ไม่ส่ง theme มา ใช้ค่าธีมสว่างดีฟอลต์ — พื้นหลังและตัวอักษรเหมือนเดิมก่อนมีสเปกงานนี้', () => {
+    setup()
+    expect(screen.getByTestId('rich-menu-canvas').style.backgroundColor).toBe('rgb(234, 234, 239)') // #eaeaef
+    expect(screen.getAllByText('833×843')[0]!.style.color).toBe('rgb(102, 102, 135)') // #666687
+  })
+
+  // ส่ง `theme` มา ต้องเห็นผลจริงในพื้นหลัง placeholder และตัวอักษรของป้าย/ขนาด — พิสูจน์ว่าพร็อพ
+  // เดินทางเข้ามาถึงจริง ไม่ใช่แค่ประกาศไว้เฉย ๆ (ดูที่ Preview ส่งต่อจาก usePort().theme)
+  it('ส่ง theme มา พื้นหลังและตัวอักษรตามค่านั้นจริง — ไม่ใช่ค่าดีฟอลต์ที่ hardcode ไว้', () => {
+    setup({ theme: { surface: '#111111', strongText: '#eeeeee', mutedText: '#cccccc' } })
+    expect(screen.getByTestId('rich-menu-canvas').style.backgroundColor).toBe('rgb(17, 17, 17)')
+    expect(screen.getAllByText('833×843')[0]!.style.color).toBe('rgb(204, 204, 204)')
+  })
+
   it('ซ่อนกรอบและตัวเลขเมื่อปิด outline', () => {
     setup({ showOutlines: false })
     expect(screen.queryByText('833×843')).not.toBeInTheDocument()
