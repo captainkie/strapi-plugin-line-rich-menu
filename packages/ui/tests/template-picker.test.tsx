@@ -99,6 +99,19 @@ describe('TemplatePicker', () => {
       .toHaveAttribute('aria-pressed', 'true')
   })
 
+  // สเปกงานนี้ #1 — LINE OA Manager ไฮไลต์แบบที่เลือกด้วยกรอบ+พื้นหลังเขียว ไม่ใช่สี indigo ของ
+  // Strapi ที่แบบทุกแบบเคยใช้เหมือนกันหมดไม่ว่าจะเลือกอยู่หรือไม่
+  it('แบบที่เลือกไว้มีกรอบและพื้นหลังเขียว LINE แบบที่ไม่ได้เลือกไม่มี', () => {
+    setup({ currentKey: 'RICH_MENU_TEMPLATE_203' })
+    const selected = screen.getByTestId('template-option-RICH_MENU_TEMPLATE_203')
+    expect(selected.style.border).toBe('2px solid rgb(6, 199, 85)') // LINE_GREEN
+    expect(selected.style.background).toBe('rgba(6, 199, 85, 0.08)') // LINE_SELECTED_TINT
+
+    const unselected = screen.getByTestId('template-option-RICH_MENU_TEMPLATE_205')
+    expect(unselected.style.border).not.toContain('rgb(6, 199, 85)')
+    expect(unselected.style.background).toBe('none')
+  })
+
   it('เลือกแล้วกด apply ส่ง key กลับไป', () => {
     const { onApply } = setup()
     fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_205'))

@@ -4,7 +4,7 @@ import {
   type RichMenuSizeName, type TemplateDef,
 } from '@fosivo/line-rich-menu-core/browser'
 import { usePort } from '../port.js'
-import { OUTLINE_COLOR } from '../styles.js'
+import { LINE_GREEN, LINE_SELECTED_TINT } from '../styles.js'
 
 export interface TemplatePickerProps {
   currentKey: string | null
@@ -72,11 +72,14 @@ export function TemplatePicker({
             onClick={() => setSelected(tpl.key)}
             style={{
               padding: 0,
-              border: `2px solid ${selected === tpl.key ? OUTLINE_COLOR : '#dcdce4'}`,
+              // เขียว LINE เฉพาะแบบที่เลือกไว้ — LINE OA Manager เองไฮไลต์แบบที่เลือกด้วยกรอบ+พื้นหลัง
+              // เขียว (สเปกงานนี้ #1) แบบที่ยังไม่เลือกใช้สีจากธีมของ Strapi ตามปกติ (เดิมทุกแบบใช้สี
+              // indigo ของ Strapi เหมือนกันหมดไม่ว่าจะเลือกอยู่หรือไม่ ซึ่งไม่ได้สื่อการเลือกอะไรเลย)
+              border: `2px solid ${selected === tpl.key ? LINE_GREEN : theme.border}`,
               borderRadius: 6,
-              background: 'none',
+              background: selected === tpl.key ? LINE_SELECTED_TINT : 'none',
               cursor: 'pointer',
-              color: OUTLINE_COLOR,
+              color: selected === tpl.key ? LINE_GREEN : theme.mutedText,
             }}
           >
             <span

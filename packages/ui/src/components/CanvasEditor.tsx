@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { areaLabel, type Bounds, type RichMenuSize } from '@fosivo/line-rich-menu-core/browser'
 import type { ThemeColors } from '../port.js'
-import { ACTIVE_FILL, INVALID_COLOR, OUTLINE_COLOR, injectStylesOnce } from '../styles.js'
+import { INVALID_COLOR, LINE_ACTIVE_FILL, LINE_GREEN, injectStylesOnce } from '../styles.js'
 
 /**
  * ค่าเริ่มต้นตรงกับธีมสว่างของ Strapi เป๊ะ (ดูคอมเมนต์ที่ `ThemeColors` ใน port.ts) — ใช้เมื่อผู้เรียก
@@ -165,10 +165,13 @@ export function CanvasEditor({
           // ช่องทับกันได้ (LINE อนุญาตและ schema ก็ยอมรับ) — ช่อง active ต้องอยู่บนสุดเสมอ
           // ไม่งั้นช่องที่วาดทีหลังใน DOM จะทับมือจับของช่องก่อนหน้าจนกดไม่ได้
           zIndex: isActive ? 1 : 0,
+          // เขียว LINE ไม่ใช่สี Strapi — พื้นที่แก้ผังนี้ฝังอยู่ในกรอบโทรศัพท์ของ Preview เสมอ (จุดเดียว
+          // ที่เรียก CanvasEditor ในทั้งแพ็กเกจ) จึงนับเป็นส่วนหนึ่งของ "จอ LINE" ไม่ใช่ chrome ของเรา
+          // (สเปกงานนี้ #1 — ดูคอมเมนต์ที่ LINE_GREEN ใน styles.ts) error ยังคงเป็นสีแดงเดิม ไม่เกี่ยว
           ...(showOutlines
-            ? { border: `2px solid ${error === undefined ? OUTLINE_COLOR : INVALID_COLOR}` }
+            ? { border: `2px solid ${error === undefined ? LINE_GREEN : INVALID_COLOR}` }
             : {}),
-          ...(isActive ? { background: ACTIVE_FILL } : {}),
+          ...(isActive ? { background: LINE_ACTIVE_FILL } : {}),
           ...(editable ? { touchAction: 'none' as const } : {}),
         }
 
@@ -223,7 +226,7 @@ export function CanvasEditor({
                   bottom: 0,
                   width: 14,
                   height: 14,
-                  background: OUTLINE_COLOR,
+                  background: LINE_GREEN,
                   cursor: 'nwse-resize',
                   touchAction: 'none',
                 }}

@@ -126,6 +126,29 @@ describe('CanvasEditor', () => {
     expect(activeZ).toBeGreaterThan(inactiveZ)
   })
 
+  // สเปกงานนี้ #1 — พื้นที่แก้ผังนี้ฝังอยู่ในกรอบโทรศัพท์ของ Preview เสมอ (จุดเดียวที่เรียก
+  // CanvasEditor ในแพ็กเกจนี้) จึงต้องใช้เขียว LINE ไม่ใช่สี indigo ของ Strapi — ต้องแดงถ้ามีใคร
+  // เปลี่ยนกลับไปใช้ OUTLINE_COLOR/ACTIVE_FILL ของ Strapi
+  it('กรอบช่อง (ไม่มี error) เป็นเขียว LINE ไม่ใช่สี indigo ของ Strapi', () => {
+    setup()
+    expect(screen.getAllByRole('button')[0]!.style.border).toBe('2px solid rgb(6, 199, 85)') // LINE_GREEN
+  })
+
+  it('ช่องที่มี error ยังเป็นสีแดงเดิม ไม่ใช่เขียว', () => {
+    setup({ errors: { 0: 'ผิด' } })
+    expect(screen.getAllByRole('button')[0]!.style.border).toBe('2px solid rgb(208, 43, 32)') // INVALID_COLOR
+  })
+
+  it('พื้นหลังช่องที่ active เป็นเขียว LINE โปร่งแสง ไม่ใช่ indigo', () => {
+    setup({ activeIndex: 0 })
+    expect(screen.getAllByRole('button')[0]!.style.background).toBe('rgba(6, 199, 85, 0.18)') // LINE_ACTIVE_FILL
+  })
+
+  it('มือจับปรับขนาดเป็นเขียว LINE ไม่ใช่ indigo', () => {
+    setup({ onBoundsChange: vi.fn() })
+    expect(screen.getByTestId('resize-handle-0').style.background).toBe('rgb(6, 199, 85)') // LINE_GREEN
+  })
+
   it('แสดงรูปพื้นหลังเมื่อมี', () => {
     setup({ imageUrl: 'https://cdn.test/menu.png' })
     const canvas = screen.getByTestId('rich-menu-canvas')

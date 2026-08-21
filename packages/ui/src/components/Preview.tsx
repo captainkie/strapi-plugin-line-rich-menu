@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Bounds, RichMenuSize } from '@fosivo/line-rich-menu-core/browser'
 import { usePort } from '../port.js'
+import { LINE_GREEN } from '../styles.js'
 import { CanvasEditor } from './CanvasEditor.js'
 
 export interface PreviewProps {
@@ -281,11 +282,13 @@ export function Preview({
                   />
                 </span>
               </div>
-              {/* บับเบิลขาออก — เขียว LINE ชิดขวา ให้อ่านเป็นบทสนทนาจริงแทนข้อความลอยเดียว */}
+              {/* บับเบิลขาออก — เขียว LINE ชิดขวา ให้อ่านเป็นบทสนทนาจริงแทนข้อความลอยเดียว
+                  (สเปกงานนี้ #1 — ใช้ LINE_GREEN ตัวเดียวกับที่ CanvasEditor/TemplatePicker ใช้แทน
+                  hex ดิบ ที่นี่จุดเดียวที่เคยเขียนซ้ำ) */}
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <span
                   style={{
-                    position: 'relative', background: '#06c755', color: '#fff',
+                    position: 'relative', background: LINE_GREEN, color: '#fff',
                     borderRadius: 14 * s, padding: `${6 * s}px ${10 * s}px`,
                     fontSize: 13 * s, maxWidth: '70%',
                   }}
@@ -297,7 +300,7 @@ export function Preview({
                       position: 'absolute', right: -4 * s, bottom: 2 * s,
                       width: 0, height: 0,
                       borderTop: `${6 * s}px solid transparent`,
-                      borderLeft: `${7 * s}px solid #06c755`,
+                      borderLeft: `${7 * s}px solid ${LINE_GREEN}`,
                     }}
                   />
                 </span>
