@@ -18,7 +18,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "5.3.4",
-    "strapi-plugin-line-rich-menu-v4": "file:../../../../../../../../tmp/strapi-plugin-line-rich-menu-v4-0.0.0.tgz",
+    "strapi-plugin-line-rich-menu-v4": "file:.pack/strapi-plugin-line-rich-menu-v4.tgz",
     "strapi-provider-upload-absolute-url": "file:./providers/upload-absolute-url",
     "styled-components": "5.3.11"
   },

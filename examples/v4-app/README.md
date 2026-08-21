@@ -16,17 +16,38 @@ Strapi **4.25.11** ของจริง ใช้เป็น acceptance gate �
 ติดตั้งแอปกับ tarball, build admin, seed ผู้ใช้, บูต Strapi แล้วรัน Playwright — และตายทันที
 พร้อม log ถ้าขั้นไหนล้ม สลับฐานข้อมูลด้วย `DATABASE_CLIENT=postgres pnpm e2e:v4`
 
+> เทสต์ชุดนี้ **ต้องเริ่มจากฐานข้อมูลเปล่า** (มันยืนยันว่ามี channel อยู่ตัวเดียวเป๊ะ)
+> ขา sqlite ถูกล้างให้เองทุกรอบด้วยการลบ `.tmp/` ส่วนขา postgres ต้อง drop schema เอง
+> ก่อนรันซ้ำบนเครื่อง — บน CI ไม่ต้องทำอะไรเพราะ service container เกิดใหม่ทุก job
+
 ## รันทีละขั้นด้วยมือ
 
     cp .env.example .env
     pnpm --filter @fosivo/line-mock start &          # จาก root ของ repo
     pnpm build                                        # จาก root ของ repo
-    (cd ../../packages/strapi-v4 && npm pack --pack-destination /tmp)
-    npm install
-    npm install /tmp/strapi-plugin-line-rich-menu-v4-*.tgz
+    (cd ../../packages/strapi-v4 && npm pack --pack-destination ../../examples/v4-app/.pack)
+    mv .pack/strapi-plugin-line-rich-menu-v4-*.tgz .pack/strapi-plugin-line-rich-menu-v4.tgz
+    npm install --no-save
+    npm install --no-save .pack/strapi-plugin-line-rich-menu-v4.tgz
     npm run build && npm run seed
     npm start
     npm run test:e2e
+
+### ทำไมต้อง `.pack/` กับ `--no-save`
+
+Strapi 4 ค้นหาปลั๊กอินจาก **`dependencies` ใน package.json ของแอป** เท่านั้น
+(`core/loaders/plugins/get-enabled-plugins.js` อ่าน `info.dependencies`) ไฟล์ที่อยู่ใน
+`node_modules` แต่ไม่ได้ถูกประกาศไว้จะถูกมองข้ามเงียบ ๆ แล้ว `config/plugins.js` จะล้มด้วย
+`Error loading the plugin line-rich-menu because line-rich-menu is not installed`
+ปลั๊กอินจึงถูกประกาศไว้ที่ `file:.pack/strapi-plugin-line-rich-menu-v4.tgz` — path สัมพัทธ์
+กับตัวแอปและชื่อที่ไม่ผูกกับเลขเวอร์ชัน เพื่อให้ไฟล์ที่ commit ใช้ได้บนทุกเครื่อง
+
+`package-lock.json` ที่ commit ไว้ **ต้องไม่มีแถวของปลั๊กอิน** เพราะ tarball ถูกแพ็กใหม่ทุกรอบ
+แล้ว `integrity` ที่ commit ไว้จะค้างเป็นของรอบก่อนทันทีที่ซอร์สเปลี่ยน ผลที่วัดได้จริงมีสองแบบ
+และแย่ทั้งคู่ — บนเครื่องที่มี npm cache อยู่แล้ว `npm install` จะติดตั้งของเก่าเงียบ ๆ
+(รอบนั้นเทสต์โค้ดของเมื่อวานโดยรายงานว่า `added 1 package` สำเร็จ) ส่วนบน CI ที่ cache ว่าง
+มันจะล้มด้วย `EINTEGRITY` ทันที `--no-save` คือสิ่งที่กันแถวนั้นไม่ให้ถูกเขียนกลับ และ
+`scripts/e2e.sh` มีด่านตรวจทั้งสองอย่าง: แถวใน lock และ checksum ของ `dist` ที่ติดตั้งจริง
 
 ## เทสต์ในนี้พิสูจน์อะไร
 
