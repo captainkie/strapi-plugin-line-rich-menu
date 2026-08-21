@@ -1,0 +1,26 @@
+# Docker only reads `.dockerignore` from the build context ROOT — never from a subdirectory,
+# even when `-f` points at a Dockerfile deeper in the tree. Verified empirically before
+# writing this: a copy of this file placed at examples/v5-app/.dockerignore was silently
+# ignored by `docker build -f examples/v5-app/Dockerfile .` (see task-15-report.md). The build
+# context has to be the repo root anyway — examples/v5-app/Dockerfile's first stage needs
+# `packages/` and `tools/`, which sit outside examples/v5-app and are unreachable from a
+# COPY if the context were scoped to that directory.
+node_modules
+.tmp
+.tmp-*
+build
+dist
+.cache
+.strapi
+.pack
+test-results
+examples/v5-app/public/uploads/*
+!examples/v5-app/public/uploads/.gitkeep
+.env
+.env.*
+!.env.example
+*.log
+.git
+coverage
+.superpowers
+.omc
