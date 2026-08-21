@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  TEMPLATES, ValidationError, canvasSizeChanged, validateRichMenu,
+  SIZE_LADDER, TEMPLATES, ValidationError, canvasSizeChanged, validateRichMenu,
   type Bounds, type RichMenuSizeName,
 } from '@fosivo/line-rich-menu-core/browser'
 import { emptyActionForm, toAction, type ActionFormState } from '../action-form.js'
@@ -73,6 +73,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
   const [draft, setDraft] = useState<RichMenuDraft>(initial ?? emptyDraft())
   const [picking, setPicking] = useState(false)
   const [outlines, setOutlines] = useState(true)
+  const [customLayout, setCustomLayout] = useState(false)
   const [active, setActive] = useState<number | null>(null)
   const [view, setView] = useState<'list' | 'expanded'>('list')
   const [areaErrors, setAreaErrors] = useState<Record<number, string>>({})
@@ -81,8 +82,16 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
   const [chatBarError, setChatBarError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const template = draft.templateKey === null ? null : TEMPLATES[draft.templateKey] ?? null
-  const size = template?.size ?? { width: 2500, height: 1686 }
+  // ต้องอิงจาก draft.sizeName เสมอ ไม่ใช่จาก template ที่ templateKey ชี้ไป — โหมดปรับผังเอง
+  // (moveBounds/addArea/removeArea) เคลียร์ templateKey ทิ้งทันทีที่ผู้ใช้แก้ผัง (ผังไม่ตรงกับ
+  // template นั้นอีกแล้ว) แต่ sizeName ยังอยู่ ถ้าอิงจาก TEMPLATES[templateKey] อย่างเดียว พอ
+  // templateKey เป็น null ขนาดผืนผ้าใบจะเด้งกลับไปที่ดีฟอลต์ (large) ทันที ทั้งที่ผู้ใช้อาจกำลังแก้
+  // template compact อยู่ — พิกัดเดิม (คำนวณจากขนาด compact) จะถูกตีความผิดเป็นขนาด large ทันที
+  // ทำให้ทุกช่องเพี้ยนตำแหน่ง
+  //
+  // ดัชนี [0] ของ ladder คือขนาดเต็ม (ตัวเดียวกับ LARGE/COMPACT ที่ template ทุกตัวใช้) — ตัวถัดไป
+  // ในลิสต์เป็นขั้นลดขนาดสำหรับบีบไฟล์ภาพให้ไม่เกิน 1 MB เท่านั้น ไม่ใช่ขนาดผืนผ้าใบที่ใช้แก้ผัง
+  const size = SIZE_LADDER[draft.sizeName][0]!
 
   const applyTemplate = (key: string) => {
     const next = TEMPLATES[key]!
@@ -109,6 +118,57 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
     // ไม่ใช่ค้างอยู่บนจอจนกว่าจะกด save รอบถัดไปที่บรรทัดต้นของ save() ถึงจะไปเคลียร์ให้
     setFormError(null)
     setPicking(false)
+  }
+
+  /**
+   * ลาก/ปรับขนาดช่อง — เขียนกลับลง `draft.bounds` ตำแหน่งเดิม ไม่แตะ `draft.areas`
+   * เพราะ action ของช่องนั้นไม่ได้เปลี่ยนตามพิกัด
+   *
+   * `templateKey` ถูกล้างเป็น null ทันทีที่ผู้ใช้ขยับช่องแรก — ผังไม่ตรงกับ template ที่เลือกไว้
+   * อีกต่อไป ถ้ายังเก็บชื่อไว้ ตอนเปิดกลับมาแก้ผู้ใช้จะเห็นชื่อ template ที่ไม่ตรงกับสิ่งที่อยู่บน
+   * ผืนผ้าใบ แล้วอาจกดใช้ซ้ำโดยไม่รู้ว่ามันจะทับผังที่ตัวเองปรับไว้ทั้งหมด
+   */
+  const moveBounds = (index: number, next: Bounds) => {
+    setDraft((prev) => ({
+      ...prev,
+      templateKey: null,
+      bounds: prev.bounds.map((bounds, i) => (i === index ? next : bounds)),
+    }))
+  }
+
+  const addArea = () => {
+    setDraft((prev) => {
+      if (prev.bounds.length >= 20) return prev
+      // ช่องใหม่วางมุมซ้ายบน ขนาดหนึ่งในสี่ของผืนผ้าใบ — ตำแหน่งที่มองเห็นแน่นอน ทับช่องเดิม
+      // แน่นอนด้วย ซึ่งรับได้เพราะโหมดนี้เปิดอยู่และผู้ใช้ลากต่อได้ทันที (LINE อนุญาตให้ช่องทับกัน)
+      const fresh: Bounds = {
+        x: 0, y: 0,
+        width: Math.round(size.width / 2),
+        height: Math.round(size.height / 2),
+      }
+      return {
+        ...prev,
+        templateKey: null,
+        bounds: [...prev.bounds, fresh],
+        areas: [...prev.areas, emptyActionForm()],
+      }
+    })
+  }
+
+  /** ลบช่องพร้อม action ของมันเป็นคู่ — สองอาเรย์นี้ผูกกันด้วย index ล้วน ๆ ตัดข้างเดียวคือ off-by-one ถาวร */
+  const removeArea = (index: number) => {
+    setDraft((prev) => {
+      if (prev.bounds.length <= 1) return prev
+      return {
+        ...prev,
+        templateKey: null,
+        bounds: prev.bounds.filter((_, i) => i !== index),
+        areas: prev.areas.filter((_, i) => i !== index),
+      }
+    })
+    // index ที่เลือกอยู่/error ที่ค้างอยู่ ผูกกับตำแหน่งเดิมทั้งคู่ ล้างทั้งสองแทนที่จะพยายามเลื่อนตาม
+    setActive(null)
+    setAreaErrors({})
   }
 
   const save = async (publish: boolean) => {
@@ -227,8 +287,12 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
             chatBarText={draft.chatBar.mode === 'custom' ? draft.chatBar.text : ''}
             // ไม่ผูกกับ draft.chatBar.selected: นั่นคือค่าที่บอกว่า "ผู้ใช้ปลายทางเปิดแชทแล้วเห็นเมนู
             // กางอยู่ไหม" ถ้าเอามาคุมการวาด canvas ตรงนี้ด้วย คนที่เลือก Collapsed จะเสีย canvas
-            // ที่กำลังแก้อยู่ไปทั้งอัน แก้ต่อไม่ได้เลย ในหน้า editor จึงกางเสมอเมื่อเลือก template แล้ว
-            expanded={template !== null}
+            // ที่กำลังแก้อยู่ไปทั้งอัน แก้ต่อไม่ได้เลย ในหน้า editor จึงกางเสมอเมื่อมีผังให้แก้
+            //
+            // ต้องเช็คจาก draft.bounds ไม่ใช่ template !== null — โหมดปรับผังเองเคลียร์ templateKey
+            // ทิ้งทันทีที่ผู้ใช้ขยับ/เพิ่ม/ลบช่องแรก (ดู moveBounds/addArea/removeArea) ถ้ายังผูกกับ
+            // template อยู่ canvas ทั้งก้อนจะหายไปจากจอทันทีที่แก้ครั้งแรก ทั้งที่ areas.length ยังไม่ว่าง
+            expanded={draft.bounds.length > 0}
             activeIndex={active}
             onSelect={setActive}
             showOutlines={outlines}
@@ -239,12 +303,19 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
             // 480 ให้พื้นที่กดพอสมควรโดยยังเหลือที่ให้คอลัมน์ Template/Image/Actions ทางขวา
             width={480}
             {...(draft.image === null ? {} : { imageUrl: draft.image.url })}
+            {...(customLayout ? { onBoundsChange: moveBounds, snap: 10 } : {})}
           />
           <ui.Toggle
             name="outlines"
             label={t('editor.showOutlines')}
             checked={outlines}
             onChange={setOutlines}
+          />
+          <ui.Toggle
+            name="custom-layout"
+            label={t('editor.layout.custom')}
+            checked={customLayout}
+            onChange={setCustomLayout}
           />
         </ui.Flex>
 
@@ -279,6 +350,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
               }))}
             aliasOptions={aliasOptions}
             errors={areaErrors}
+            {...(customLayout ? { onAdd: addArea, onRemove: removeArea } : {})}
           />
         </ui.Flex>
       </ui.Flex>

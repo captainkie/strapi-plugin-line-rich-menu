@@ -16,12 +16,21 @@ export interface PreviewProps {
   errors?: Readonly<Record<number, string>>
   /** กว้างเท่ากรอบมือถือโดยดีฟอลต์ ผู้เรียกที่ต้องการพื้นที่ทำงานมากกว่านี้ส่งค่ามาเองได้ */
   width?: number
+  /**
+   * ส่งมาเมื่อผู้ใช้เปิดโหมดปรับผังเอง — `CanvasEditor` ตัดสินว่าตัวเองแก้ไขได้หรือไม่จากการมีอยู่
+   * ของ callback ตัวนี้ (`editable = onBoundsChange !== undefined`) ก่อน Plan 04 ไม่มีจุดเรียก
+   * ไหนส่งมันมาเลย ทั้งความสามารถลาก/ปรับขนาดจึงถูกทดสอบไว้แต่ไม่มีทางถูกใช้จากหน้าจอจริง
+   */
+  onBoundsChange?(index: number, next: Bounds): void
+  /** ขนาดช่องกริดในหน่วยพิกเซลของผืนผ้าใบ — ส่งต่อให้ CanvasEditor ตรง ๆ ไม่แปลงอะไร */
+  snap?: number
 }
 
 /** กรอบโทรศัพท์จำลอง — เมนูอยู่ครึ่งล่างและแถบแชทสะท้อน label ที่พิมพ์ทันที (สเปก §5.7) */
 export function Preview({
   size, bounds, imageUrl, chatBarText, expanded,
   activeIndex, onSelect, showOutlines, errors, width = 320,
+  onBoundsChange, snap,
 }: PreviewProps) {
   const { t } = usePort()
 
@@ -52,6 +61,8 @@ export function Preview({
             onSelect={onSelect ?? (() => {})}
             {...(errors === undefined ? {} : { errors })}
             {...(imageUrl === undefined ? {} : { imageUrl })}
+            {...(onBoundsChange === undefined ? {} : { onBoundsChange })}
+            {...(snap === undefined ? {} : { snap })}
           />
         </div>
       ) : null}

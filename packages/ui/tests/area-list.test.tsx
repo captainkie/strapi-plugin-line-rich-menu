@@ -63,3 +63,43 @@ describe('AreaList', () => {
     expect(screen.queryByTestId('area-error-0')).not.toBeInTheDocument()
   })
 })
+
+describe('ปุ่มเพิ่ม/ลบช่อง', () => {
+  it('ปุ่มลบอยู่นอก <button> ของ accordion — ปุ่มซ้อนปุ่มเป็น HTML ที่ใช้ไม่ได้', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (k) => k })}>
+        <AreaList
+          areas={[emptyActionForm(), emptyActionForm()]}
+          activeIndex={null}
+          view="list"
+          onViewChange={() => {}}
+          onSelect={() => {}}
+          onChange={() => {}}
+          onAdd={() => {}}
+          onRemove={() => {}}
+          aliasOptions={[]}
+        />
+      </PortProvider>,
+    )
+    const remove = screen.getByTestId('area-remove-0')
+    expect(remove.closest('[data-testid="area-header-0"]')).toBeNull()
+  })
+
+  it('ไม่ส่ง onAdd/onRemove มาก็ไม่มีปุ่มไหนโผล่', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (k) => k })}>
+        <AreaList
+          areas={[emptyActionForm()]}
+          activeIndex={null}
+          view="list"
+          onViewChange={() => {}}
+          onSelect={() => {}}
+          onChange={() => {}}
+          aliasOptions={[]}
+        />
+      </PortProvider>,
+    )
+    expect(screen.queryByTestId('area-add')).toBeNull()
+    expect(screen.queryByTestId('area-remove-0')).toBeNull()
+  })
+})
