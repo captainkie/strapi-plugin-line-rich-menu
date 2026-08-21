@@ -17,6 +17,7 @@
     "check:deps": "pnpm --filter strapi-plugin-line-rich-menu-v4 check:deps && pnpm --filter strapi-plugin-line-rich-menu check:deps",
     "e2e:v4": "bash examples/v4-app/scripts/e2e.sh",
     "e2e:v5": "bash examples/v5-app/scripts/e2e.sh",
+    "screenshots": "bash examples/v5-app/scripts/screenshots.sh",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish"

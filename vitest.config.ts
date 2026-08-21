@@ -13,7 +13,7 @@ import { defineConfig } from 'vitest/config'
 // and watching it exit non-zero, then restoring 90 and watching it pass. See task-14-15-report.md.
 export default defineConfig({
   test: {
-    projects: ['packages/*/vitest.config.ts', 'tools/*/vitest.config.ts'],
+    projects: ['packages/*/vitest.config.ts', 'tools/*/vitest.config.ts', 'docs/vitest.config.ts'],
     coverage: {
       provider: 'v8',
       include: ['packages/core/src/**', 'packages/ui/src/**'],

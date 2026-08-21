@@ -15,6 +15,10 @@ coverage/
 reports/
 *.tsbuildinfo
 
+# คัดลอกจาก README.md ของ root ตอน build (docs/RELEASING.md ขั้นตอน "Before tagging") —
+# generated จากไฟล์อื่นเสมอ commit ทั้งสามฉบับแปลว่ามีสามที่ให้ลืมแก้
+packages/*/README.md
+
 # env & secrets
 .env
 .env.*

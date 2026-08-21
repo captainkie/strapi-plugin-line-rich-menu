@@ -3,12 +3,17 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  // docs/ เก็บสเปก แผน และโค้ดอ้างอิงจากโปรเจกต์อื่น — ไม่ใช่ซอร์สของแพ็กเกจนี้
+  // docs/superpowers/ เก็บสเปกและแผน ไม่ใช่ซอร์ส — ส่วน docs/tests/ กับ docs/vitest.config.ts
+  // เป็นโค้ดจริงที่ต้องถูก lint เหมือนทุกไฟล์ในรีโป การ ignore ทั้ง docs/** จะยกเว้นมันไปด้วย
+  // docs/files/ ไม่ได้ถูก track เลย (.gitignore) — ต้นทางอ้างอิงจากโปรเจกต์ลูกค้าที่ห้ามขึ้น repo
+  // สาธารณะ มีอยู่บนเครื่อง dev บางเครื่องเท่านั้น ต้องกันออกไม่งั้น `pnpm lint` จะพังบนเครื่องที่มีมัน
+  // แต่ผ่านบน CI เงียบ ๆ เพราะไฟล์ล็อกไม่เคยเห็นมันเลย ซึ่งเป็นด่านที่เขียว/แดงไม่ตรงกันโดยไม่มีใครรู้ตัว
   // examples/*/{build,.strapi,.tmp,.pack} เป็นผลผลิตของ `strapi build` และ `npm pack`
   // ไม่ใช่ซอร์ส — ถ้าไม่กันออก `pnpm lint` จะไปไล่บันเดิลของ admin ทั้งก้อน (หมื่นกว่า error)
   {
     ignores: [
-      '**/dist/**', '**/coverage/**', '**/.stryker-tmp/**', 'docs/**',
+      '**/dist/**', '**/coverage/**', '**/.stryker-tmp/**', 'docs/superpowers/**', 'docs/screenshots/**',
+      'docs/files/**',
       'examples/*/build/**', 'examples/*/.strapi/**',
       'examples/*/.tmp/**', 'examples/*/.pack/**',
     ],

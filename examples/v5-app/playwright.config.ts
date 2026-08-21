@@ -36,6 +36,9 @@ if (missing.length > 0) {
 
 export default defineConfig({
   testDir: './tests',
+  // ภาพหน้าจอถูกถ่ายด้วยสคริปต์แยก (scripts/screenshots.sh) ไม่ใช่ส่วนหนึ่งของ acceptance gate
+  // — มันช้า ใช้ viewport คงที่ และล้มด้วยเหตุผลที่ไม่เกี่ยวกับความถูกต้องของปลั๊กอิน
+  testMatch: process.env['E2E_SCREENSHOTS'] === '1' ? '**/screenshots.spec.ts' : '**/acceptance.spec.ts',
   // Strapi 5 บูตเร็วกว่า v4 แต่ publish ยังเดินหลาย round trip — 60 วินาทีคือกันค้าง ไม่ใช่เกณฑ์ประสิทธิภาพ
   timeout: 60_000,
   expect: { timeout: 15_000 },
