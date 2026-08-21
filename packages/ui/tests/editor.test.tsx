@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { TEMPLATES } from '@fosivo/line-rich-menu-core/browser'
 import { describe, expect, it, vi } from 'vitest'
 import { emptyActionForm } from '../src/action-form.js'
@@ -187,13 +187,17 @@ describe('RichMenuEditor', () => {
   //
   // ปุ่ม "Save" หัวฟอร์มกับท้ายฟอร์มใช้ testid "save-publish" เดียวกัน แต่ไม่เคยมีอะไรพิสูจน์ว่าทั้งคู่
   // publish จริง (ไม่ใช่แค่บันทึกร่าง) — ไล่ทั้งสองปุ่มเพื่อยืนยันว่าพฤติกรรมเหมือนกัน
+  // ต้อง mount ใหม่ให้แต่ละปุ่ม ไม่ใช่วนกดสองปุ่มบน render เดียว — แบนเนอร์ที่ขึ้นจากการกดปุ่มแรก
+  // ไม่เคยถูกลบออก (save() ตั้ง formError เป็นค่าเดิมซ้ำ) รอบสองจึงเจอแบนเนอร์ของรอบแรกค้างอยู่
+  // และผ่านแม้ปุ่มท้ายฟอร์มจะไม่ได้ต่อกับอะไรเลย ซึ่งตรงกับสิ่งที่ชื่อเทสต์อ้างว่าพิสูจน์พอดี
   it('publish โดยยังไม่มี template ไม่ได้ และบอกว่าติดตรงไหน ไม่ว่าจะกดปุ่มหัวหรือท้ายฟอร์ม', async () => {
-    const { onSave } = setup()
-    for (const button of screen.getAllByTestId('save-publish')) {
-      fireEvent.click(button)
+    for (const index of [0, 1]) {
+      cleanup()
+      const { onSave } = setup()
+      fireEvent.click(screen.getAllByTestId('save-publish')[index]!)
       await waitFor(() => expect(screen.getByText('editor.error.noTemplate')).toBeInTheDocument())
+      expect(onSave).not.toHaveBeenCalled()
     }
-    expect(onSave).not.toHaveBeenCalled()
   })
 
   // A4 — applyTemplate เคลียร์ areaErrors ตอนเลือก template ใหม่อยู่แล้ว แต่ไม่เคยเคลียร์ formError

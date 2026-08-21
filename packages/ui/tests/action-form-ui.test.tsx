@@ -42,12 +42,27 @@ describe('ActionForm', () => {
   })
 
   // สเปก §5.4 — สลับชนิดแล้วต้องไม่ล้างสิ่งที่พิมพ์ไว้
-  it('สลับชนิดแล้วค่าที่พิมพ์ไว้ในช่องอื่นยังอยู่', () => {
-    const { onChange } = setup({ ...emptyActionForm(), type: 'uri', uri: 'https://a.test' })
+  //
+  // ต้องเทียบทั้งก้อน ไม่ใช่ objectContaining: เทสต์นี้มีอยู่เพื่อพิสูจน์ว่า "ไม่มีอะไรหาย"
+  // แต่ objectContaining ผ่านได้แม้ text/data/displayText/altUri/clipboardText/richMenuAliasId/mode
+  // ถูกทิ้งไปหมด ซึ่งคือความพังที่มันถูกเขียนขึ้นมาเพื่อจับพอดี
+  it('สลับชนิดแล้วค่าที่พิมพ์ไว้ในช่องอื่นยังอยู่ครบทุกฟิลด์', () => {
+    const before = {
+      ...emptyActionForm(),
+      type: 'uri' as const,
+      label: 'ป้าย',
+      uri: 'https://a.test',
+      text: 'ข้อความเดิม',
+      data: 'k=v',
+      displayText: 'โชว์',
+      altUri: 'https://alt.test',
+      mode: 'datetime' as const,
+      richMenuAliasId: 'tab-a',
+      clipboardText: 'คัดลอก',
+    }
+    const { onChange } = setup(before)
     fireEvent.change(screen.getByLabelText('action.field.type'), { target: { value: 'message' } })
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'message', uri: 'https://a.test' }),
-    )
+    expect(onChange).toHaveBeenCalledWith({ ...before, type: 'message' })
   })
 
   it('บอกว่ารับ scheme อะไรได้บ้างในช่อง uri', () => {
