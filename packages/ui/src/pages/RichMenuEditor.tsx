@@ -362,16 +362,24 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
               errors={areaErrors}
               {...(customLayout ? { onAdd: addArea, onRemove: removeArea } : {})}
             />
+
+            {/*
+              ย้ายมาจากนอกสองคอลัมน์ (สเปกงานนี้ #6) — ของเดิมคอลัมน์ซ้ายแบกทั้งโทรศัพท์ + สวิตช์
+              ทั้งสองตัว + ทั้งบล็อกนี้ ยาวเกินคอลัมน์ขวา (Template/Image/Actions) มาก จนเหลือพื้นที่
+              ว่างโล่งข้างคอลัมน์ขวา — LINE OA Manager เอง (docs/files/example-ui/) วางคอลัมน์ซ้าย
+              ไว้แค่โทรศัพท์กับสวิตช์ outline เท่านั้น ส่วนที่เหลือ (รวมบล็อกนี้) อยู่ขวาทั้งหมด
+              "Show template outlines"/"Adjust the layout manually" ยังอยู่ใต้โทรศัพท์เหมือนเดิม
+              เพราะทั้งคู่เปลี่ยนสิ่งที่พรีวิวแสดง จึงควรอยู่ติดกับพรีวิว ไม่ใช่ย้ายตามบล็อกนี้ไปด้วย
+            */}
+            <ChatBarSettings
+              value={draft.chatBar}
+              onChange={(next) => setDraft((prev) => ({ ...prev, chatBar: next }))}
+              {...(chatBarError === null ? {} : { error: chatBarError })}
+            />
           </ui.Flex>
         </ui.Flex>
 
         <ui.Divider />
-
-        <ChatBarSettings
-          value={draft.chatBar}
-          onChange={(next) => setDraft((prev) => ({ ...prev, chatBar: next }))}
-          {...(chatBarError === null ? {} : { error: chatBarError })}
-        />
 
         <ui.Flex justifyContent="flex-end">{actions}</ui.Flex>
 

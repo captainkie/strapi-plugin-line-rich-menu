@@ -75,6 +75,31 @@ describe('RichMenuEditor', () => {
     }
   })
 
+  // สเปกงานนี้ #6 — เดิม "Chat bar settings" อยู่นอกสองคอลัมน์ทั้งหมด (sibling ของแถวสองคอลัมน์ ไม่ใช่
+  // ลูกของมัน) ผัง LINE OA Manager เองวางไว้ในคอลัมน์ขวา ใต้ Actions เทสต์นี้ยึดตำแหน่งจริงใน DOM —
+  // ไม่ใช่แค่ "อยู่บนจอ" (ซึ่งเป็นจริงทั้งก่อนและหลังแก้) ต้องแดงถ้ามีใครย้ายกลับไปไว้นอกแถวสองคอลัมน์
+  it('บล็อก "Chat bar settings" อยู่ในคอลัมน์ขวา ใต้ Actions ไม่ใช่นอกสองคอลัมน์', () => {
+    setup()
+    const actionsHeading = screen.getByRole('heading', { level: 2, name: 'editor.actions' })
+    const chatBarHeading = screen.getByRole('heading', { level: 2, name: 'chatBar.title' })
+
+    // DOCUMENT_POSITION_FOLLOWING (4) — chatBarHeading ต้องอยู่ "หลัง" actionsHeading ใน DOM order
+    expect(actionsHeading.compareDocumentPosition(chatBarHeading) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy()
+
+    // ลำพังลำดับก่อนหลังยังไม่พอ (ผังเดิมก็ผ่านเงื่อนไขนี้ได้ เพราะ ChatBarSettings อยู่ "หลัง" แถว
+    // สองคอลัมน์อยู่แล้วเหมือนกัน แค่ไม่ได้เป็นลูกของมัน) ต้องพิสูจน์ว่าอยู่ "ใน" แถวสองคอลัมน์เดียวกัน
+    // กับสวิตช์ outline (ซึ่งอยู่คอลัมน์ซ้าย) จริง — หา "แถวสองคอลัมน์" จากบรรพบุรุษร่วมของสวิตช์นั้น
+    // กับหัวข้อ Actions แทนการนับชั้นของ Flex ที่ผูกกับโครงสร้างภายในของ AreaList/ChatBarSettings เอง
+    const outlinesToggle = screen.getByLabelText('editor.showOutlines')
+    let twoColumnRow: Element | null = outlinesToggle
+    while (twoColumnRow !== null && !twoColumnRow.contains(actionsHeading)) {
+      twoColumnRow = twoColumnRow.parentElement
+    }
+    expect(twoColumnRow).not.toBeNull()
+    expect(twoColumnRow!.contains(chatBarHeading)).toBe(true)
+  })
+
   it('มีปุ่มบันทึกทั้งบนหัวและท้ายฟอร์ม', () => {
     setup()
     expect(screen.getAllByTestId('save-draft')).toHaveLength(2)
