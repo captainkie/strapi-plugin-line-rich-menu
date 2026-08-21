@@ -1,13 +1,19 @@
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { defineConfig } from '@playwright/test'
 
 /**
  * โหลด `.env` เองแทนที่จะพึ่ง dotenv ของ Strapi — Playwright เป็นคนละโปรเซสและไม่ได้บูต Strapi
  * ถ้าไม่โหลด อีเมล/รหัสผ่านจะเป็น undefined แล้วเทสต์จะล้มด้วยข้อความ "login ของ undefined"
  * ซึ่งชี้ไปผิดที่ทั้งหมด ค่าที่ตั้งมาจากภายนอก (เช่น CI) ต้องชนะไฟล์เสมอ จึงไม่เขียนทับ
+ *
+ * `__dirname` ไม่ใช่ `import.meta.url` โดยจำเป็น — Playwright แปลงไฟล์ config เป็น CJS
+ * แต่ `import.meta` แปลงเป็น CJS ไม่ได้ พอมันติดมา Node จะสลับไปโหลดไฟล์เป็น ESM แล้วล้ม
+ * ทันทีด้วย `ReferenceError: exports is not defined in ES module scope` ตั้งแต่ยังไม่ทันอ่าน
+ * เทสต์สักตัว
  */
 try {
-  const file = readFileSync(new URL('.env', import.meta.url), 'utf8')
+  const file = readFileSync(join(__dirname, '.env'), 'utf8')
   for (const line of file.split('\n')) {
     const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line)
     if (match === null) continue

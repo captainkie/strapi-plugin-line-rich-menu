@@ -51,6 +51,60 @@ jobs:
             exit 1
           fi
 
+  e2e-v4:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # สเปก §13.4 — matrix db เป็นด่านที่พิสูจน์ว่า lock query ของ scheduler (คำนวณเส้นตาย
+      # ใน JS ไม่ใช่ INTERVAL ของ Postgres) ทำงานได้จริงทั้งสอง dialect ไม่ใช่แค่ที่เราเดา
+      matrix:
+        db: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: strapi
+          POSTGRES_PASSWORD: strapi
+          POSTGRES_DB: strapi
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # เรียกสคริปต์ตัวเดียวกับที่คนรันบนเครื่อง ไม่ใช่เขียนลำดับขั้นซ้ำใน YAML —
+      # ลำดับใน scripts/e2e.sh มีด่านที่ตัดสินผลอยู่หลายจุด (ปลั๊กอินถูกโหลดจริงไหม, node_modules
+      # ได้ไบต์ของ tarball รอบนี้ไหม) การคัดลอกขั้นตอนมาไว้ที่นี่แปลว่า CI กับเครื่องจะเดินคนละทาง
+      # ทันทีที่ฝั่งใดฝั่งหนึ่งถูกแก้ ซึ่งเป็นวิธีที่ทำให้ gate เขียวโดยไม่ได้วัดของจริง
+      #
+      # ค่า DATABASE_* ส่งผ่าน env ไม่ใช่แก้ .env — สคริปต์ให้ env ภายนอกชนะไฟล์เสมอ
+      # ถ้าไม่เป็นแบบนั้น ขา postgres จะถูก .env ดึงกลับไปเป็น sqlite แล้วเขียวทั้งสองขา
+      # โดยไม่เคยแตะ Postgres เลย
+      - name: acceptance gate — Strapi 4.25.11 ตัวจริง + ปลั๊กอินจาก tarball
+        env:
+          DATABASE_CLIENT: ${{ matrix.db }}
+          DATABASE_HOST: 127.0.0.1
+          DATABASE_PORT: '5432'
+          DATABASE_NAME: strapi
+          DATABASE_USERNAME: strapi
+          DATABASE_PASSWORD: strapi
+        run: pnpm e2e:v4
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-v4-${{ matrix.db }}
+          path: |
+            examples/v4-app/test-results
+            examples/v4-app/.tmp-strapi.log
+            examples/v4-app/.tmp-line-mock.log
+
   mutation:
     runs-on: ubuntu-latest
     # Node 22 โดยตั้งใจ ต่างจาก job อื่นที่ใช้ .nvmrc — @stryker-mutator/core@10 ประกาศ

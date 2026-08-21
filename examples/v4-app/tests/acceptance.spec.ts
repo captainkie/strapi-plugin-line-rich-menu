@@ -79,9 +79,22 @@ const menuBody = (over: { name: string; channelId: string; imageFileId: number; 
   endAt: null,
 })
 
-// เทสต์ในไฟล์นี้เดินต่อกันเป็นเรื่องเดียว (workers: 1, fullyParallel: false) —
-// id ที่เทสต์แรกสร้างจึงถูกส่งต่อด้วยตัวแปรระดับโมดูล ไม่ใช่ hardcode
-let channelId = ''
+/**
+ * เทสต์ในไฟล์นี้เดินต่อกันเป็นเรื่องเดียว (workers: 1, fullyParallel: false) แต่ **ห้าม**
+ * ส่ง id ต่อกันด้วยตัวแปรระดับโมดูล — Playwright ทิ้ง worker แล้วสร้างใหม่ทันทีที่เทสต์ตัวไหนล้ม
+ * สถานะระดับโมดูลจึงถูกรีเซ็ตกลางชุด แล้วเทสต์ที่เหลือแดงด้วยค่าว่างแทนที่จะแดงด้วยเหตุผลจริง
+ *
+ * เกิดมาแล้วจริง: เทสต์แรกล้มหนึ่งข้อ กลายเป็นสี่ข้อแดง โดยสามข้อชี้ไปผิดที่ทั้งหมด
+ * (`channelId` ว่าง → 404, → 400 "id must be numeric") การอ่าน id กลับจาก API ทุกครั้ง
+ * ทำให้ต้นเหตุจริงเหลือข้อเดียวเสมอ
+ */
+async function theChannel(request: APIRequestContext, token: string): Promise<{ id: string }> {
+  const response = await request.get('/line-rich-menu/channels', auth(token))
+  expect(response.status(), await response.text()).toBe(200)
+  const rows = await response.json()
+  expect(rows.length, 'เทสต์แรกของชุดต้องสร้าง channel ไว้ให้แล้ว').toBeGreaterThan(0)
+  return rows[0]
+}
 
 test.describe('เส้นทางหลัก', () => {
   test('login → สร้าง channel → สร้างเมนู → อัปรูป → publish → เห็น published', async ({ request }) => {
@@ -93,7 +106,7 @@ test.describe('เส้นทางหลัก', () => {
     })
     expect(channelResponse.status(), await channelResponse.text()).toBe(200)
     const channel = await channelResponse.json()
-    channelId = channel.id
+    const channelId = channel.id as string
     // สเปก §11.2 — token เต็มต้องไม่เคยออกจากฝั่งเซิร์ฟเวอร์
     expect(JSON.stringify(channel)).not.toContain('e2e-access-token-ABCD')
     expect(channel).toEqual({
@@ -177,7 +190,8 @@ test.describe('เส้นทางหลัก', () => {
 
   test('reconcile ไม่เห็นเมนูกำพร้าหลัง publish ที่สำเร็จ', async ({ request }) => {
     const token = await login(request, ADMIN)
-    const report = await request.get(`/line-rich-menu/channels/${channelId}/reconcile`, auth(token))
+    const channel = await theChannel(request, token)
+    const report = await request.get(`/line-rich-menu/channels/${channel.id}/reconcile`, auth(token))
     expect(report.status(), await report.text()).toBe(200)
     expect(await report.json()).toEqual({ orphans: [], missing: [] })
   })
@@ -191,6 +205,7 @@ test.describe('เส้นทางหลัก', () => {
 
   test('ImageStore.read เดินกิ่ง fetch ได้จริงเมื่อ provider คืน url แบบสัมบูรณ์', async ({ request }) => {
     const token = await login(request, ADMIN)
+    const channelId = (await theChannel(request, token)).id
     const fileId = await uploadImage(request, token, 'remote-menu.jpg')
 
     // ถ้าไฟล์นี้ยังได้ url สัมพัทธ์ แปลว่าเทสต์กำลังจะเขียวโดยเดินกิ่งเดิม — ล้มที่นี่ดีกว่า
@@ -263,8 +278,9 @@ test.describe('RBAC — role ที่มีแค่ read', () => {
 
     const channels = await request.get('/line-rich-menu/channels', auth(token))
     expect(channels.status(), await channels.text()).toBe(200)
-    expect(await channels.json()).toEqual([{
-      id: channelId,
+    const rows = await channels.json()
+    expect(rows).toEqual([{
+      id: rows[0]?.id,
       name: 'ร้านทดสอบ',
       channelId: '1650000000',
       accessTokenPreview: '••••••••ABCD',
