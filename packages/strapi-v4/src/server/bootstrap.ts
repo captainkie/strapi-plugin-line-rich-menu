@@ -1,5 +1,6 @@
 import { permissionActions } from './permissions.js'
 import type { StrapiV4 } from './strapi.js'
+import { registerCron } from './tick.js'
 
 /**
  * ลงทะเบียนสี่สิทธิ์เข้า action provider ของ admin
@@ -13,4 +14,5 @@ export async function registerPermissions(strapi: StrapiV4): Promise<void> {
 
 export async function bootstrap({ strapi }: { strapi: StrapiV4 }): Promise<void> {
   await registerPermissions(strapi)
+  registerCron(strapi)
 }
