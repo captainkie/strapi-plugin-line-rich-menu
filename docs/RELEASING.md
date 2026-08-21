@@ -25,7 +25,17 @@ below is automated or verifiable ahead of time.
    after merge to `main`, never on a pull request — it is far too slow to gate one. That
    means a PR that guts assertions merges green and only breaks the run afterwards. The
    nightly result is therefore a release gate, not background noise:
-   `gh run list --workflow ci.yml --json conclusion,name -q '.[] | select(.name=="mutation")' | head -1`
+
+   ```sh
+   run_id=$(gh run list --workflow ci.yml --json databaseId,event -q '[.[] | select(.event=="schedule")][0].databaseId')
+   gh run view "$run_id" --json jobs --jq '.jobs[] | select(.name=="mutation") | .conclusion'
+   ```
+
+   `gh run list --json name` reports the **workflow** name (`CI`), never a job name — a
+   one-line `select(.name=="mutation")` on that output matches nothing, ever, and returns
+   silently empty whether the job passed, failed, or never ran. Confirmed live against this
+   repository: the single-line form returned nothing while the two-line form above correctly
+   reported the last nightly run's actual `mutation` job conclusion.
 
 ## Pre-public checklist
 
