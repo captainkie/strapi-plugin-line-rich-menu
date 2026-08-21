@@ -39,3 +39,6 @@ examples/*/.tmp*
 examples/*/build
 examples/*/.strapi
 examples/*/.pack
+# แคชของตัวตรวจเวอร์ชันใน Strapi CLI — มีแต่ timestamp ที่เปลี่ยนทุกครั้งที่บูต
+# ไม่ใช่ผลของการตั้งค่าอะไร การ track มันแปลว่า `pnpm e2e:*` ทิ้ง diff ไว้ทุกรอบ
+examples/*/.strapi-updater.json
