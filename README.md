@@ -63,7 +63,7 @@ ever letting them see the LINE OA's access token.
 
 ## Known limits
 
-Four things worth knowing before you find them the hard way.
+Five things worth knowing before you find them the hard way.
 
 **Images are normalised when you save, not when you publish.** A hard-to-compress image
 walks the whole size ladder through mozjpeg; several composed areas can together take
@@ -89,6 +89,13 @@ curl -X POST https://your-strapi.example.com/line-rich-menu/schedules/tick \
   -H "Authorization: Bearer $STRAPI_ADMIN_API_TOKEN" \
   -H 'Content-Type: application/json' -d '{}'
 ```
+
+**The editor cannot show you the image a saved menu already has.** `GET /menus/:id` returns
+`imageFileId` and no URL, and a browser file input cannot be pre-filled by any site, so
+reopening a saved menu shows an empty image field even though the menu has an image. Saving
+without touching it keeps the existing image — unless you switch to a template with a
+different canvas size, which drops it, because it no longer fits. Nothing is lost silently;
+it just looks emptier than it is.
 
 ## Security
 
