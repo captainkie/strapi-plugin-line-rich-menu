@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ENDPOINTS, type BotInfo, type ChannelSummary } from '../api.js'
+import { ENDPOINTS, type BotInfo, type ChannelSummary, type ReconcileReport } from '../api.js'
 import { usePort } from '../port.js'
 
 interface DraftChannel {
@@ -7,6 +7,12 @@ interface DraftChannel {
   channelId: string
   channelSecret: string
   accessToken: string
+}
+
+/** เมนูกำพร้าตัวหนึ่งที่รอผู้ใช้กดยืนยันลบ — เก็บทั้ง channelId เพราะ endpoint ลบต้องใช้ทั้งคู่ */
+interface PendingDelete {
+  channelId: string
+  lineRichMenuId: string
 }
 
 const emptyChannel: DraftChannel = { name: '', channelId: '', channelSecret: '', accessToken: '' }
@@ -18,6 +24,10 @@ export function ChannelSettings() {
   const [draft, setDraft] = useState<DraftChannel>(emptyChannel)
   const [tested, setTested] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // เปิดได้ทีละ channel — เพียงพอสำหรับหน้านี้และทำให้ testId ของแต่ละแถวไม่ต้องผูกกับ channelId ซ้ำซ้อน
+  const [reconcileFor, setReconcileFor] = useState<string | null>(null)
+  const [report, setReport] = useState<ReconcileReport | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
 
   const reload = () => {
     http.get<ChannelSummary[]>(ENDPOINTS.channels)
@@ -59,6 +69,38 @@ export function ChannelSettings() {
   const set = <K extends keyof DraftChannel>(key: K, value: DraftChannel[K]) =>
     setDraft((prev) => ({ ...prev, [key]: value }))
 
+  // สลับเปิด/ปิดแผงของ channel เดียวกัน กด "ตรวจสอบ" ซ้ำที่ channel เดิมคือปิด ไม่ใช่โหลดซ้ำเงียบ ๆ
+  const toggleReconcile = async (id: string) => {
+    if (reconcileFor === id) { setReconcileFor(null); setReport(null); return }
+    setError(null)
+    setReconcileFor(id)
+    setReport(null)
+    try {
+      setReport(await http.get<ReconcileReport>(ENDPOINTS.channelReconcile(id)))
+    } catch {
+      setError(t('channel.reconcile.failed'))
+    }
+  }
+
+  // สเปก §8 ข้อ 3 — ต้องถามยืนยันก่อนเสมอ เป็นการลบของบนระบบจริงที่ย้อนกลับไม่ได้ กด delete แค่เปิดกล่อง
+  // ยืนยัน ยังไม่ยิง request ใด ๆ จนกว่าจะกดปุ่มยืนยันในกล่องนั้นอีกที (ดู confirmDelete ด้านล่าง)
+  const askDelete = (channelId: string, lineRichMenuId: string) => setPendingDelete({ channelId, lineRichMenuId })
+
+  const confirmDelete = async () => {
+    if (pendingDelete === null) return
+    const { channelId, lineRichMenuId } = pendingDelete
+    setError(null)
+    try {
+      await http.del(ENDPOINTS.channelOrphan(channelId, lineRichMenuId))
+      // ตัดออกจาก state ทันทีแทนที่จะ reconcile ใหม่ทั้งชุด — เซิร์ฟเวอร์เพิ่งยืนยันเองว่าลบสำเร็จ
+      setReport((prev) => (prev === null ? prev : { ...prev, orphans: prev.orphans.filter((id) => id !== lineRichMenuId) }))
+      setPendingDelete(null)
+    } catch {
+      setError(t('channel.reconcile.deleteFailed'))
+      setPendingDelete(null)
+    }
+  }
+
   return (
     <ui.Flex direction="column" gap={3}>
       <ui.Typography as="h1" variant="alpha">{t('channel.heading')}</ui.Typography>
@@ -66,15 +108,77 @@ export function ChannelSettings() {
       {tested === null ? null : <ui.Alert variant="success">{tested}</ui.Alert>}
 
       {channels.map((channel) => (
-        <ui.Flex key={channel.id} justifyContent="space-between" alignItems="center">
-          <ui.Typography>{channel.name}</ui.Typography>
-          <ui.Typography textColor="neutral600">{channel.channelId}</ui.Typography>
-          <ui.Typography textColor="neutral600">{channel.accessTokenPreview}</ui.Typography>
-          <ui.Button variant="secondary" testId={`test-${channel.id}`} onClick={() => void test(channel.id)}>
-            {t('channel.test')}
-          </ui.Button>
+        <ui.Flex key={channel.id} direction="column" gap={2}>
+          <ui.Flex justifyContent="space-between" alignItems="center">
+            <ui.Typography>{channel.name}</ui.Typography>
+            <ui.Typography textColor="neutral600">{channel.channelId}</ui.Typography>
+            <ui.Typography textColor="neutral600">{channel.accessTokenPreview}</ui.Typography>
+            <ui.Flex gap={2}>
+              <ui.Button variant="secondary" testId={`test-${channel.id}`} onClick={() => void test(channel.id)}>
+                {t('channel.test')}
+              </ui.Button>
+              <ui.Button variant="secondary" testId={`reconcile-${channel.id}`} onClick={() => void toggleReconcile(channel.id)}>
+                {t('channel.reconcile')}
+              </ui.Button>
+            </ui.Flex>
+          </ui.Flex>
+
+          {reconcileFor !== channel.id ? null : report === null ? (
+            <ui.Loader>{t('common.loading')}</ui.Loader>
+          ) : (
+            <ui.Flex direction="column" gap={2}>
+              <ui.Flex direction="column" gap={1}>
+                <ui.Typography as="h3" variant="delta">{t('channel.reconcile.orphans.heading')}</ui.Typography>
+                {/* กำพร้า = อยู่บน LINE แต่ไม่มีแถวใน DB — id ฝั่ง LINE คือสิ่งเดียวที่ระบุมันได้ จึงมีปุ่มลบ */}
+                {report.orphans.length === 0 ? (
+                  <ui.Typography textColor="neutral600">{t('channel.reconcile.orphans.empty')}</ui.Typography>
+                ) : report.orphans.map((lineRichMenuId) => (
+                  <ui.Flex key={lineRichMenuId} justifyContent="space-between" alignItems="center">
+                    <ui.Typography>{lineRichMenuId}</ui.Typography>
+                    <ui.Button
+                      variant="danger"
+                      testId={`delete-orphan-${lineRichMenuId}`}
+                      onClick={() => askDelete(channel.id, lineRichMenuId)}
+                    >
+                      {t('channel.reconcile.delete')}
+                    </ui.Button>
+                  </ui.Flex>
+                ))}
+              </ui.Flex>
+
+              <ui.Flex direction="column" gap={1}>
+                <ui.Typography as="h3" variant="delta">{t('channel.reconcile.missing.heading')}</ui.Typography>
+                {/* หายไป = DB บอกว่า published แต่ LINE ไม่มีแล้ว — ลบแถวไม่ได้แก้อะไร จึงไม่มีปุ่ม (สเปก) */}
+                {report.missing.length === 0 ? (
+                  <ui.Typography textColor="neutral600">{t('channel.reconcile.missing.empty')}</ui.Typography>
+                ) : report.missing.map((lineRichMenuId) => (
+                  <ui.Typography key={lineRichMenuId}>{lineRichMenuId}</ui.Typography>
+                ))}
+              </ui.Flex>
+            </ui.Flex>
+          )}
         </ui.Flex>
       ))}
+
+      {pendingDelete === null ? null : (
+        <ui.Modal
+          open
+          onClose={() => setPendingDelete(null)}
+          title={t('channel.reconcile.deleteConfirm.title')}
+          footer={
+            <>
+              <ui.Button variant="secondary" onClick={() => setPendingDelete(null)}>{t('common.cancel')}</ui.Button>
+              <ui.Button variant="danger" testId="confirm-delete-orphan" onClick={() => void confirmDelete()}>
+                {t('channel.reconcile.delete')}
+              </ui.Button>
+            </>
+          }
+        >
+          <ui.Alert variant="warning">
+            {t('channel.reconcile.deleteConfirm.body', { id: pendingDelete.lineRichMenuId })}
+          </ui.Alert>
+        </ui.Modal>
+      )}
 
       {adding ? (
         <ui.Flex direction="column" gap={2}>

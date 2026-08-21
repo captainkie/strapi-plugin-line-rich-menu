@@ -9,13 +9,17 @@ const channels = [
   { id: 'c1', name: 'ร้านทดสอบ', channelId: '1650000000', accessTokenPreview: '••••••••abcd', isDefault: true },
 ]
 
-function setup(overrides: { get?: unknown; post?: unknown; t?: (key: string, values?: Record<string, string | number>) => string } = {}) {
+function setup(overrides: {
+  get?: unknown; post?: unknown; del?: unknown
+  t?: (key: string, values?: Record<string, string | number>) => string
+} = {}) {
   const base = createStubPort({ t: overrides.t ?? ((k) => k) })
   const get = overrides.get ?? vi.fn(async () => channels)
   const post = overrides.post ?? vi.fn(async () => ({}))
-  const port = { ...base, http: { ...base.http, get, post } as typeof base.http }
+  const del = overrides.del ?? vi.fn(async () => ({}))
+  const port = { ...base, http: { ...base.http, get, post, del } as typeof base.http }
   render(<PortProvider value={port}><ChannelSettings /></PortProvider>)
-  return { get, post }
+  return { get, post, del }
 }
 
 describe('ChannelSettings', () => {
@@ -129,5 +133,116 @@ describe('ChannelSettings', () => {
     await waitFor(() => expect(screen.queryByTestId('save-channel')).not.toBeInTheDocument())
     fireEvent.click(screen.getByTestId('add-channel'))
     expect(screen.getByLabelText('channel.accessToken')).toHaveValue('')
+  })
+
+  // สเปก §8 ข้อ 3 ท่อนที่สอง — reconcile ต้องมีปุ่มเรียกจริงในหน้านี้ ไม่ใช่ endpoint ที่ไม่มีใครยิง
+  describe('ตรวจสอบเมนูกำพร้า (reconcile)', () => {
+    const REPORT = { orphans: ['richmenu-stray'], missing: ['richmenu-gone'] }
+
+    function setupReconciled(overrides: Parameters<typeof setup>[0] = {}) {
+      const get = overrides.get ?? vi.fn(async (url: string) => (
+        url === ENDPOINTS.channelReconcile('c1') ? REPORT : channels
+      ))
+      return setup({ ...overrides, get })
+    }
+
+    it('กดปุ่มตรวจสอบแล้วเรียก endpoint reconcile ของ channel ที่ถูกต้อง และแสดงทั้งสองรายการ', async () => {
+      const { get } = setupReconciled()
+      await waitFor(() => expect(screen.getByTestId('reconcile-c1')).toBeInTheDocument())
+
+      fireEvent.click(screen.getByTestId('reconcile-c1'))
+
+      await waitFor(() => expect(get).toHaveBeenCalledWith(ENDPOINTS.channelReconcile('c1')))
+      await waitFor(() => expect(screen.getByText('richmenu-stray')).toBeInTheDocument())
+      expect(screen.getByText('richmenu-gone')).toBeInTheDocument()
+    })
+
+    it('orphans มีปุ่มลบรายตัว ส่วน missing แสดงอย่างเดียวไม่มีปุ่ม', async () => {
+      setupReconciled()
+      fireEvent.click(await screen.findByTestId('reconcile-c1'))
+      await screen.findByText('richmenu-stray')
+
+      expect(screen.getByTestId('delete-orphan-richmenu-stray')).toBeInTheDocument()
+      expect(screen.queryByTestId('delete-orphan-richmenu-gone')).not.toBeInTheDocument()
+    })
+
+    // หัวใจของฝั่ง UI ในข้อนี้ — กด delete ต้องแค่เปิดกล่องยืนยัน ไม่ยิง request ทันที และข้อความ
+    // ยืนยันต้องมี id ที่จะลบอยู่ในนั้นจริง (ไม่ใช่ raw key ที่ผู้ใช้อ่านไม่รู้เรื่องว่ากำลังจะลบตัวไหน)
+    it('ปุ่มลบเปิดกล่องยืนยันที่มี id อยู่ในข้อความ และยิง DELETE เฉพาะหลังกดยืนยันเท่านั้น', async () => {
+      const t = (key: string, values?: Record<string, string | number>) => {
+        if (key === 'channel.reconcile.deleteConfirm.body') {
+          return `ลบ ${String(values?.['id'])} ออกจาก LINE ถาวร กู้คืนไม่ได้`
+        }
+        return key
+      }
+      const { del } = setupReconciled({ t })
+      fireEvent.click(await screen.findByTestId('reconcile-c1'))
+      await screen.findByText('richmenu-stray')
+
+      fireEvent.click(screen.getByTestId('delete-orphan-richmenu-stray'))
+      expect(del).not.toHaveBeenCalled()
+      expect(await screen.findByText('ลบ richmenu-stray ออกจาก LINE ถาวร กู้คืนไม่ได้')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId('confirm-delete-orphan'))
+      await waitFor(() => expect(del).toHaveBeenCalledWith(ENDPOINTS.channelOrphan('c1', 'richmenu-stray')))
+    })
+
+    it('ลบสำเร็จแล้วเอารายการนั้นออกจากผังทันที', async () => {
+      setupReconciled()
+      fireEvent.click(await screen.findByTestId('reconcile-c1'))
+      await screen.findByText('richmenu-stray')
+
+      fireEvent.click(screen.getByTestId('delete-orphan-richmenu-stray'))
+      fireEvent.click(screen.getByTestId('confirm-delete-orphan'))
+
+      await waitFor(() => expect(screen.queryByTestId('delete-orphan-richmenu-stray')).not.toBeInTheDocument())
+    })
+
+    it('ตรวจสอบล้มเหลว ต้องขึ้น error ไม่ใช่แสดงรายการว่างเหมือนไม่มีของกำพร้า', async () => {
+      const get = vi.fn(async (url: string) => {
+        if (url === ENDPOINTS.channelReconcile('c1')) throw new Error('500')
+        return channels
+      })
+      setupReconciled({ get })
+      fireEvent.click(await screen.findByTestId('reconcile-c1'))
+
+      await waitFor(() => expect(screen.getByText('channel.reconcile.failed')).toBeInTheDocument())
+    })
+
+    it('ลบล้มเหลว ต้องขึ้น error และปิดกล่องยืนยัน แถวกำพร้ายังอยู่เหมือนเดิม', async () => {
+      const del = vi.fn(async () => { throw new Error('500') })
+      setupReconciled({ del })
+      fireEvent.click(await screen.findByTestId('reconcile-c1'))
+      await screen.findByText('richmenu-stray')
+
+      fireEvent.click(screen.getByTestId('delete-orphan-richmenu-stray'))
+      fireEvent.click(screen.getByTestId('confirm-delete-orphan'))
+
+      await waitFor(() => expect(screen.getByText('channel.reconcile.deleteFailed')).toBeInTheDocument())
+      expect(screen.queryByTestId('confirm-delete-orphan')).not.toBeInTheDocument()
+      expect(screen.getByTestId('delete-orphan-richmenu-stray')).toBeInTheDocument()
+    })
+
+    it('ไม่มีเมนูกำพร้าหรือรายการที่หายไป ต้องขึ้นข้อความว่างของแต่ละฝั่ง', async () => {
+      const get = vi.fn(async (url: string) => (
+        url === ENDPOINTS.channelReconcile('c1') ? { orphans: [], missing: [] } : channels
+      ))
+      setupReconciled({ get })
+      fireEvent.click(await screen.findByTestId('reconcile-c1'))
+
+      await waitFor(() => expect(screen.getByText('channel.reconcile.orphans.empty')).toBeInTheDocument())
+      expect(screen.getByText('channel.reconcile.missing.empty')).toBeInTheDocument()
+    })
+
+    it('กดปุ่มตรวจสอบซ้ำที่ channel เดิมเป็นการปิดแผง ไม่ใช่โหลดซ้ำ', async () => {
+      const { get } = setupReconciled()
+      fireEvent.click(await screen.findByTestId('reconcile-c1'))
+      await screen.findByText('richmenu-stray')
+
+      fireEvent.click(screen.getByTestId('reconcile-c1'))
+
+      expect(screen.queryByText('richmenu-stray')).not.toBeInTheDocument()
+      expect(get).toHaveBeenCalledTimes(2) // channels ตอน mount + reconcile ครั้งเดียวตอนเปิด ไม่ใช่ตอนปิด
+    })
   })
 })

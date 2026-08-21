@@ -6,6 +6,8 @@ export const ENDPOINTS = {
   channels: '/line-rich-menu/channels',
   channel: (id: string) => `/line-rich-menu/channels/${id}`,
   channelTest: (id: string) => `/line-rich-menu/channels/${id}/test`,
+  channelReconcile: (id: string) => `/line-rich-menu/channels/${id}/reconcile`,
+  channelOrphan: (id: string, lineRichMenuId: string) => `/line-rich-menu/channels/${id}/orphans/${lineRichMenuId}`,
   menus: '/line-rich-menu/menus',
   menu: (id: string) => `/line-rich-menu/menus/${id}`,
   menuPublish: (id: string) => `/line-rich-menu/menus/${id}/publish`,
@@ -35,4 +37,16 @@ export interface BotInfo {
   userId: string
   basicId: string
   displayName: string
+}
+
+/**
+ * ผลของ core's reconcileChannel — ไม่ import type จาก `@fosivo/line-rich-menu-core` ตรง ๆ
+ * (ต่างจากไฟล์นี้ทั้งไฟล์ที่ประกาศ DTO เองเสมอ) เพราะ core ทั้ง package (ไม่ใช่ subpath `/browser`)
+ * ลากโค้ดฝั่งเซิร์ฟเวอร์เข้ามาด้วย ซึ่งเป็นสิ่งที่ guard ของ Task 1 (`/browser` import) ห้ามไว้
+ */
+export interface ReconcileReport {
+  /** อยู่บน LINE แต่ไม่มีแถวไหนใน DB อ้างถึง — มีปุ่มลบได้เพราะ id ฝั่ง LINE คือสิ่งเดียวที่มันมี */
+  orphans: string[]
+  /** DB บอกว่า published แต่ LINE ไม่มีแล้ว — ลบแถวไม่ได้แก้อะไร ต้อง publish ใหม่ */
+  missing: string[]
 }
