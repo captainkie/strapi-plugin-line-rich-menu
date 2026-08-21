@@ -125,6 +125,62 @@ describe('update', () => {
   })
 })
 
+/**
+ * I2 — `sealChannelSecrets` แบบเดิมปิดผนึกทั้งสองฟิลด์เป็นก้อนเดียว: `PUT { channelAccessToken }`
+ * ส่ง `channelSecret: undefined` เข้าไปด้วยเสมอ ฟังก์ชันตีความว่า "ไม่มี secret" แล้วคืน
+ * `channelSecret: null` ทับ envelope เดิม — หมุน token (สิ่งที่ผู้ใช้ทำพอดีตอนสงสัยว่า credential
+ * รั่ว) จึงทำลาย secret ที่ไม่ได้แตะไปด้วย และ `PUT { channelSecret }` เดี่ยว ๆ ก็ได้ `resealed = {}`
+ * ทั้งก้อนเพราะไม่มี token มาด้วย — 200 ที่ไม่เปลี่ยนอะไรเลยสักฟิลด์ ทดสอบครบทั้งสี่ชุดค่าผสม
+ */
+describe('update — credential แต่ละฟิลด์ต้องเป็นอิสระจากกัน (I2)', () => {
+  it('ส่งมาทั้งคู่ — ทั้ง token และ secret ถูกปิดผนึกใหม่', async () => {
+    const service = createChannelService({ repo: fakeRepo(), key })
+    const created = await service.create(input)
+
+    await service.update(created.id, { channelAccessToken: 'brand-new-token-6789', channelSecret: 'new-secret' })
+
+    const opened = await service.withSecrets().findOne(created.id)
+    expect(opened.channelAccessToken).toBe('brand-new-token-6789')
+    expect(opened.channelSecret).toBe('new-secret')
+  })
+
+  it('ส่งมาแค่ token — secret เดิมต้องยังถอดได้ค่าเดิม ไม่ถูกล้างทิ้ง', async () => {
+    const service = createChannelService({ repo: fakeRepo(), key })
+    const created = await service.create(input)
+
+    await service.update(created.id, { channelAccessToken: 'brand-new-token-6789' })
+
+    const opened = await service.withSecrets().findOne(created.id)
+    expect(opened.channelAccessToken).toBe('brand-new-token-6789')
+    expect(opened.channelSecret).toBe('shh')
+  })
+
+  it('ส่งมาแค่ secret — token เดิมต้องยังถอดได้ค่าเดิม ไม่ใช่ 200 ที่ไม่เปลี่ยนอะไรเลย', async () => {
+    const service = createChannelService({ repo: fakeRepo(), key })
+    const created = await service.create(input)
+
+    const updated = await service.update(created.id, { channelSecret: 'rotated-secret' })
+
+    expect(updated.accessTokenPreview).toBe('••••••••WXYZ')
+    const opened = await service.withSecrets().findOne(created.id)
+    expect(opened.channelAccessToken).toBe(TOKEN)
+    expect(opened.channelSecret).toBe('rotated-secret')
+  })
+
+  it('ไม่ส่งทั้งคู่ — credential ทั้งสองฟิลด์เหมือนเดิมทุกตัวอักษร (ciphertext ไม่ถูกคำนวณใหม่)', async () => {
+    const repo = fakeRepo()
+    const service = createChannelService({ repo, key })
+    const created = await service.create(input)
+    const before = { ...repo.rows[0]! }
+
+    await service.update(created.id, { name: 'ชื่อใหม่' })
+
+    expect(repo.rows[0]!.channelAccessToken).toBe(before.channelAccessToken)
+    expect(repo.rows[0]!.channelSecret).toBe(before.channelSecret)
+    expect(repo.rows[0]!.accessTokenLast4).toBe(before.accessTokenLast4)
+  })
+})
+
 describe('withSecrets — ทางเดียวที่จะได้ plaintext', () => {
   it('findOne คืน token จริง', async () => {
     const service = createChannelService({ repo: fakeRepo(), key })

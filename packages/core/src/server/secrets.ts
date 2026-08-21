@@ -52,12 +52,25 @@ export function previewOf(last4: string): string {
   return last4.length === 4 ? `••••••••${last4}` : '••••••••'
 }
 
+/**
+ * แยกออกมาจาก `sealChannelSecrets` เพื่อให้ `channels.ts.update()` ปิดผนึกทีละฟิลด์ได้จริง
+ * (I2) — ฟิลด์ที่ผู้ใช้ไม่ได้ส่งมาต้องไม่ถูกเรียกฟังก์ชันนี้เลย ไม่ใช่ถูกป้อนด้วย ciphertext เดิม
+ * เพราะฟังก์ชันนี้ encrypt สิ่งที่รับมาเสมอ — ป้อน ciphertext เข้าไปคือเข้ารหัสซ้อนสองชั้น
+ */
+export function sealAccessToken(plaintext: string, key: Buffer): { channelAccessToken: string; accessTokenLast4: string } {
+  return { channelAccessToken: encryptSecret(plaintext, key), accessTokenLast4: lastFourOf(plaintext) }
+}
+
+/** เช่นเดียวกับ `sealAccessToken` — `undefined`/ว่างเปล่าคือ "ไม่มี secret" ไม่ใช่ "ไม่ได้แตะ" */
+export function sealSecret(plaintext: string | null | undefined, key: Buffer): string | null {
+  const trimmed = plaintext?.trim()
+  return trimmed !== undefined && trimmed.length > 0 ? encryptSecret(trimmed, key) : null
+}
+
 export function sealChannelSecrets(input: ChannelSecretsInput, key: Buffer): SealedChannelSecrets {
-  const secret = input.channelSecret?.trim()
   return {
-    channelAccessToken: encryptSecret(input.channelAccessToken, key),
-    channelSecret: secret !== undefined && secret.length > 0 ? encryptSecret(secret, key) : null,
-    accessTokenLast4: lastFourOf(input.channelAccessToken),
+    ...sealAccessToken(input.channelAccessToken, key),
+    channelSecret: sealSecret(input.channelSecret, key),
   }
 }
 
