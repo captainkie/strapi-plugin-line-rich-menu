@@ -1,4 +1,28 @@
+import { Message } from '@strapi/icons'
+import { PERMISSION, PLUGIN_ID } from '../server/permissions.js'
+import { trads } from './translations.js'
+
+interface AdminApp {
+  addMenuLink(link: Record<string, unknown>): void
+  registerPlugin(plugin: Record<string, unknown>): void
+}
+
 export default {
-  register(): void {},
-  registerTrads(): Promise<unknown[]> { return Promise.resolve([]) },
+  register(app: AdminApp): void {
+    app.addMenuLink({
+      to: `/plugins/${PLUGIN_ID}`,
+      icon: Message,
+      intlLabel: { id: `${PLUGIN_ID}.plugin.name`, defaultMessage: 'LINE Rich Menu' },
+      // เมนูฝั่งซ้ายซ่อนตัวเองจากคนที่ไม่มีสิทธิ์ `read` — ชั้นแรกของ deny by default
+      // ชั้นที่บังคับจริงยังเป็น policy ที่ route (Task 16/17) ไม่ใช่ตรงนี้
+      permissions: [{ action: PERMISSION.read, subject: null }],
+      Component: async () => import('./App.js'),
+    })
+
+    app.registerPlugin({ id: PLUGIN_ID, initializer: undefined, isReady: true, name: PLUGIN_ID })
+  },
+
+  registerTrads({ locales }: { locales: string[] }): Promise<{ data: Record<string, string>; locale: string }[]> {
+    return Promise.resolve(trads(locales))
+  },
 }
