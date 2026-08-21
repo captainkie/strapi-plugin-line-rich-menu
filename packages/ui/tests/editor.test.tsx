@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { TEMPLATES } from '@fosivo/line-rich-menu-core/browser'
+import { SIZE_LADDER, TEMPLATES } from '@fosivo/line-rich-menu-core/browser'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { emptyActionForm } from '../src/action-form.js'
 import { PortProvider, type HttpClient, type UIPort } from '../src/port.js'
@@ -402,6 +402,67 @@ describe('RichMenuEditor', () => {
       fireEvent.click(screen.getByTestId('template-confirm'))
       expect(screen.queryByTestId('image-remove')).not.toBeInTheDocument()
     })
+  })
+})
+
+// สเปกงานนี้ #4 — ปุ่ม "Design guide" มุมขวาบนของ Menu content เปิด modal ที่บอกข้อกำหนดของรูปจริง
+describe('Design guide modal', () => {
+  it('ไม่อยู่บนจอจนกว่าจะกดเปิด อยู่มุมขวาบนของหัวข้อ Menu content', () => {
+    setup()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('open-design-guide'))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('บอกรูปแบบไฟล์ที่ inspectImage() ยอมรับจริง (jpeg/png) ไม่ใช่แค่พิมพ์ตามสเปก', () => {
+    setup()
+    fireEvent.click(screen.getByTestId('open-design-guide'))
+    expect(screen.getByText('editor.designGuide.formats')).toBeInTheDocument()
+  })
+
+  // ตัวเลขหกขนาดต้องมาจาก SIZE_LADDER ของ core ตรง ๆ ไม่ใช่พิมพ์ซ้ำ — เทสต์นี้เทียบกับค่าที่คำนวณ
+  // จาก SIZE_LADDER เอง ถ้า ladder เปลี่ยนแล้วโค้ดยังพิมพ์ตัวเลขเก่าค้างไว้ เทสต์นี้ต้องแดง
+  it('บอกทั้งหกขนาดผืนผ้าใบจาก SIZE_LADDER ของ core ตรง ๆ', () => {
+    setup()
+    fireEvent.click(screen.getByTestId('open-design-guide'))
+    const dialog = screen.getByRole('dialog')
+    const largeSizes = SIZE_LADDER.large.map((s) => `${s.width}×${s.height}`).join(' · ')
+    const compactSizes = SIZE_LADDER.compact.map((s) => `${s.width}×${s.height}`).join(' · ')
+    expect(within(dialog).getByText(new RegExp(largeSizes.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeInTheDocument()
+    expect(within(dialog).getByText(new RegExp(compactSizes.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeInTheDocument()
+  })
+
+  it('บอกว่ามีเพดาน 1 MB แต่ resize ลดขั้นให้อัตโนมัติแทนการปฏิเสธไฟล์', () => {
+    setup()
+    fireEvent.click(screen.getByTestId('open-design-guide'))
+    expect(screen.getByText('editor.designGuide.autoResize')).toBeInTheDocument()
+  })
+
+  it('บอกว่าตำแหน่งช่องที่แตะได้มาจาก template', () => {
+    setup()
+    fireEvent.click(screen.getByTestId('open-design-guide'))
+    expect(screen.getByText('editor.designGuide.areasNote')).toBeInTheDocument()
+  })
+
+  // สเปกงานนี้ #8 — ลิงก์ไปหาไฟล์ที่ LINE โฮสต์เอง (ไม่ใช่ไฟล์ที่เราแจกต่อ) เปิดแท็บใหม่ปลอดภัย
+  it('ปุ่มดาวน์โหลดลิงก์ไปที่ไฟล์ของ LINE เอง เปิดแท็บใหม่ ปลอดภัยจาก reverse tabnabbing', () => {
+    setup()
+    fireEvent.click(screen.getByTestId('open-design-guide'))
+    const link = screen.getByTestId('design-guide-download')
+    expect(link).toHaveAttribute(
+      'href',
+      'https://static.line-scdn.net/biz-app/16bd9ea9e03/manager/static/LINE_rich_menu_design_template.zip',
+    )
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link.getAttribute('rel')).toContain('noreferrer')
+    expect(link.getAttribute('rel')).toContain('noopener')
+  })
+
+  it('ปิดได้ด้วยปุ่ม Close', () => {
+    setup()
+    fireEvent.click(screen.getByTestId('open-design-guide'))
+    fireEvent.click(screen.getByTestId('design-guide-close'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
 

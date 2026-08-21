@@ -68,10 +68,21 @@ function areaIndexOf(path: string): number | null {
   return match === null ? null : Number(match[1])
 }
 
+/**
+ * ไฟล์แม่แบบออกแบบที่ LINE โฮสต์เอง — เป็น "ลิงก์" ไปหาไฟล์ของ LINE ไม่ใช่การก็อปมาแจกต่อ (สเปกงานนี้
+ * #8) เจ้าของโปรเจกต์ตัดสินใจไว้ตรง ๆ ว่าต้องลิงก์ ไม่ใช่โฮสต์เอง — แพ็กเกจนี้ ship ใต้ AGPL ไปที่ npm
+ * สาธารณะ การดาวน์โหลดไฟล์นี้มาแจกต่อในตัวแพ็กเกจเองมีปัญหาเรื่องสิทธิ์การแจกจ่ายเหมือนกับที่ห้ามใส่
+ * โลโก้ LINE เข้าไป (ดู LineMark.tsx) — ต้อง verify ว่า URL นี้ตอบสนองจริงก่อน commit เสมอ (ตรวจแล้ว
+ * ตอนเขียนโค้ดนี้: HTTP 200, content-type: application/zip)
+ */
+const DESIGN_TEMPLATE_URL =
+  'https://static.line-scdn.net/biz-app/16bd9ea9e03/manager/static/LINE_rich_menu_design_template.zip'
+
 export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: RichMenuEditorProps) {
-  const { ui, t, toast } = usePort()
+  const { ui, t, theme, toast } = usePort()
   const [draft, setDraft] = useState<RichMenuDraft>(initial ?? emptyDraft())
   const [picking, setPicking] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
   const [outlines, setOutlines] = useState(true)
   const [customLayout, setCustomLayout] = useState(false)
   const [active, setActive] = useState<number | null>(null)
@@ -281,6 +292,15 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
 
         <ui.Divider />
 
+        {/* หัวข้อ + ปุ่ม Design guide มุมขวาบน ตำแหน่งเดียวกับ LINE OA Manager เอง
+            (docs/files/example-ui/) — สเปกงานนี้ #4 */}
+        <ui.Flex justifyContent="space-between" alignItems="center">
+          <ui.Typography as="h2" variant="delta">{t('editor.menuContent')}</ui.Typography>
+          <ui.Button variant="secondary" testId="open-design-guide" onClick={() => setGuideOpen(true)}>
+            {t('editor.designGuide.title')}
+          </ui.Button>
+        </ui.Flex>
+
         <ui.Flex gap={4} alignItems="flex-start">
           {/* ผัง §5.7 วาด canvas ไว้ใน "กรอบโทรศัพท์" ช่องเดียว พร้อมสวิตช์ outline อยู่ใต้กรอบ
               ไม่ใช่พรีวิวหนึ่งตัวกับ canvas ที่แก้ไขได้อีกตัวข้างๆ — Preview จึงเป็นตัวควบคุมจริง
@@ -393,6 +413,71 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
             onApply={applyTemplate}
             onClose={() => setPicking(false)}
           />
+        ) : null}
+
+        {/*
+          สเปกงานนี้ #4 — เนื้อหาอ่านมาจาก packages/core/src/image/guards.ts จริง (ไม่ใช่แค่พิมพ์
+          ตามสเปก §2.2 เฉย ๆ): inspectImage() รับแค่ jpeg/png (ไม่ใช่ "รูปภาพทุกชนิด") และ resize
+          หกขนาดมาจาก SIZE_LADDER ตรง ๆ (ตัวเดียวกับที่ TemplatePicker ใช้) ไม่ใช่พิมพ์ตัวเลขซ้ำเอง —
+          ถ้า ladder เปลี่ยน ข้อความนี้เปลี่ยนตาม ไม่มีวันไม่ตรงกันเงียบ ๆ เพดาน 1 MB มาจาก
+          MAX_OUTPUT_BYTES ของไฟล์เดียวกัน (เขียนเป็นข้อความคงที่ตรงนี้ เพราะไฟล์นั้น import `sharp`
+          ซึ่งเป็น native binding รันเฉพาะฝั่งเซิร์ฟเวอร์ — import เข้ามาที่นี่จะพังบันเดิลของแอดมิน)
+          "resize ลดขั้นอัตโนมัติแทนการปฏิเสธไฟล์ใหญ่เกิน" มาจากพฤติกรรมจริงของ normalize() ใน
+          packages/core/src/image/pipeline.ts (ไล่ทีละขั้นของ ladder แล้วบีบ quality จนกว่าจะไม่เกิน
+          เพดาน ไม่ใช่ throw ตั้งแต่ไฟล์ต้นทางใหญ่กว่าขั้นแรก)
+        */}
+        {guideOpen ? (
+          <ui.Modal
+            open
+            onClose={() => setGuideOpen(false)}
+            title={t('editor.designGuide.title')}
+            footer={
+              <ui.Button testId="design-guide-close" onClick={() => setGuideOpen(false)}>
+                {t('common.close')}
+              </ui.Button>
+            }
+          >
+            <ui.Flex direction="column" gap={3}>
+              <div>
+                <ui.Typography as="h3" variant="delta">{t('editor.designGuide.imageHeading')}</ui.Typography>
+                <p>{t('editor.designGuide.formats')}</p>
+                <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
+                  <li>
+                    {t('template.picker.group.large')}: {SIZE_LADDER.large.map((s) => `${s.width}×${s.height}`).join(' · ')}
+                  </li>
+                  <li>
+                    {t('template.picker.group.compact')}: {SIZE_LADDER.compact.map((s) => `${s.width}×${s.height}`).join(' · ')}
+                  </li>
+                </ul>
+                <p>{t('editor.designGuide.autoResize')}</p>
+              </div>
+
+              <p>{t('editor.designGuide.areasNote')}</p>
+
+              {/* ลิงก์ไปหาไฟล์ที่ LINE โฮสต์เอง ไม่ใช่ไฟล์ที่เราแจกต่อ (ดูคอมเมนต์ที่ DESIGN_TEMPLATE_URL
+                  ด้านบน) — target="_blank" + rel="noreferrer noopener" ตามที่สเปกงานนี้ #8 ขอไว้ตรง ๆ
+                  เป็น <a> ดิบเพราะ port ไม่มี primitive สำหรับลิงก์ภายนอกที่เปิดแท็บใหม่ (ui.Button
+                  รับแค่ onClick, nav.Link ไว้สำหรับนำทางภายในแอดมินเท่านั้น) สีขอบตามธีมของ Strapi
+                  (ไม่ใช่เขียว LINE — modal นี้เป็น chrome ของเรา ไม่ใช่พื้นผิวที่แทน LINE เอง) */}
+              <a
+                href={DESIGN_TEMPLATE_URL}
+                target="_blank"
+                rel="noreferrer noopener"
+                data-testid="design-guide-download"
+                style={{
+                  display: 'inline-block',
+                  alignSelf: 'flex-start',
+                  padding: '.6rem 1rem',
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 4,
+                  textDecoration: 'none',
+                  color: 'inherit',
+                }}
+              >
+                {t('editor.designGuide.download')}
+              </a>
+            </ui.Flex>
+          </ui.Modal>
         ) : null}
       </ui.Flex>
     </ui.Page>
