@@ -1,0 +1,10 @@
+node_modules/
+build/
+.strapi/
+.tmp/
+.cache/
+test-results/
+playwright-report/
+public/uploads/*
+!public/uploads/.gitkeep
+.tmp-*.log

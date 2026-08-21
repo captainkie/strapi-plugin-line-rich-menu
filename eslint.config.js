@@ -25,6 +25,36 @@ export default tseslint.config(
     },
   },
   {
+    // สคริปต์ที่รันด้วย Node ตรง ๆ ไม่ได้ผ่าน bundler — ต้องประกาศ global ของ Node เอง
+    // (ไม่ดึงแพ็กเกจ `globals` เข้ามาเพื่อสิ่งนี้ ตามแนวเดียวกับบล็อก shim ด้านบน)
+    files: ['packages/strapi-v4/scripts/**/*.mjs'],
+    languageOptions: {
+      sourceType: 'module',
+      globals: { process: 'readonly', console: 'readonly', URL: 'readonly', Buffer: 'readonly' },
+    },
+  },
+  {
+    // examples/v4-app เป็นแอป Strapi 4 ของลูกค้า ไม่ใช่แพ็กเกจในเวิร์กสเปซ — config กับ script
+    // ของมันเป็น CommonJS ตามที่ Strapi 4 กำหนด ไม่ใช่ทางเลือกด้านสไตล์ที่จะแก้ให้ตรงกันได้
+    files: ['examples/v4-app/**/*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        require: 'readonly', module: 'writable', exports: 'writable',
+        process: 'readonly', console: 'readonly', __dirname: 'readonly', Buffer: 'readonly',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  {
+    files: ['examples/v4-app/**/*.ts'],
+    languageOptions: {
+      globals: { process: 'readonly', Buffer: 'readonly', console: 'readonly' },
+    },
+  },
+  {
     files: ['packages/ui/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': ['error', {
