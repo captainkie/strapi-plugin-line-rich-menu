@@ -131,6 +131,7 @@ describe('render.yaml', () => {
       'ADMIN_JWT_SECRET',
       'API_TOKEN_SALT',
       'TRANSFER_TOKEN_SALT',
+      'JWT_SECRET',
       'DATABASE_URL',
       'LINE_RM_ENCRYPTION_KEY',
       'CLOUDINARY_NAME',
@@ -267,5 +268,29 @@ describe('examples/v5-app/config/database.js รองรับ DATABASE_URL (�
       user: 'strapi',
       password: 'strapi',
     })
+  })
+})
+
+/**
+ * users-permissions' bootstrap throws hard the moment NODE_ENV isn't 'development' and it
+ * cannot resolve `plugin::users-permissions.jwtSecret` — a real crash caught by booting the
+ * built Docker image locally (task-15-report.md), not by e2e.sh/CI, which never sets
+ * NODE_ENV=production and so never exercises this path. config/plugins.js must read
+ * JWT_SECRET, or render.yaml's image crashes on every boot.
+ */
+describe('examples/v5-app/config/plugins.js ประกาศ jwtSecret ของ users-permissions', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const factory = require(`${root}examples/v5-app/config/plugins.js`)
+
+  it('อ่าน JWT_SECRET เข้า users-permissions.config.jwtSecret', () => {
+    const env = ((key: string) => (key === 'JWT_SECRET' ? 'a-real-secret' : undefined)) as unknown as {
+      (key: string, fallback?: unknown): unknown
+      int: (key: string, fallback?: number) => number
+      bool: (key: string, fallback?: boolean) => boolean
+    }
+    env.int = (_key, fallback) => fallback as number
+    env.bool = (_key, fallback) => fallback as boolean
+    const config = factory({ env })
+    expect(config['users-permissions'].config.jwtSecret).toBe('a-real-secret')
   })
 })
