@@ -106,6 +106,19 @@ describe('line-mock เก็บ per-user rich menu link state ให้ e2e อ
     expect((await postRaw('/v2/bot/richmenu/bulk/link', { richMenuId: 'rm-1', userIds: tooMany })).status).toBe(400)
   })
 
+  it('bulk/unlink ปลดเฉพาะ uid ที่ระบุ ไม่แตะคนอื่น', async () => {
+    await post('/v2/bot/richmenu/bulk/link', { richMenuId: 'rm-1', userIds: ['U1', 'U2'] })
+    await post('/v2/bot/richmenu/bulk/unlink', { userIds: ['U1'] })
+    expect((await getRaw('/v2/bot/user/U1/richmenu')).status).toBe(404)
+    expect(await get('/v2/bot/user/U2/richmenu')).toMatchObject({ richMenuId: 'rm-1' })
+  })
+
+  it('bulk/unlink ตอบ 202 และปฏิเสธเกิน 500 ด้วย 400 เหมือนของจริง', async () => {
+    expect((await postRaw('/v2/bot/richmenu/bulk/unlink', { userIds: ['U1'] })).status).toBe(202)
+    const tooMany = Array.from({ length: 501 }, (_, i) => `U${i}`)
+    expect((await postRaw('/v2/bot/richmenu/bulk/unlink', { userIds: tooMany })).status).toBe(400)
+  })
+
   it('batch unlink ปลดทุกคนที่ถือเมนูนั้น ไม่แตะคนที่ถือเมนูอื่น', async () => {
     await post('/v2/bot/richmenu/bulk/link', { richMenuId: 'rm-1', userIds: ['U1'] })
     await post('/v2/bot/richmenu/bulk/link', { richMenuId: 'rm-2', userIds: ['U2'] })
