@@ -36,6 +36,59 @@ describe('AreaList', () => {
       .toContain('rgb(74, 74, 106)') // #4a4a6a
   })
 
+  /**
+   * สเปกงานนี้ #5 — `<button>` ไม่ได้รับสีตัวอักษรจาก parent เอง user-agent stylesheet ตั้ง
+   * `color: buttontext` (ดำ) ให้เสมอ ผลคือป้าย A/B/C เป็นดำบนพื้นเข้มของธีมมืด แทบมองไม่เห็น
+   * (ดูภาพ issue-2.png ที่เจ้าของแนบมา) สีต้องมาจาก `theme.strongText` ของธีมที่ใช้อยู่จริง
+   */
+  it('ป้าย A B C ใช้สีตัวอักษรจาก theme ไม่ปล่อยให้ตกไปที่ค่าดำของเบราว์เซอร์', () => {
+    render(
+      <PortProvider value={createStubPort({
+        t: (k) => k,
+        theme: { border: '#4a4a6a', surface: '', strongText: '#eaeaef', mutedText: '' },
+      })}>
+        <AreaList
+          areas={areas} activeIndex={null} view="list"
+          onViewChange={() => {}} onSelect={() => {}} onChange={() => {}} aliasOptions={[]}
+        />
+      </PortProvider>,
+    )
+    expect(screen.getByTestId('area-header-0').style.color).toBe('rgb(234, 234, 239)') // #eaeaef
+  })
+
+  /**
+   * สเปกงานนี้ #4 — ช่องที่เลือกอยู่ต้องมองออกจากคอลัมน์ขวาว่าเป็นช่องไหน โดยเฉพาะโหมด expanded
+   * ที่ทุกช่องกางพร้อมกัน จึงไม่มี "ช่องที่กางอยู่" ให้ใช้เป็นสัญญาณ
+   *
+   * สีต้องเป็นเขียว LINE ตัวเดียวกับที่ `CanvasEditor` ไฮไลต์ช่องบนผืนผ้าใบ — ความเชื่อมโยง
+   * "ช่องเขียวบน canvas = การ์ดเขียวใบนี้" คือทั้งหมดของฟีเจอร์นี้ ถ้าสองข้างใช้คนละสีก็ไม่เหลืออะไร
+   */
+  it('ช่องที่เลือกอยู่ไฮไลต์ด้วยเขียว LINE ตัวเดียวกับบนผืนผ้าใบ', () => {
+    setup({ activeIndex: 1 })
+    const selected = screen.getByTestId('area-section-1')
+    expect(selected.dataset['selected']).toBe('true')
+    expect(selected.style.border).toBe('2px solid rgb(6, 199, 85)') // LINE_GREEN
+    expect(selected.style.background).toBe('rgba(6, 199, 85, 0.08)') // LINE_SELECTED_TINT
+    expect(screen.getByTestId('area-header-1').style.color).toBe('rgb(6, 199, 85)')
+  })
+
+  it('ช่องที่ไม่ได้เลือกยังเป็นเส้นขอบธรรมดาของธีม ไม่ใช่เขียวทั้งแถว', () => {
+    setup({ activeIndex: 1 })
+    for (const index of [0, 2]) {
+      const other = screen.getByTestId(`area-section-${index}`)
+      expect(other.dataset['selected']).toBe('false')
+      expect(other.style.border).not.toContain('rgb(6, 199, 85)')
+      expect(other.style.background).toBe('none')
+    }
+  })
+
+  // โหมด expanded กางทุกช่องอยู่แล้ว การไฮไลต์จึงต้องไม่ผูกกับ "ช่องไหนกางอยู่"
+  it('โหมด expanded ก็ยังบอกได้ว่าช่องไหนถูกเลือก', () => {
+    setup({ activeIndex: 2, view: 'expanded' })
+    expect(screen.getByTestId('area-section-2').style.border).toBe('2px solid rgb(6, 199, 85)')
+    expect(screen.getByTestId('area-section-0').style.border).not.toContain('rgb(6, 199, 85)')
+  })
+
   it('มีหัวข้อหนึ่งอันต่อหนึ่งช่อง ติดป้าย A B C', () => {
     setup()
     for (const letter of ['A', 'B', 'C']) {

@@ -1,7 +1,7 @@
 import { areaLabel } from '@fosivo/line-rich-menu-core/browser'
 import type { ActionFormState } from '../action-form.js'
 import { usePort } from '../port.js'
-import { INVALID_COLOR } from '../styles.js'
+import { INVALID_COLOR, LINE_GREEN, LINE_SELECTED_TINT } from '../styles.js'
 import { ActionForm } from './ActionForm.js'
 
 export interface AreaListProps {
@@ -63,11 +63,27 @@ export function AreaList({
       {areas.map((area, index) => {
         const error = errors?.[index]
         const open = view === 'expanded' || activeIndex === index
+        const selected = activeIndex === index
         return (
           // เส้นขอบการ์ดแต่ละช่องเป็น chrome ของ Strapi ล้วน ๆ (ไม่ใช่ของ LINE) ต้องตามธีมมืด/สว่าง
           // จริง — เดิม hardcode #dcdce4 (ตรงกับ colors.neutral200 ของธีมสว่างเป๊ะ) ซึ่งเป็นเส้นขอบซีด
-          // แทบมองไม่เห็นบนพื้นเข้ม (สเปกงานนี้ #5)
-          <section key={index} style={{ border: `1px solid ${theme.border}`, borderRadius: 4 }}>
+          // แทบมองไม่เห็นบนพื้นเข้ม (สเปกงานก่อนหน้า #5)
+          //
+          // ช่องที่เลือกอยู่ใช้เขียว LINE คู่เดียวกับที่ `CanvasEditor` ใช้ไฮไลต์ช่องบนผืนผ้าใบ —
+          // นั่นคือทั้งหมดของฟีเจอร์นี้ (สเปกงานนี้ #4): "ช่องเขียวบน canvas คือการ์ดเขียวใบนี้"
+          // ถ้าปลายทางสองข้างใช้คนละสี ความเชื่อมโยงที่เป็นเหตุผลของฟีเจอร์ก็หายไป ข้อยกเว้นนี้
+          // เป็นแบบเดียวกับ `TemplatePicker` (ดูคอมเมนต์ที่ LINE_GREEN ใน styles.ts) — สถานะ
+          // "ถูกเลือก" ไม่ใช่ปุ่ม ปุ่ม Save/Cancel ของ Strapi ยังห้ามเป็นสีเขียวเหมือนเดิม
+          <section
+            key={index}
+            data-testid={`area-section-${index}`}
+            data-selected={selected ? 'true' : 'false'}
+            style={{
+              border: `${selected ? 2 : 1}px solid ${selected ? LINE_GREEN : theme.border}`,
+              borderRadius: 4,
+              background: selected ? LINE_SELECTED_TINT : 'none',
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <button
                 type="button"
@@ -77,6 +93,11 @@ export function AreaList({
                 style={{
                   width: '100%', display: 'flex', justifyContent: 'space-between',
                   padding: '.6rem .8rem', background: 'none', border: 'none', cursor: 'pointer',
+                  // `<button>` ไม่รับสีตัวอักษรจากที่ไหนเลยถ้าไม่บอก — user-agent stylesheet ตั้ง
+                  // `color: buttontext` (ดำ) ให้เสมอ บนธีมมืดตัวอักษร A/B/C จึงเป็นดำบนพื้นเข้ม
+                  // จนแทบมองไม่เห็น (สเปกงานนี้ #5) `theme.strongText` คือ neutral800 ของธีมที่ใช้อยู่จริง
+                  color: selected ? LINE_GREEN : theme.strongText,
+                  fontWeight: selected ? 600 : 400,
                 }}
               >
                 <span>{areaLabel(index)}</span>
