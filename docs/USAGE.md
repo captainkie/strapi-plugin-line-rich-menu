@@ -299,7 +299,8 @@ off first, then change the audience. See
 
 **The members toggle is greyed out.** It needs both things: the menu must be published, and its
 audience must be **Members**. If the audience is the problem, a line under the toggle says so; if
-there is no such line, the menu has not been published yet.
+there is no such line, the menu has not been published yet — or its audience is still loading, or
+that read failed; both leave the line absent too.
 
 **A blank title.** Title is required on every save path including drafts. It is not filled in for
 you, because a database full of "Untitled" is worse than being asked once.

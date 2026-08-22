@@ -122,6 +122,24 @@ describe('AudienceToggle', () => {
       await waitFor(() => expect(screen.getByRole('switch')).not.toBeDisabled())
       expect(screen.queryByText(MESSAGES.en['audience.notMembersMenu']!)).not.toBeInTheDocument()
     })
+
+    /**
+     * Task 14b item 1 — แถวที่ pointer ตรงกับแถวนี้ (`active`) แต่ `audience` ยังเป็น 'all' คือ
+     * "ประกาศว่าทุกคน แต่ยัง live อยู่กับสมาชิกจริง" ซึ่งไม่เคยมีเทสต์ไหนเรนเดอร์มาก่อน — สามเทสต์
+     * ด้านบนทั้งหมดจับคู่ `allAudienceMenu` กับ `noOneActive` (pointer ไม่ตรง) เท่านั้น เทสต์นี้
+     * ต้องเปิดทาง "ปิด" ไว้: สวิตช์ต้องกดได้ (ไม่ใช่ปิดตายทั้งสองทิศทาง) และห้ามขึ้นข้อความ
+     * "เปิดให้สมาชิกไม่ได้" เพราะผู้ใช้กำลังจะปิด ไม่ใช่เปิด — ข้อความเดิมจะเป็นคำแนะนำผิดทิศทาง
+     */
+    it('แต่ pointer ของแถวนี้ตรงกับ channel (active) — สวิตช์กดได้เพื่อปิด และไม่ขึ้นเหตุผลเดิม', async () => {
+      setup({
+        menu: allAudienceMenu,
+        audience: { defaultRichMenuId: null, memberRichMenuId: 'line-rm-1', memberCount: 3 },
+        t: realT('en'),
+      })
+      await waitFor(() => expect(screen.getByRole('switch')).toBeChecked())
+      expect(screen.getByRole('switch')).not.toBeDisabled()
+      expect(screen.queryByText(MESSAGES.en['audience.notMembersMenu']!)).not.toBeInTheDocument()
+    })
   })
 
   // สเปกงานนี้ #1 — draft ไม่มี lineRichMenuId ให้ activate กดไปก็โดน 409 เปล่า ๆ ปิดสวิตช์ไว้ก่อน

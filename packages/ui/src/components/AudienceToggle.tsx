@@ -63,7 +63,14 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
   // menu_not_ready จาก publishedMenuOrThrow เปล่า ๆ ปิดสวิตช์ไว้ตั้งแต่ต้นดีกว่าปล่อยให้กดแล้วเจอ
   // error ที่รู้ล่วงหน้าอยู่แล้วว่าต้องเกิด — audience === null (กำลังโหลด/โหลดพัง) ก็ปิดไว้ก่อน
   // เพราะยังไม่รู้สถานะปัจจุบันจริง ๆ
-  const canToggle = menu.lineRichMenuId !== null && isMembersMenu && audience !== null && !busy
+  //
+  // Task 14b item 1 — `isMembersMenu` เป็นเงื่อนไขสำหรับทิศทาง "เปิด" เท่านั้น ใช้เป็นเงื่อนไข
+  // "ปิด" ด้วยไม่ได้: แถวที่ pointer ตรงกับ `menu.lineRichMenuId` (active) แต่ `audience` ยังเป็น
+  // 'all' คือสถานะ "ประกาศว่าทุกคน แต่ยัง live อยู่กับสมาชิกจริง" ซึ่งเป็นสถานะที่งานนี้ทั้งงานมีไว้
+  // เพื่อทำให้ไปไม่ถึง — ปิดสวิตช์ตายไว้ทั้งสองทิศทางพาแถวนั้นเข้าทางตัน เพราะ `deactivate` (ด้านบน
+  // ในไฟล์นี้) ไม่มี assertion เรื่อง audience เลย ปิดได้เสมอไม่ว่า audience จะเป็นอะไร ทางออกเดียว
+  // ที่มีจริงสำหรับแถวนั้นคือปิด จึงต้องเปิดทางนั้นไว้ด้วย `|| active`
+  const canToggle = menu.lineRichMenuId !== null && (isMembersMenu || active) && audience !== null && !busy
 
   const deactivate = async () => {
     setBusy(true)
@@ -135,8 +142,10 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
       {/* เหตุผลที่สวิตช์ปิดอยู่ ในที่เดียวกับที่ผู้ใช้กำลังมองอยู่ — ไม่ใช่ปล่อยให้เขาเดาเอง
           ผูกกับ `menu.audience` ตัวเดียว ไม่ใช่ `!canToggle` ทั้งก้อน เพราะอีกสามเงื่อนไข
           (ยังไม่ publish / กำลังโหลด / กำลังยิงคำขอ) ไม่ได้แก้ด้วยการไปเปลี่ยน audience
-          และข้อความนี้จะกลายเป็นคำแนะนำที่ผิดทันทีถ้าขึ้นตอนนั้นด้วย */}
-      {isMembersMenu ? null : (
+          และข้อความนี้จะกลายเป็นคำแนะนำที่ผิดทันทีถ้าขึ้นตอนนั้นด้วย — เช่นเดียวกับตอน `active`
+          เป็น true (Task 14b item 1): สวิตช์กดได้อยู่แล้วเพื่อ "ปิด" ข้อความที่บอกว่าเปิดให้สมาชิก
+          ไม่ได้จึงเป็นคำแนะนำผิดทิศทาง — ผู้ใช้ต้องการปิด ไม่ใช่เปิด */}
+      {isMembersMenu || active ? null : (
         <ui.Typography textColor="neutral600">{t('audience.notMembersMenu')}</ui.Typography>
       )}
 
