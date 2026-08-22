@@ -9,28 +9,54 @@ import { UID } from './content-types/index.js'
 import type { LifecycleEvent, StrapiV5 } from './strapi.js'
 
 /**
- * `data.channel`/`where.documentId` ที่ event ของ `db.lifecycles` ส่งมาไม่มีเอกสารระบุรูปตรง ๆ
- * ว่าที่ระดับนี้ (ก่อน `attachRelations` ของ entity-manager) จะเป็นสตริง documentId ดิบ,
- * object ที่ populate แล้ว (`{documentId}`), หรือรูป `{connect:[...]}`/`{set:[...]}` ที่ document
- * service ยังไม่ทันแปลง — เผื่อไว้ทุกแบบ ผิดจากรูปจริงมากที่สุดคือคืน null แล้วข้ามเงื่อนไขที่ต้องใช้
- * ค่านี้ไป (เช่นข้ามการเช็คซ้ำข้าม channel) ไม่ใช่ปฏิเสธข้อมูลที่ถูกต้องหรือ throw ใส่ผู้ใช้
+ * primary key ตัวเลขที่ค่าหนึ่งใน event ของ `db.lifecycles` ชี้ถึง
+ *
+ * `db.lifecycles` อยู่**ใต้** document service เสมอ: `transformData` แปลง documentId ของ relation
+ * เป็น entity id ให้ก่อนที่ `data` จะลงมาถึงชั้นนี้ และ `entries.update`/`entries.delete` ยิงด้วย
+ * `where: { id }` ที่เป็น primary key ทั้งคู่ (ตรวจกับ `@strapi/core` ตัวจริงที่ติดตั้งอยู่ใน
+ * examples/v5-app/node_modules ไม่ใช่เดาจากเอกสาร) — "สตริง documentId" จึงไม่ใช่รูปที่เป็นไปได้
+ * ที่นี่ ส่วนสิ่งที่ห่อตัวเลขไว้ยังไม่แน่นอน (เลขดิบ, `{id}`, `{connect:[...]}`, `{set:[...]}`)
+ * จึงยังต้องเผื่อ
+ *
+ * ค่าที่ไม่ใช่จำนวนเต็มคืน null แทนที่จะเดาต่อ — ผู้เรียกทุกรายแปล null เป็น "แปลไม่ได้"
+ * แล้วเดินเส้นทาง fail closed ไม่ใช่ข้ามเงื่อนไขไปเงียบ ๆ
  */
-function idOf(value: unknown): string | null {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number') return String(value)
+function primaryKeyOf(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isInteger(value) ? value : null
+  if (typeof value === 'string') return /^\d+$/.test(value) ? Number(value) : null
   if (value !== null && typeof value === 'object') {
     const obj = value as Record<string, unknown>
-    if (typeof obj['documentId'] === 'string') return obj['documentId']
-    if (typeof obj['id'] === 'string' || typeof obj['id'] === 'number') return String(obj['id'])
+    if (obj['id'] !== undefined) return primaryKeyOf(obj['id'])
     const list = obj['connect'] ?? obj['set']
-    if (Array.isArray(list) && list.length > 0) return idOf(list[0])
+    if (Array.isArray(list) && list.length > 0) return primaryKeyOf(list[0])
   }
   return null
 }
 
 /**
+ * แปล primary key ตัวเลขของชั้น db เป็น `documentId` ที่ชั้น service ของเราใช้เป็น id ทุกที่
+ *
+ * นี่คือรากของทั้งสอง finding ใน Task 13 รอบแรก: `Repo.findOne` วิ่งผ่าน `documents().findOne`
+ * ซึ่งรับแต่ documentId ยิงเลข primary key เข้าไปได้ null ทุกครั้งโดยไม่มี error อะไรให้เห็น —
+ * beforeUpdate จึงหาแถวตัวเองไม่เจอ (แล้วกฎ fail closed ปฏิเสธการแก้ไขธรรมดา) และ afterDelete
+ * ก็ไม่มีทางรู้ channel ของแถวที่เพิ่งหายไป `db.query()` เป็นชั้นเดียวที่ยังค้นด้วย primary key ได้
+ */
+async function documentIdByPk(strapi: StrapiV5, uid: string, value: unknown): Promise<string | null> {
+  const pk = primaryKeyOf(value)
+  if (pk === null) return null
+  const row = await strapi.db.query(uid).findOne({ where: { id: pk } })
+  const documentId = (row as { documentId?: unknown } | null)?.documentId
+  return typeof documentId === 'string' ? documentId : null
+}
+
+/**
  * ตรวจก่อนเขียนเสมอ — ตรงข้ามกับ `linkNewMember`/`unlinkDeletedMember` ที่ต้องกลืน error ของ LINE
  * ไว้ ที่นี่คือ input ผิดจากผู้ใช้เอง ต้องบอกก่อนที่จะเขียนอะไรลง DB เลย ไม่ใช่เขียนแล้วค่อยแก้
+ *
+ * `ids` มาถึงที่นี่ในภาษาของชั้น service แล้ว (documentId ล้วน ๆ) ไม่ใช่ภาษาของ event — การแปล
+ * เป็นหน้าที่ของผู้เรียกที่รู้ว่าตัวเองอยู่ adapter ไหน (`documentIdByPk` ข้างบน / `idOf` ของ v4)
+ * ฟังก์ชันนี้จึงเทียบ `row.id !== exceptId` กับ `filters.channelId` ได้ตรง ๆ โดยไม่ต้องรู้เลยว่า
+ * Strapi เวอร์ชันไหนเรียก id ว่าอะไร
  *
  * `exceptId: null` หมายถึง "ยังไม่รู้ว่าแถวไหนคือแถวตัวเอง" (สถานการณ์ของ `beforeCreate` ที่ยังไม่
  * มีแถวอยู่จริง) ไม่ใช่ "ไม่มีแถวไหนถูกยกเว้น" — ทั้งสองแบบมีผลเหมือนกันทางคณิตศาสตร์
@@ -39,8 +65,9 @@ function idOf(value: unknown): string | null {
 export async function validateMemberWrite(
   members: Pick<Repo<MemberRow>, 'findMany' | 'findOne'>,
   data: Record<string, unknown>,
-  exceptId: string | null,
+  ids: { channelId: string | null; exceptId: string | null },
 ): Promise<void> {
+  const { exceptId } = ids
   const lineUserId = data['lineUserId']
   // beforeUpdate ที่แก้แค่ displayName ไม่ส่ง lineUserId มาด้วย — ไม่มีอะไรให้ตรวจ ค่าที่เคยผ่าน
   // ด่านนี้ตอน create แล้วยังคงเดิมอยู่
@@ -52,7 +79,7 @@ export async function validateMemberWrite(
     })
   }
 
-  let channelId = idOf(data['channel'])
+  let channelId = ids.channelId
   // beforeUpdate ที่แก้แค่ lineUserId ไม่ส่ง channel มาด้วย — อ่าน channel ของแถวเดิมจาก DB ตรง ๆ
   // แทนเมื่อมี exceptId (คือกำลังแก้ไขแถวที่มีอยู่จริง) ให้เช็คซ้ำวิ่งกับ channel จริงเสมอ
   if (channelId === null && exceptId !== null) {
@@ -63,9 +90,9 @@ export async function validateMemberWrite(
   //
   // เดิมตรงนี้ `return` เมื่อ channelId ยังเป็น null คิดว่าเป็นแค่ "ไม่รู้ channel เฉย ๆ ปล่อยผ่านดีกว่า
   // ปฏิเสธของถูก" — แต่ที่จริงมันเปิดช่องเดิม (ข้ามการเช็คซ้ำทั้งด่าน) กลับมาอีกทางหนึ่ง: `exceptId`
-  // ไม่ null แต่ `members.findOne(exceptId)` คืน null (หาแถวไม่เจอ เช่น exceptId ผิดรูปเพราะ
-  // where.id เป็น primary key ตัวเลขไม่ใช่ documentId — ดูคอมเมนต์ที่ idOf/registerMemberLifecycles)
-  // `existing?.channelId ?? null` ก็เป็น null เหมือนกัน แล้วโค้ดเดิมก็ปล่อยผ่านเงียบ ๆ อีกครั้ง
+  // ไม่ null แต่ `members.findOne(exceptId)` คืน null (แถวถูกลบไปพร้อมกัน หรือ where ของ query นั้น
+  // ไม่ได้กรองด้วย id เลย) `existing?.channelId ?? null` ก็เป็น null เหมือนกัน แล้วโค้ดเดิมก็ปล่อย
+  // ผ่านเงียบ ๆ อีกครั้ง
   //
   // ความไม่สมมาตรที่ถูกต้อง: `members.findOne` ที่ throw ปลอดภัยอยู่แล้ว (exception หลุดออกไปที่
   // beforeUpdate เอง ทำให้ Strapi ปฏิเสธการเขียนเป็น 500 ที่ไม่สวยแต่ก็ปฏิเสธจริง) ส่วนที่คืน null
@@ -153,20 +180,27 @@ export async function unlinkDeletedMember(services: Services, row: MemberRow): P
   }
 }
 
-/** สร้าง `MemberRow` จากแถวดิบของ `documents()` — ใช้เฉพาะ afterDelete ที่แถวถูกลบไปแล้วจริง จะ
- * เรียก `services.members.findOne` ซ้ำไม่ได้อีก ต้องพึ่งสิ่งที่ event เก็บมาให้เท่านั้น (ดูคอมเมนต์
- * ที่ `idOf` เรื่องความไม่แน่นอนของรูป `channel`) */
-function memberRowFromDeletedEntity(entity: Record<string, unknown>): MemberRow | null {
-  const id = entity['documentId']
-  if (typeof id !== 'string') return null
-  return {
-    id,
-    channelId: idOf(entity['channel']) ?? '',
-    lineUserId: typeof entity['lineUserId'] === 'string' ? entity['lineUserId'] : '',
-    displayName: typeof entity['displayName'] === 'string' ? entity['displayName'] : null,
-    linkedRichMenuId: typeof entity['linkedRichMenuId'] === 'string' ? entity['linkedRichMenuId'] : null,
-    linkedAt: typeof entity['linkedAt'] === 'string' ? entity['linkedAt'] : null,
-  }
+/**
+ * คีย์เดียวที่ subscriber นี้ใช้ใน `event.state` — ดูคอมเมนต์ที่ `LifecycleEvent.state` ใน
+ * strapi.ts ว่าทำไมมันปลอดภัยจากการลบที่วิ่งพร้อมกันโดยไม่ต้องคีย์ด้วย id เอง
+ */
+const DELETED_MEMBER = 'deletedMember'
+
+/** ค่าที่อ่านกลับมาคือค่าที่ `beforeDelete` ของเราเองใส่ไว้ (state ถูกคีย์ด้วย subscriber) การ cast
+ * ตรงนี้จึงไม่ใช่การเดารูปของข้อมูลที่ Strapi ประกอบมาให้ ต่างจาก `event.result` ที่เคยพึ่งอยู่ */
+function stashedMember(event: LifecycleEvent): MemberRow | null {
+  return (event.state?.[DELETED_MEMBER] ?? null) as MemberRow | null
+}
+
+/** beforeCreate/beforeUpdate ต่างกันแค่ว่ามีแถวเดิมให้ยกเว้นหรือยัง — `where` ที่ไม่มีของ create
+ * ให้ exceptId เป็น null ตามความหมายพอดี ไม่ต้องแยกทางเดิน */
+async function validateWrite(strapi: StrapiV5, event: LifecycleEvent): Promise<void> {
+  const services = getServices(strapi)
+  const data = event.params.data ?? {}
+  await validateMemberWrite(services.members, data, {
+    channelId: await documentIdByPk(strapi, UID.channel, data['channel']),
+    exceptId: await documentIdByPk(strapi, UID.member, event.params.where?.['id']),
+  })
 }
 
 /**
@@ -180,17 +214,11 @@ export function registerMemberLifecycles(strapi: StrapiV5): void {
     models: [UID.member],
 
     async beforeCreate(event: LifecycleEvent) {
-      const services = getServices(strapi)
-      await validateMemberWrite(services.members, event.params.data ?? {}, null)
+      await validateWrite(strapi, event)
     },
 
     async beforeUpdate(event: LifecycleEvent) {
-      const services = getServices(strapi)
-      // ตัวเองต้องไม่ถูกนับเป็น "แถวอื่นที่ชนกัน" ตอนแก้ไข — เอา documentId ของแถวที่กำลังแก้ (ถ้า
-      // event บอกมา) มาเป็น exceptId; ถ้าบอกมาแค่ id ตัวเลข (primary key) จะไม่ตรงกับ MemberRow.id
-      // (documentId) เลยสักครั้ง เช็คซ้ำจึงยังทำงานถูก แค่ "ยกเว้นตัวเอง" อาจไม่เกิดในเคสนั้น
-      const exceptId = idOf(event.params.where?.['documentId'] ?? event.params.where?.['id'])
-      await validateMemberWrite(services.members, event.params.data ?? {}, exceptId)
+      await validateWrite(strapi, event)
     },
 
     async afterCreate(event: LifecycleEvent) {
@@ -204,12 +232,30 @@ export function registerMemberLifecycles(strapi: StrapiV5): void {
       if (row !== null) await linkNewMember(services, row)
     },
 
+    /**
+     * อ่านแถวไว้ตอนที่ยังอ่านได้ — `event.result` ของ afterDelete ไม่เคยมี `channel` ติดมา
+     * (`entries.delete` ยิง `db.query().delete()` โดยไม่ส่ง populate ไปเลย) และพอถึงตอนนั้นแถวก็
+     * หายไปแล้ว จะอ่านซ้ำก็ไม่ได้ ผลคือสมาชิกที่ถูกลบถือเมนูค้างตลอดไปโดยมีแค่บรรทัด log
+     *
+     * error ที่นี่ต้องไม่หลุดออกไป ไม่ใช่เพราะกลัว error แต่เพราะ throw จาก beforeDelete จะ
+     * **ยกเลิกการลบ** — กฎเดียวกับ linkNewMember/unlinkDeletedMember: สิ่งที่ผู้ใช้สั่งต้องสำเร็จ
+     * ส่วนงานฝั่ง LINE ที่ตามไม่ทันเป็นสถานะที่ซ่อมได้ทีหลัง
+     */
+    async beforeDelete(event: LifecycleEvent) {
+      const services = getServices(strapi)
+      try {
+        const documentId = await documentIdByPk(strapi, UID.member, event.params.where?.['id'])
+        event.state = {
+          ...event.state,
+          [DELETED_MEMBER]: documentId === null ? null : await services.members.findOne(documentId),
+        }
+      } catch (error) {
+        services.logger.error('line-rich-menu: capture member before delete failed', { error })
+      }
+    },
+
     async afterDelete(event: LifecycleEvent) {
-      if (event.result === undefined) return
-      // แถวถูกลบไปแล้วจริง — อ่านซ้ำผ่าน services.members ไม่ได้อีก ต้องพึ่ง event.result ที่
-      // entity-manager แนบมาให้ (ดูคอมเมนต์ที่ memberRowFromDeletedEntity/idOf เรื่องความไม่แน่นอน
-      // ของ populate สำหรับ relation ที่ระดับนี้)
-      const row = memberRowFromDeletedEntity(event.result)
+      const row = stashedMember(event)
       if (row !== null) await unlinkDeletedMember(getServices(strapi), row)
     },
   })

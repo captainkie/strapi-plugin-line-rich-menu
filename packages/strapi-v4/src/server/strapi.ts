@@ -20,10 +20,17 @@ export interface StrapiLogger {
  * ของ v5 — ไม่มีเอกสารระบุตรง ๆ ว่าที่ระดับนี้ (ก่อน entityService แนบ relation ให้) ค่าจะเป็น
  * เลข id ดิบ, object ที่ populate แล้ว (`{id}`), หรือรูป `{connect:[...]}`/`{set:[...]}`
  * ผู้เรียก (`lifecycles.ts`) ต้องเผื่อเองแทนที่จะเชื่อ type ที่แคบเกินจริง
+ *
+ * `state` คือช่องทางเดียวที่ `@strapi/database` มีไว้ให้ hook คู่ before/after ส่งของถึงกัน:
+ * provider เก็บ `event.state` ที่ hook ตัวหน้าตั้งไว้ลง Map ที่คีย์ด้วย subscriber แล้วส่งกลับ
+ * มาเป็น `event.state` ของ hook ตัวหลังในคำสั่งเดียวกัน (`createLifecyclesProvider` ของ 4.25.11
+ * ที่ติดตั้งอยู่จริง เหมือน 5.x บรรทัดต่อบรรทัด) Map ใบนั้นเกิดใหม่ต่อหนึ่งคำสั่ง ค่าที่ฝากไว้จึง
+ * ถูกคีย์ด้วยตัวคำสั่งเองอยู่แล้ว การลบที่วิ่งพร้อมกันมองไม่เห็น state ของกันและกันโดยโครงสร้าง
  */
 export interface LifecycleEvent {
   params: { data?: Record<string, unknown>; where?: Record<string, unknown> }
   result?: Record<string, unknown>
+  state?: Record<string, unknown>
 }
 
 export type LifecycleSubscriber = {
@@ -31,6 +38,7 @@ export type LifecycleSubscriber = {
   beforeCreate?(event: LifecycleEvent): Promise<void>
   beforeUpdate?(event: LifecycleEvent): Promise<void>
   afterCreate?(event: LifecycleEvent): Promise<void>
+  beforeDelete?(event: LifecycleEvent): Promise<void>
   afterDelete?(event: LifecycleEvent): Promise<void>
 }
 

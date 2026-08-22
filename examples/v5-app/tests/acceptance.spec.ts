@@ -650,46 +650,45 @@ test.describe('audience สมาชิก', () => {
     expect(deleted.status(), await deleted.text()).toBe(200)
 
     const afterDelete = await request.get(`${LINE_MOCK}/v2/bot/user/${toDeleteUid}/richmenu`, lineAuth)
-    // expect.soft ไม่ใช่ expect ธรรมดา — ถ้าคำถามที่ 1 ตอบว่า "ไม่" (afterDelete ไม่ populate
-    // channel จริง) เทสต์นี้ต้องยังเดินต่อไปถึงคำถามที่ 2/3 ข้างล่าง ไม่ใช่หยุดตรงนี้ ไม่งั้นรอบเดียว
-    // ที่ยิงกับ Strapi จริงจะให้คำตอบได้แค่คำถามเดียวต่อครั้ง — เทสต์ทั้งก้อนยังถูกนับว่าแดงถ้า soft
-    // assertion ไหนพัง (task-13-ruling: ตอบไม่ได้คือ finding จริง ไม่ใช่สิ่งที่ควรถูกปิดบัง)
+    // expect.soft ไม่ใช่ expect ธรรมดา — ด่านนี้กับด่าน rename ข้างล่างจับคนละครึ่งของรากเดียวกัน
+    // (ตัวระบุที่ event ส่งมาเป็น primary key ตัวเลข ไม่ใช่ documentId ที่ชั้น service ใช้) การหยุด
+    // ที่ด่านแรกจะทำให้รอบเดียวที่ยิงกับ Strapi จริงบอกได้แค่ว่าครึ่งไหนพัง ไม่ใช่ทั้งคู่ — เทสต์
+    // ทั้งก้อนยังถูกนับว่าแดงถ้า soft assertion ไหนพัง
     expect.soft(afterDelete.status(),
-      'คำถามที่ 1 (task-13-brief): afterDelete ต้อง populate channel ให้พอที่จะ unlink ได้จริง — ' +
-      'ถ้าด่านนี้แดง แปลว่ามันไม่ populate และสมาชิกที่ถูกลบจะถือเมนูค้างอยู่ตลอดไปอย่างเงียบ ๆ')
+      'finding ที่ 1 (task-13-findings): afterDelete ไม่มี channel ติดมาให้ — beforeDelete ต้องอ่าน ' +
+      'แถวเก็บไว้ก่อน ถ้าด่านนี้แดง แปลว่าสมาชิกที่ถูกลบถือเมนูค้างอยู่ตลอดไปอย่างเงียบ ๆ')
       .toBe(404)
 
-    // === คำถามที่ 2 และ 3: beforeUpdate ได้ identifier ที่ resolve แถวเดิมได้จริงไหม, และ payload
-    // ที่ไม่ส่ง channel มา ยัง establish channel ได้จริงไหม ===
+    // === finding ที่ 2: beforeUpdate ต้อง resolve แถวเดิมจากตัวระบุที่ event ส่งมาได้จริง ===
     //
     // สมาชิกแยกต่างหากอีกคู่ — ไม่มี afterUpdate lifecycle เลย (ดู registerMemberLifecycles) การแก้
     // lineUserId ที่นี่จึงไม่ไปสั่งอะไรฝั่ง LINE ใหม่ ถ้าใช้ uids/late ข้างบนปนกันจะไปทำให้ด่าน
-    // "ทุกคนตกกลับไปที่ default" ท้ายเทสต์นี้แดงด้วยเหตุผลที่ไม่เกี่ยวกับคำถามที่ 2/3 เลย
+    // "ทุกคนตกกลับไปที่ default" ท้ายเทสต์นี้แดงด้วยเหตุผลที่ไม่เกี่ยวกับ finding นี้เลย
     const renameFrom = await createMember(request, token, { channelId, lineUserId: uidOf('5') })
     await createMember(request, token, { channelId, lineUserId: uidOf('6') }) // เป้าหมายให้ชนซ้ำ
 
     // เปลี่ยน lineUserId เป็นค่าที่ไม่ซ้ำใคร โดย **ไม่ส่ง channel มาด้วย** — เหมือนฟอร์มที่แก้ทีละ
-    // ฟิลด์จริง ถ้า exceptId (documentId ที่ event.params.where ส่งมา) resolve แถวเดิมไม่ได้
-    // validateMemberWrite จะ throw "cannot verify lineUserId uniqueness" (fail closed โดยตั้งใจ —
-    // ดูคอมเมนต์ยาวที่ validateMemberWrite ใน lifecycles.ts) แม้ค่าใหม่จะถูกต้องและไม่ซ้ำใครเลยก็ตาม
+    // ฟิลด์จริง ถ้า exceptId resolve แถวเดิมไม่ได้ validateMemberWrite จะ throw "cannot verify
+    // lineUserId uniqueness" (fail closed โดยตั้งใจ — ดูคอมเมนต์ยาวที่ validateMemberWrite ใน
+    // lifecycles.ts) แม้ค่าใหม่จะถูกต้องและไม่ซ้ำใครเลยก็ตาม
     const legitRename = await request.put(
       `/content-manager/collection-types/${MEMBER_UID}/${renameFrom.data.documentId}`,
       { ...auth(token), data: { lineUserId: uidOf('a') } })
-    // soft เหมือนคำถามที่ 1 ข้างบน — ถ้า exceptId ไม่ resolve จริง (คำถามที่ 2 ตอบว่า "ไม่") ด่าน
-    // collide ข้างล่างยังต้องได้รันเพื่อเก็บหลักฐานแยกว่าเป็นคำถามที่ 2 หรือ 3 ที่พัง
+    // soft เหมือนด่านของ finding ที่ 1 ข้างบน — ถ้า exceptId ไม่ resolve จริง ด่าน collide ข้างล่าง
+    // ยังต้องได้รันเพื่อแยกว่า "resolve ไม่ได้" กับ "เช็คซ้ำเสีย" เป็นคนละอาการกัน
     expect.soft(legitRename.status(), await legitRename.text()).toBe(200)
 
     // ย้ายกลับไปชนกับ uidOf('6') ที่ยังใช้อยู่จริง — ต้องโดนปฏิเสธด้วยเหตุผล "ซ้ำ" ไม่ใช่ "verify
-    // channel ไม่ได้" ทั้งคู่ตอบ 400 เหมือนกัน ข้อความเท่านั้นที่แยกสองคำตอบออกจากกัน: ถ้าที่นี่ขึ้น
-    // "cannot verify" แปลว่า exceptId ไม่ resolve จริง (คำถามที่ 2 ตอบว่า "ไม่") และ legitRename
-    // ข้างบนที่ผ่านได้ 200 ก็มาจากช่องโหว่คนละจุด ไม่ใช่เพราะ resolve ติดจริง
+    // channel ไม่ได้" ทั้งคู่ตอบ 400 เหมือนกัน ข้อความเท่านั้นที่แยกสองอาการออกจากกัน: ถ้าที่นี่ขึ้น
+    // "cannot verify" แปลว่า exceptId ไม่ resolve จริง และ legitRename ข้างบนที่ผ่านได้ 200 ก็มาจาก
+    // ช่องโหว่คนละจุด ไม่ใช่เพราะ resolve ติดจริง
     const collide = await request.put(
       `/content-manager/collection-types/${MEMBER_UID}/${renameFrom.data.documentId}`,
       { ...auth(token), data: { lineUserId: uidOf('6') } })
     expect.soft(collide.status(), await collide.text()).toBe(400)
     const collideText = await collide.text()
     expect.soft(collideText,
-      `คำถามที่ 2/3 (task-13-brief): ต้องถูกปฏิเสธเพราะ "ซ้ำ" ไม่ใช่เพราะ verify channel ไม่ได้ — ` +
+      `finding ที่ 2 (task-13-findings): ต้องถูกปฏิเสธเพราะ "ซ้ำ" ไม่ใช่เพราะ verify channel ไม่ได้ — ` +
       `ได้: ${collideText}`).toContain('already used')
 
     // ปิดสวิตช์แล้วทุกคนตกกลับไปที่ default
@@ -700,6 +699,31 @@ test.describe('audience สมาชิก', () => {
       const after = await request.get(`${LINE_MOCK}/v2/bot/user/${uid}/richmenu`, lineAuth)
       expect(after.status()).toBe(404)
     }
+  })
+
+  /**
+   * finding ที่ 2 (task-13-findings) เป็นเทสต์ของตัวเอง ไม่ใช่แค่หนึ่งขั้นในเส้นทางยาวข้างบน
+   *
+   * Content Manager ส่ง PUT มาเฉพาะฟิลด์ที่ถูกแก้ ไม่ได้แนบ `channel` มาด้วยทุกครั้ง กฎ fail closed
+   * ของ validateMemberWrite จึงต้องหา channel จากแถวเดิมให้เจอ ไม่ใช่ปฏิเสธการแก้ไขที่ไม่มีอะไรผิด —
+   * บน v5 ตัวระบุที่ lifecycle ได้รับคือ primary key ตัวเลข ต้องแปลเป็น documentId ก่อนถึงจะหาเจอ
+   * (ดู `documentIdByPk` ใน lifecycles.ts)
+   *
+   * ยืนยันค่าที่เขียนลงจริงด้วยการอ่านกลับ ไม่ใช่แค่ status 200 — การเขียนที่ถูกปฏิเสธเงียบ ๆ กับ
+   * การเขียนที่สำเร็จแยกกันไม่ออกถ้าดูแค่ code เดียว
+   */
+  test('แก้ lineUserId ผ่าน Content Manager โดยไม่ส่ง channel มาด้วย ต้องสำเร็จ', async ({ request }) => {
+    const token = await login(request, ADMIN)
+    const channelId = (await theChannel(request, token)).id
+    const member = await createMember(request, token, { channelId, lineUserId: uidOf('b') })
+    const path = `/content-manager/collection-types/${MEMBER_UID}/${member.data.documentId}`
+
+    const renamed = await request.put(path, { ...auth(token), data: { lineUserId: uidOf('c') } })
+    expect(renamed.status(), await renamed.text()).toBe(200)
+
+    const reloaded = await request.get(path, auth(token))
+    expect(reloaded.status(), await reloaded.text()).toBe(200)
+    expect((await reloaded.json()).data.lineUserId).toBe(uidOf('c'))
   })
 
   /**

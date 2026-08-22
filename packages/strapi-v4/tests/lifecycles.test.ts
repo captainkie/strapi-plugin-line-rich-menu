@@ -55,28 +55,29 @@ function fakeServices(overrides: Partial<Services> = {}): Services {
 
 describe('validateMemberWrite', () => {
   it('ปฏิเสธ uid ที่ผิดรูปแบบก่อนบันทึก', async () => {
-    await expect(validateMemberWrite(fakeMemberRepo(), { lineUserId: 'nope', channel: 'c1' }, null))
+    await expect(validateMemberWrite(fakeMemberRepo(), { lineUserId: 'nope' }, { channelId: 'c1', exceptId: null }))
       .rejects.toThrow(/line user id/i)
   })
 
   it('ปฏิเสธ uid ซ้ำภายใน channel เดียวกัน แต่ยอมให้ซ้ำข้าม channel', async () => {
     const members = fakeMemberRepo([memberRow('c1', { id: 'm1', lineUserId: UID_A })])
 
-    await expect(validateMemberWrite(members, { lineUserId: UID_A, channel: 'c1' }, null))
+    await expect(validateMemberWrite(members, { lineUserId: UID_A }, { channelId: 'c1', exceptId: null }))
       .rejects.toThrow(/already/i)
-    await expect(validateMemberWrite(members, { lineUserId: UID_A, channel: 'c2' }, null))
+    await expect(validateMemberWrite(members, { lineUserId: UID_A }, { channelId: 'c2', exceptId: null }))
       .resolves.toBeUndefined()
   })
 
   it('แถวตัวเองไม่ถูกนับเป็นของซ้ำ เมื่อ exceptId ตรงกับ id ของแถวนั้น (beforeUpdate re-save โดยไม่เปลี่ยนอะไร)', async () => {
     const members = fakeMemberRepo([memberRow('c1', { id: 'm1', lineUserId: UID_A })])
-    await expect(validateMemberWrite(members, { lineUserId: UID_A, channel: 'c1' }, 'm1'))
+    await expect(validateMemberWrite(members, { lineUserId: UID_A }, { channelId: 'c1', exceptId: 'm1' }))
       .resolves.toBeUndefined()
   })
 
   it('ไม่เช็คอะไรเลยเมื่อคำขอไม่ได้แตะ lineUserId — beforeUpdate ที่แก้แค่ displayName', async () => {
     const members = fakeMemberRepo()
-    await expect(validateMemberWrite(members, { displayName: 'ใหม่' }, null)).resolves.toBeUndefined()
+    await expect(validateMemberWrite(members, { displayName: 'ใหม่' }, { channelId: null, exceptId: null }))
+      .resolves.toBeUndefined()
     expect(members.findMany).not.toHaveBeenCalled()
   })
 
@@ -92,12 +93,12 @@ describe('validateMemberWrite', () => {
     ])
 
     // m2 พยายามเปลี่ยน lineUserId ไปเป็นของ m1 โดยไม่ส่ง channel มาด้วยเลย — ต้องยังโดนจับว่าซ้ำ
-    await expect(validateMemberWrite(members, { lineUserId: `U${'b'.repeat(32)}` }, 'm2'))
+    await expect(validateMemberWrite(members, { lineUserId: `U${'b'.repeat(32)}` }, { channelId: null, exceptId: 'm2' }))
       .rejects.toThrow(/already/i)
     expect(members.findOne).toHaveBeenCalledWith('m2')
 
     // เปลี่ยนไปเป็น uid ที่ไม่ซ้ำใครใน c1 เลย — ต้องผ่าน ไม่ใช่ถูกปฏิเสธเพราะหา channel ไม่เจอ
-    await expect(validateMemberWrite(members, { lineUserId: `U${'c'.repeat(32)}` }, 'm2'))
+    await expect(validateMemberWrite(members, { lineUserId: `U${'c'.repeat(32)}` }, { channelId: null, exceptId: 'm2' }))
       .resolves.toBeUndefined()
   })
 
@@ -108,7 +109,7 @@ describe('validateMemberWrite', () => {
    */
   it('payload ไม่มี channel และไม่มี exceptId (ไม่รู้ว่าแถวไหนเลย) — ปฏิเสธ ไม่ใช่ปล่อยผ่าน', async () => {
     const members = fakeMemberRepo()
-    await expect(validateMemberWrite(members, { lineUserId: UID_A }, null))
+    await expect(validateMemberWrite(members, { lineUserId: UID_A }, { channelId: null, exceptId: null }))
       .rejects.toThrow(/uniqueness/i)
     expect(members.findOne).not.toHaveBeenCalled()
     expect(members.findMany).not.toHaveBeenCalled()
@@ -122,7 +123,7 @@ describe('validateMemberWrite', () => {
    */
   it('exceptId มีค่าแต่หาแถวไม่เจอ (findOne คืน null) — ปฏิเสธ ไม่ใช่ปล่อยผ่านเหมือนที่เคยเป็น', async () => {
     const members = fakeMemberRepo() // ไม่มีแถวไหนเลย — findOne('99') จะคืน null เสมอ
-    await expect(validateMemberWrite(members, { lineUserId: UID_A }, '99'))
+    await expect(validateMemberWrite(members, { lineUserId: UID_A }, { channelId: null, exceptId: '99' }))
       .rejects.toThrow(/uniqueness/i)
     expect(members.findOne).toHaveBeenCalledWith('99')
     expect(members.findMany).not.toHaveBeenCalled()
@@ -302,6 +303,7 @@ describe('unlinkDeletedMember', () => {
  */
 function fakeFullStrapi(members: Record<string, unknown>[], channels: Record<string, unknown>[]) {
   const subscribe = vi.fn()
+  const created: { uid: string; data: Record<string, unknown> }[] = []
   const tables: Record<string, Record<string, unknown>[]> = { [UID.member]: members, [UID.channel]: channels }
   const strapi = {
     log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -313,10 +315,21 @@ function fakeFullStrapi(members: Record<string, unknown>[], channels: Record<str
       },
     },
     entityService: {
-      findMany: vi.fn(async (uid: string) => tables[uid] ?? []),
+      // กรองด้วย `channel` ตัวเลขเหมือน mapFilters ของ createMemberRepo — fake ที่คืนทุกแถวเสมอจะ
+      // ทำให้ด่านเช็คซ้ำเขียวแม้ channel ที่ส่งเข้าไปเป็นคนละตัวระบุ คือไม่ได้พิสูจน์อะไรเลย
+      findMany: vi.fn(async (uid: string, params?: { filters?: Record<string, unknown> }) => {
+        const channel = params?.filters?.['channel']
+        const rows = tables[uid] ?? []
+        return channel === undefined
+          ? rows
+          : rows.filter((row) => (row['channel'] as { id?: number } | undefined)?.id === channel)
+      }),
       findOne: vi.fn(async (uid: string, id: number | string) =>
         (tables[uid] ?? []).find((row) => String(row['id']) === String(id)) ?? null),
-      create: vi.fn(),
+      create: vi.fn(async (uid: string, params: { data: Record<string, unknown> }) => {
+        created.push({ uid, data: params.data })
+        return {}
+      }),
       update: vi.fn(),
       delete: vi.fn(),
     },
@@ -324,11 +337,18 @@ function fakeFullStrapi(members: Record<string, unknown>[], channels: Record<str
     db: { connection: {}, lifecycles: { subscribe } },
     dirs: { static: { public: '/tmp' } },
   } as unknown as StrapiV4
-  return { strapi, subscribe }
+  return { strapi, subscribe, created }
 }
 
+const CHANNEL_ROW = { id: 10, name: 'ร้าน', channelId: '1650000000', accessTokenLast4: 'abcd', isDefault: false }
+
+const memberEntity = (over: Record<string, unknown>) => ({
+  id: 1, channel: { id: 10 }, lineUserId: UID_A,
+  displayName: null, linkedRichMenuId: null, linkedAt: null, ...over,
+})
+
 describe('registerMemberLifecycles', () => {
-  it('ลงทะเบียน subscriber ตัวเดียวกับ model line-member และมี handler ครบสี่ตัวตามที่ Step 3 ระบุ', () => {
+  it('ลงทะเบียน subscriber ตัวเดียวกับ model line-member และมี handler ครบทั้งห้าตัว', () => {
     const { strapi, subscribe } = fakeFullStrapi([], [])
     registerMemberLifecycles(strapi)
 
@@ -338,6 +358,7 @@ describe('registerMemberLifecycles', () => {
     expect(typeof subscriber.beforeCreate).toBe('function')
     expect(typeof subscriber.beforeUpdate).toBe('function')
     expect(typeof subscriber.afterCreate).toBe('function')
+    expect(typeof subscriber.beforeDelete).toBe('function')
     expect(typeof subscriber.afterDelete).toBe('function')
   })
 
@@ -346,15 +367,43 @@ describe('registerMemberLifecycles', () => {
     registerMemberLifecycles(strapi)
     const subscriber = subscribe.mock.calls[0]![0] as LifecycleSubscriber
 
-    const event: LifecycleEvent = { params: { data: { lineUserId: 'nope', channel: 'c1' } } }
+    const event: LifecycleEvent = { params: { data: { lineUserId: 'nope', channel: { connect: [{ id: 10 }] } } } }
     await expect(subscriber.beforeCreate!(event)).rejects.toThrow(/line user id/i)
   })
 
-  it('afterCreate ที่ต่อสายจริง อ่านแถวที่เพิ่งสร้างกลับผ่าน services.members แล้วเรียก link — no-op เพราะ channel ยังไม่มีเมนูสมาชิก', async () => {
+  it('beforeCreate จับ uid ซ้ำได้จริงจาก channel ที่ event ส่งมา', async () => {
+    const { strapi, subscribe } = fakeFullStrapi([memberEntity({})], [CHANNEL_ROW])
+    registerMemberLifecycles(strapi)
+    const subscriber = subscribe.mock.calls[0]![0] as LifecycleSubscriber
+
+    const event: LifecycleEvent = { params: { data: { lineUserId: UID_A, channel: { connect: [{ id: 10 }] } } } }
+    await expect(subscriber.beforeCreate!(event)).rejects.toThrow(/already/i)
+  })
+
+  /**
+   * คู่ขนานกับด่านเดียวกันของ v5 — ที่นั่น `where.id` ต้องถูกแปลเป็น documentId ก่อนถึงจะ resolve
+   * แถวเดิมได้ ที่นี่ตัวระบุตรงกันอยู่แล้ว ด่านนี้จึงเป็นตัวยืนยันว่าการรื้อ `ids` รอบนี้ไม่ได้ทำให้
+   * ฝั่งที่เคยทำงานถูกอยู่แล้วเสียไป (สิ่งที่ ruling สั่งไว้ตรง ๆ ว่าห้ามพัง)
+   */
+  it('beforeUpdate ที่ payload ไม่มี channel resolve แถวเดิมได้ — ผ่านของถูก ปฏิเสธของซ้ำ', async () => {
     const { strapi, subscribe } = fakeFullStrapi(
-      [{ id: 1, channel: { id: 10 }, lineUserId: UID_A, displayName: null, linkedRichMenuId: null, linkedAt: null }],
-      [{ id: 10, name: 'ร้าน', channelId: '1650000000', accessTokenLast4: 'abcd', isDefault: false }],
+      [memberEntity({}), memberEntity({ id: 2, lineUserId: `U${'b'.repeat(32)}` })],
+      [CHANNEL_ROW],
     )
+    registerMemberLifecycles(strapi)
+    const subscriber = subscribe.mock.calls[0]![0] as LifecycleSubscriber
+
+    await expect(subscriber.beforeUpdate!({
+      params: { where: { id: 1 }, data: { lineUserId: `U${'c'.repeat(32)}` } },
+    })).resolves.toBeUndefined()
+
+    await expect(subscriber.beforeUpdate!({
+      params: { where: { id: 1 }, data: { lineUserId: `U${'b'.repeat(32)}` } },
+    })).rejects.toThrow(/already/i)
+  })
+
+  it('afterCreate ที่ต่อสายจริง อ่านแถวที่เพิ่งสร้างกลับผ่าน services.members แล้วเรียก link — no-op เพราะ channel ยังไม่มีเมนูสมาชิก', async () => {
+    const { strapi, subscribe } = fakeFullStrapi([memberEntity({})], [CHANNEL_ROW])
     registerMemberLifecycles(strapi)
     const subscriber = subscribe.mock.calls[0]![0] as LifecycleSubscriber
 
@@ -363,15 +412,40 @@ describe('registerMemberLifecycles', () => {
     await expect(subscriber.afterCreate!(event)).resolves.toBeUndefined()
   })
 
-  it('afterDelete ที่ต่อสายจริง เป็น no-op เมื่อแถวที่ถูกลบไม่เคย link สำเร็จมาก่อน', async () => {
-    const { strapi, subscribe } = fakeFullStrapi([], [])
+  /**
+   * finding ที่ 1 ของ Task 13 รอบแรก: `event.result` ของ afterDelete ไม่มี `channel` และไม่มี
+   * `linkedRichMenuId` ติดมาเลย (ตรงกับของจริง — `entityService.delete` ไม่ส่ง populate) ค่าที่
+   * unlink ต้องใช้จึงมาได้จากที่เดียวคือแถวที่ beforeDelete อ่านไว้ก่อนแถวจะหาย
+   *
+   * ยืนยันด้วย audit ที่เขียนออกมา ไม่ใช่แค่ "ไม่ throw" — `richMenuId: 'rm-1'` มีอยู่เฉพาะในแถว
+   * ที่อ่านไว้ล่วงหน้า ถ้า afterDelete กลับไปพึ่ง event.result จะไม่มีทางเขียนค่านี้ได้เลย
+   */
+  it('beforeDelete เก็บแถวไว้ให้ afterDelete unlink — ไม่พึ่ง event.result ที่ไม่มี channel', async () => {
+    const { strapi, subscribe, created } = fakeFullStrapi(
+      [memberEntity({ linkedRichMenuId: 'rm-1', linkedAt: '2026-01-01T00:00:00.000Z' })],
+      [CHANNEL_ROW],
+    )
     registerMemberLifecycles(strapi)
     const subscriber = subscribe.mock.calls[0]![0] as LifecycleSubscriber
 
-    const event: LifecycleEvent = {
-      params: { where: { id: 1 } },
-      result: { id: 1, channel: { id: 10 }, lineUserId: UID_A, linkedRichMenuId: null, linkedAt: null },
-    }
+    const event: LifecycleEvent = { params: { where: { id: 1 } }, result: { id: 1, lineUserId: UID_A } }
+    await subscriber.beforeDelete!(event)
     await expect(subscriber.afterDelete!(event)).resolves.toBeUndefined()
+
+    // ครึ่งที่คุยกับ LINE จริงถูกพิสูจน์ไปแล้วที่ describe ของ unlinkDeletedMember — ที่นี่พิสูจน์
+    // แค่ว่าค่าที่ beforeDelete เก็บไว้เดินทางถึง unlinkDeletedMember จริง
+    expect(created.filter((row) => row.uid === UID.audit))
+      .toEqual([{ uid: UID.audit, data: expect.objectContaining({ action: 'unlink-members', richMenuId: 'rm-1' }) }])
+  })
+
+  it('afterDelete ที่ beforeDelete อ่านแถวไม่เจอ เป็น no-op — ไม่ throw ใส่การลบที่สำเร็จไปแล้ว', async () => {
+    const { strapi, subscribe, created } = fakeFullStrapi([], [])
+    registerMemberLifecycles(strapi)
+    const subscriber = subscribe.mock.calls[0]![0] as LifecycleSubscriber
+
+    const event: LifecycleEvent = { params: { where: { id: 1 } }, result: { id: 1 } }
+    await subscriber.beforeDelete!(event)
+    await expect(subscriber.afterDelete!(event)).resolves.toBeUndefined()
+    expect(created).toEqual([])
   })
 })
