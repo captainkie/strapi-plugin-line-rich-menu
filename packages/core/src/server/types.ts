@@ -70,8 +70,6 @@ export interface ChannelRecord {
   /** `••••••••abcd` — สี่ตัวท้ายของ access token เท่านั้น (สเปก §11.2) */
   accessTokenPreview: string
   isDefault: boolean
-  /** normalize จาก `ChannelRow.memberRichMenuId` ที่อาจไม่มี key เลย (adapter ที่ยังไม่ผูก field นี้)
-   * ให้เป็น `string | null` เสมอที่ชั้นนี้ — ผู้เรียก service ไม่ต้องรู้ว่าแถวมาจาก adapter ไหน */
   memberRichMenuId: string | null
 }
 
