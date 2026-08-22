@@ -1,7 +1,7 @@
 # Demo deployment
 
 The public demo runs **Strapi 5** (`examples/v5-app`) at **`line-rich-menu.fosivo.com`** —
-Render (free, Docker) for compute, Neon (free Postgres) for the database, and Cloudinary
+Render (free, Docker) for compute, Render's own free Postgres for the database, and Cloudinary
 (free media) for uploads. Everything in this repository is prepared for that; connecting the
 pieces is one pass through three dashboards plus a short DNS sequence, and it is the owner's
 call, not CI's.
@@ -147,27 +147,52 @@ default to flip back without re-reading this paragraph.
 
 ## One-time setup
 
-1. **Neon** — create a free project, copy the pooled connection string into `DATABASE_URL`.
-   `config/database.js` in `examples/v5-app` reads it as a single connection string with TLS
-   on (`DATABASE_SSL=true` by default) — it does not need separate host/port/user/password
-   fields the way the CI matrix's local Postgres service does.
-2. **Cloudinary** — create a free account, copy the cloud name, key and secret into
-   `CLOUDINARY_NAME` / `CLOUDINARY_KEY` / `CLOUDINARY_SECRET`. Required, not optional: Render
-   free's disk is ephemeral, so anything saved to `public/uploads` vanishes on the next deploy
-   or cold start, which would make the plugin look broken for a reason that has nothing to do
-   with it. `config/plugins.js` switches to the Cloudinary provider automatically as soon as
-   `CLOUDINARY_NAME` is set; local development and `pnpm e2e:v5` never set it, so they keep
-   using the local `strapi-provider-upload-absolute-url` provider unchanged.
-3. **Render** — New → Blueprint → point it at this repo. It reads `render.yaml`, pulls
-   `ghcr.io/captainkie/line-rich-menu-demo:latest` (built by
-   `.github/workflows/demo-image.yml` on every push to `main` that touches the plugin, the
-   demo app, or the mock), and asks for the `sync: false` values from steps 1–2 above plus
-   `APP_KEYS`.
-4. Open `/admin` once and create the first admin user through Strapi's normal bootstrap flow —
-   this demo does **not** run `scripts/seed.js` in production; that script exists for
-   `pnpm e2e:v5` and reads test-only `E2E_*` credentials that are never set on Render. Seed one
-   channel named **Demo LINE OA** with any fake channel access token — the in-container mock
-   accepts anything.
+Written after actually doing it. Each step below has a trap in it, and every one of them cost
+a failed deploy the first time.
+
+1. **Make the container image public.** `.github/workflows/demo-image.yml` pushes to
+   `ghcr.io/<owner>/line-rich-menu-demo`, and a GHCR package inherits the repository's
+   visibility — so while the repo is private, Render's pull fails with `unable to fetch image
+   with provided input`, which does not mention permissions at all. Flip the package to public
+   in its own settings, or give Render a registry credential. Public is the better trade: a
+   credential that does not exist cannot leak or need rotating.
+
+2. **Database — use Render's own free Postgres, in the same region as the service.** Neon works
+   too, but a Postgres in the same account is one fewer service to hold an account for, and it
+   gives you the thing that matters next.
+
+   **Use the *internal* connection string and set `DATABASE_SSL=false`.** The external string
+   fails from inside Render with `Connection terminated unexpectedly`, which reads like a
+   network fault and is not one: `config/database.js` verifies certificates properly rather than
+   setting `rejectUnauthorized: false`, and Render's internal host does not present a
+   publicly-trusted certificate. The fix is the internal address, not a weaker TLS check —
+   loosening verification to make an error go away is how a real certificate problem gets
+   ignored later.
+
+3. **Secrets.** `render.yaml` declares `ADMIN_JWT_SECRET`, `API_TOKEN_SALT`,
+   `TRANSFER_TOKEN_SALT`, `JWT_SECRET` and `LINE_RM_ENCRYPTION_KEY` as `generateValue: true`,
+   and Render fills them in when it reads the blueprint. **If you create the service through the
+   API instead, you must generate all five yourself** — miss them and the container exits 1 on
+   boot. `JWT_SECRET` in particular is `users-permissions`' own, separate from
+   `ADMIN_JWT_SECRET`, and it only throws when `NODE_ENV !== 'development'`, so no amount of
+   local `strapi develop` will ever show you the failure.
+
+4. **Cloudinary is optional, and the demo currently runs without it.** With no `CLOUDINARY_*`
+   set, `config/plugins.js` keeps the local `strapi-provider-upload-absolute-url` provider and
+   the app boots normally — uploaded images simply live on Render's ephemeral disk and disappear
+   on the next deploy. That is a real limitation and the README says so plainly rather than
+   letting a visitor discover it and conclude the plugin lost their file. Add the three
+   variables whenever you want images to persist; nothing else changes.
+
+5. **Register the administrator before you publish the link.** A fresh Strapi hands superadmin
+   to whoever reaches `/admin` first — so a demo URL shared while `GET /admin/init` still
+   reports `hasAdmin: false` is an invitation to claim the demo. Create the account, then check
+   `/admin/init` says `true`, then publish. Seed one channel named **Demo LINE OA** with any
+   fake access token; the in-container mock accepts anything, and the channel list will show the
+   token masked to its last four characters, which is worth seeing on a live host.
+
+   This demo does **not** run `scripts/seed.js` in production — that script is for `pnpm e2e:v5`
+   and reads `E2E_*` credentials that are never set on Render.
 
 ## The public hostname and its Cloudflare protection
 
