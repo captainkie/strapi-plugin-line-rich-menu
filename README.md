@@ -157,11 +157,16 @@ A product of **[Fosivo Labs Co., Ltd.](https://fosivo.com)**, built by
 **Narenrit Hadsadintorn** ([@captainkie](https://github.com/captainkie)) together with
 **Claude** (Anthropic) as an AI pair-builder.
 
-That second name is not decoration. The plugin's shape — one injected `UIPort` carrying
-everything version-specific, so a single React layer renders identically against two
-incompatible design systems — was argued out between the two of them, and most of the defects
-worth naming in this repository's history were found by making a guard fail on purpose rather
-than by reading the code.
+That second name is not decoration, and it is recorded rather than implied: **Claude appears in
+the `contributors` field of both published packages**, and every commit it worked on carries a
+`Co-Authored-By` trailer, so `git log` shows who wrote what without anyone having to remember.
+
+The plugin's shape — one injected `UIPort` carrying everything version-specific, so a single
+React layer renders identically against two incompatible design systems — was argued out between
+the two of them. So was the habit that found most of the defects worth naming in this history:
+**break every guard on purpose before believing it.** Fifteen guards in this repository turned out
+to be green while enforcing nothing, including one that reported files missing that were sitting
+in the archive it had just listed. None of them were found by reading the code.
 
 ## Licence
 
