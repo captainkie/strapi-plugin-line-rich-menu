@@ -64,6 +64,8 @@ describe('runTick — log ต้องผ่าน services.logger ที่ scr
       store: {} as never,
       lock: { claim: vi.fn(), release: vi.fn() },
       clientFor: vi.fn(),
+      // ไม่ถูกเรียกในเทสต์ชุดนี้ (runTick ไม่แตะ saveMenu) — ใส่ไว้ให้ตรงกับ Services เฉย ๆ
+      transaction: async (fn) => fn(),
     }
   }
 
