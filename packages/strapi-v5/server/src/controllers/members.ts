@@ -24,20 +24,33 @@ async function enqueueLinkMembers(services: Services, menu: RichMenuRow): Promis
   await services.transaction(async () => {
     await services.channels.update(menu.channelId, { memberRichMenuId: menu.lineRichMenuId })
 
-    const failed = await services.schedules.findMany({
-      filters: { richMenuId: menu.id, op: 'link-members', state: 'failed' },
+    const rows = await services.schedules.findMany({
+      filters: { richMenuId: menu.id, op: 'link-members' },
     })
     const runAt = new Date().toISOString()
-    const existing = failed[0]
-    if (existing !== undefined) {
-      // ไม่แตะ cursor — นั่นคือประเด็นทั้งหมดของการ reuse แถวนี้แทนสร้างใหม่ (ดูคอมเมนต์ข้างบน)
-      await services.schedules.update(existing.id, { state: 'pending', runAt, lastError: null })
-    } else {
-      await services.schedules.create({
-        richMenuId: menu.id, runAt, op: 'link-members', state: 'pending',
-        lockedBy: null, lockedAt: null, lastError: null, cursor: null,
-      })
+
+    // งานที่ยังไม่จบ (pending รอคิว หรือ running ที่ worker ถืออยู่) นับว่ามีคนทำอยู่แล้ว — สร้าง
+    // แถวใหม่ทับคือได้สองงานของเมนูเดียวกันวิ่งพร้อมกัน แถวใหม่ cursor: null จะไล่ผูกตั้งแต่คนแรก
+    // ซ้อนกับแถวเดิมที่ทำไปได้ครึ่งทางแล้ว (`writeDisplayPeriod` ใน menu-write.ts กันซ้ำแบบเดียวกัน)
+    if (rows.some((row) => row.state === 'pending' || row.state === 'running')) return
+
+    // ปลุกแถวที่ล้มไว้ **ทุกแถว** ไม่ใช่แถวแรกที่เจอ — scheduler ไม่เคยหยิบ 'failed' ซ้ำเอง แถวที่
+    // ถูกข้ามจึงค้างตายถาวรพร้อม cursor ของมัน การปลุกทั้งหมดยังทำให้ผลลัพธ์ไม่ขึ้นกับลำดับที่ repo
+    // คืนแถวมาด้วย (ไม่ต้องพึ่ง sort ที่ adapter อาจแม็ปคนละแบบ) แต่ละแถวไปต่อจาก cursor ของตัวเอง
+    // ช่วงที่ซ้อนกันแค่ส่ง bulkLink ซ้ำ ซึ่ง LINE รับได้ ไม่ใช่การผูกผิดคน
+    const failed = rows.filter((row) => row.state === 'failed')
+    if (failed.length > 0) {
+      for (const row of failed) {
+        // ไม่แตะ cursor — นั่นคือประเด็นทั้งหมดของการ reuse แถวนี้แทนสร้างใหม่ (ดูคอมเมนต์ข้างบน)
+        await services.schedules.update(row.id, { state: 'pending', runAt, lastError: null })
+      }
+      return
     }
+
+    await services.schedules.create({
+      richMenuId: menu.id, runAt, op: 'link-members', state: 'pending',
+      lockedBy: null, lockedAt: null, lastError: null, cursor: null,
+    })
   })
 }
 
@@ -85,16 +98,21 @@ export const members = ({ strapi }: { strapi: StrapiV5 }) => {
       const menu = await services.menus.findOne(id)
       if (menu === null) { ctx.status = 404; ctx.body = { error: { code: 'menu_not_found' } }; return }
 
-      // ล้าง channel ก่อน และไม่ห่อรวม transaction กับการตั้งงาน (ตรงข้ามกับ activate) — เมนูที่
-      // ผู้ดูแลกดปิดต้องอ่านว่าปิดทันที ไม่ต้องรอให้ปลดใครสำเร็จสักคน ถ้าตั้งงานไม่สำเร็จหลังจากนี้
-      // toggle ที่ปิดอยู่คือคำตอบที่ถูกแล้ว และการกดปิดซ้ำจะตั้งงานใหม่ให้เอง
-      await services.channels.update(menu.channelId, { memberRichMenuId: null })
+      // เมนูที่ไม่เคยขึ้น LINE เป็นเมนูสมาชิกของ channel ไหนไม่ได้ (activate ผ่าน
+      // publishedMenuOrThrow เสมอ) และไม่มีใครถืออยู่ได้ — ไม่มีทั้ง pointer ให้ล้างและงานให้ตั้ง
+      const lineRichMenuId = menu.lineRichMenuId
+      if (lineRichMenuId !== null) {
+        // ล้าง pointer เฉพาะตอนที่ channel ยังชี้มาที่เมนูนี้จริง ๆ — ปิดเมนูเก่า A ขณะที่ B เป็น
+        // เมนูสมาชิกที่ใช้อยู่ ต้องไม่ล้าง pointer ของ B ทิ้ง ไม่งั้น audience อ่านว่าปิดทั้งที่ยังเปิด
+        // สมาชิกใหม่หยุดถูกผูกกับ B (lifecycles อ่าน pointer ตัวนี้) และงานปลดของ A ก็ไม่แมตช์ใคร
+        // เลยเพราะไม่มีใครถือ A อยู่ — จบที่ B ไม่ถูกรื้อและไม่ถูกใช้ ทั้งที่ไม่มีใครสั่งให้ปิด B
+        const channel = await services.channels.findOne(menu.channelId)
+        if (channel.memberRichMenuId === lineRichMenuId) {
+          await services.channels.update(menu.channelId, { memberRichMenuId: null })
+        }
 
-      // เงื่อนไขคือ "เมนูนี้เคยขึ้น LINE ไหม" ไม่ใช่ "channel ยังชี้มาที่เมนูนี้อยู่ไหม" — ถ้าเช็ค
-      // อย่างหลัง การกดปิดซ้ำหลังรอบแรกล้มจะไม่ทำอะไรเลย เพราะ memberRichMenuId ถูกล้างไปตั้งแต่
-      // รอบแรกแล้วทั้งที่ยังมีคนถือเมนูนั้นค้างอยู่จริง — กลายเป็นสภาพที่กู้ผ่านหน้าจอไม่ได้อีกเลย
-      // ส่วนเมนูที่ไม่เคยมีใครถือ งานที่ตั้งไปก็แค่ query ที่ไม่เจอใครแล้วจบ ไม่ยิง LINE สักครั้ง
-      if (menu.lineRichMenuId !== null) {
+        // ตั้งงานเสมอ ไม่ผูกกับเงื่อนไขข้างบน — กดปิดซ้ำหลังรอบก่อนล้มต้องตั้งงานใหม่ได้ ทั้งที่
+        // pointer ถูกล้างไปตั้งแต่รอบแรกแล้ว ถ้าผูกไว้ด้วยกันจะไม่มีทางปลดคนที่ค้างผ่านหน้าจอได้อีก
         await enqueueUnlinkMembers(services, menu)
         // เรียก tick ในคำขอนี้เลยเหมือน activate — งานที่ล้มถูกบันทึกไว้ในแถวงานและ audit
         // (scheduler กลืน error ของงานแต่ละแถวไว้เอง) ปุ่มปิดจึงไม่เคยล้มเพราะ LINE ล่ม

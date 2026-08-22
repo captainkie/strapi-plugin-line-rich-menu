@@ -648,6 +648,93 @@ describe('members controller — activate / sync', () => {
     expect(linkRows[0]).toMatchObject({ documentId: 'sched1', cursor: 'm00499', state: 'pending' })
   })
 
+  /**
+   * รอบเต็ม activate → deactivate ด้วยสมาชิกจริง — ด่านที่หายไปตลอดสามรอบรีวิว เทสต์ activate
+   * ทุกตัวก่อนหน้านี้ seed สมาชิกเป็นศูนย์ ส่วนของปลอมของ LINE ก็รับ richMenuId แล้วทิ้ง
+   * scheduler จึงส่ง id ของแถวในฐานข้อมูลไปให้ LINE (แทน id ของ LINE) แล้วประทับค่าเดียวกันลง
+   * linkedRichMenuId ได้โดยไม่มีเทสต์ไหนเห็น — และนั่นทำให้ deactivate หาคนกลุ่มนั้นไม่เจอตลอดกาล
+   * เพราะมันเลือกคนจาก linkedRichMenuId = lineRichMenuId คนละค่ากันคนละฝั่ง
+   */
+  it('รอบเต็ม: activate ผูกด้วย id ของ LINE แล้ว deactivate ปลดคนกลุ่มเดิมได้จริง', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '05')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.schedule] = []
+    rows[UID.member] = [
+      { documentId: 'mem1', channel: { documentId: channelId }, lineUserId: `U${'a'.repeat(32)}`, linkedRichMenuId: null, linkedAt: null },
+      { documentId: 'mem2', channel: { documentId: channelId }, lineUserId: `U${'b'.repeat(32)}`, linkedRichMenuId: null, linkedAt: null },
+    ]
+
+    const calls: { url: string; body: string }[] = []
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      calls.push({ url: String(url), body: init?.body === undefined ? '' : String(init.body) })
+      return new Response('{}', { status: 202 })
+    })
+
+    await controllers.members({ strapi }).activate(makeCtx({ params: { id: 'm1' } }))
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://api.line.me/v2/bot/richmenu/bulk/link')
+    expect((JSON.parse(calls[0]!.body) as { richMenuId: string }).richMenuId).toBe('line-rm-1')
+    expect(rows[UID.member]!.map((row) => row['linkedRichMenuId'])).toEqual(['line-rm-1', 'line-rm-1'])
+
+    await controllers.members({ strapi }).deactivate(makeCtx({ params: { id: 'm1' } }))
+    fetchSpy.mockRestore()
+
+    // กรองตาม endpoint ไม่ใช่อ่านตามลำดับ: lock ของจริงเขียน state 'done' ผ่าน knex ตรง ๆ ส่วน
+    // knex ปลอมในไฟล์นี้ไม่เขียนอะไรกลับลงตาราง documents() แถวงานผูกจึงยังเป็น 'pending' อยู่
+    // แล้วถูกหยิบมาวิ่งซ้ำในติ๊กของ deactivate — ข้อจำกัดของของปลอม ไม่ใช่พฤติกรรมของระบบจริง
+    // (กลไก lock มีเทสต์ของตัวเองที่ container.test.ts) สิ่งที่เทสต์นี้ถามคือ id ที่เดินทางไปกลับ
+    const unlinkCalls = calls.filter((call) => call.url.endsWith('/bulk/unlink'))
+    expect(unlinkCalls).toHaveLength(1)
+    expect((JSON.parse(unlinkCalls[0]!.body) as { userIds: string[] }).userIds.sort()).toEqual(
+      [`U${'a'.repeat(32)}`, `U${'b'.repeat(32)}`].sort(),
+    )
+    expect(rows[UID.member]!.every((row) => row['linkedRichMenuId'] === null)).toBe(true)
+  })
+
+  it('มีงาน link-members ที่ยังไม่จบอยู่แล้ว — ไม่สร้างแถวที่สอง cursor:null มาวิ่งซ้อน', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '06')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.schedule] = [{
+      documentId: 'sched1', richMenu: { documentId: 'm1' }, op: 'link-members', state: 'running',
+      cursor: 'mem0499', runAt: '2026-01-01T00:00:00.000Z', lockedBy: 'host:1', lockedAt: '2026-01-01T00:00:00.000Z',
+      lastError: null,
+    }]
+    rows[UID.member] = []
+
+    await controllers.members({ strapi }).activate(makeCtx({ params: { id: 'm1' } }))
+
+    expect(rows[UID.schedule]!.filter((row) => row['op'] === 'link-members')).toHaveLength(1)
+    expect(rows[UID.schedule]![0]).toMatchObject({ documentId: 'sched1', cursor: 'mem0499' })
+  })
+
+  // scheduler ไม่เคยหยิบแถว 'failed' ซ้ำเอง — แถวที่ไม่ถูกปลุกคือคนกลุ่มหลัง cursor ของมันที่ไม่มี
+  // ใครไปผูกให้อีกเลย การปลุกแค่แถวแรกที่ repo คืนมาจึงทิ้งงานค้างไว้เงียบ ๆ ตามจำนวนแถวที่เหลือ
+  it('ปลุกแถว link-members ที่ล้มไว้ทุกแถว ไม่ใช่แถวแรกที่เจอ', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '07')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.schedule] = [
+      { documentId: 'schedA', richMenu: { documentId: 'm1' }, op: 'link-members', state: 'failed', cursor: 'mem0499', runAt: '2026-01-01T00:00:00.000Z', lockedBy: null, lockedAt: null, lastError: 'line_server_error' },
+      { documentId: 'schedB', richMenu: { documentId: 'm1' }, op: 'link-members', state: 'failed', cursor: 'mem0999', runAt: '2026-01-01T00:00:00.000Z', lockedBy: null, lockedAt: null, lastError: 'line_server_error' },
+    ]
+    rows[UID.member] = []
+
+    await controllers.members({ strapi }).activate(makeCtx({ params: { id: 'm1' } }))
+
+    const linkRows = rows[UID.schedule]!.filter((row) => row['op'] === 'link-members')
+    expect(linkRows).toHaveLength(2)
+    // cursor ของแต่ละแถวต้องไม่ถูกแตะ — แต่ละแถวไปต่อจากตำแหน่งของตัวเอง
+    expect(linkRows.map((row) => [row['documentId'], row['cursor'], row['lastError']])).toEqual([
+      ['schedA', 'mem0499', null], ['schedB', 'mem0999', null],
+    ])
+  })
+
   it('sync ทำงานเหมือน activate ทุกประการ — เมนูที่ active อยู่แล้วก็ยังตั้ง memberRichMenuId ได้', async () => {
     const rows: Record<string, Record<string, unknown>[]> = {}
     const strapi = fakeMembersStrapi(rows)
@@ -797,6 +884,38 @@ describe('members controller — deactivate', () => {
     expect(calls).toEqual(['https://api.line.me/v2/bot/richmenu/bulk/unlink'])
     expect(rows[UID.member]![0]!['linkedRichMenuId']).toBeNull()
   })
+
+  /**
+   * ปิดเมนูเก่า A ขณะที่ B เป็นเมนูสมาชิกที่ใช้อยู่ — ถ้า deactivate ล้าง pointer แบบไม่ถามว่า
+   * ชี้ที่ใคร B จะถูกปิดตามไปด้วยทั้งที่ไม่มีใครสั่ง: หน้าจออ่านว่าปิด สมาชิกใหม่ไม่ถูกผูกกับ B อีก
+   * และงานปลดของ A ก็ไม่แมตช์ใครเพราะไม่มีใครถือ A — B จึงค้างอยู่บน LINE โดยไม่มีใครรื้อ
+   */
+  it('ปิดเมนูเก่าไม่ล้าง memberRichMenuId ของเมนูที่ใช้อยู่ แต่ยังตั้งงานปลดของเมนูเก่า', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '15')
+    ;(rows[UID.channel]![0] as Record<string, unknown>)['memberRichMenuId'] = 'line-rm-2'
+    rows[UID.menu] = [
+      audienceMenuFixture('m-old', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' }),
+      audienceMenuFixture('m-new', channelId, { status: 'published', lineRichMenuId: 'line-rm-2' }),
+    ]
+    rows[UID.member] = [
+      { documentId: 'mem1', channel: { documentId: channelId }, lineUserId: `U${'a'.repeat(32)}`, linkedRichMenuId: 'line-rm-1', linkedAt: '2026-01-01T00:00:00.000Z' },
+      { documentId: 'mem2', channel: { documentId: channelId }, lineUserId: `U${'b'.repeat(32)}`, linkedRichMenuId: 'line-rm-2', linkedAt: '2026-01-01T00:00:00.000Z' },
+    ]
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 202 }))
+    await controllers.members({ strapi }).deactivate(makeCtx({ params: { id: 'm-old' } }))
+    fetchSpy.mockRestore()
+
+    const channelRow = rows[UID.channel]!.find((row) => row['documentId'] === channelId)!
+    expect(channelRow['memberRichMenuId']).toBe('line-rm-2')
+    // งานของเมนูเก่ายังต้องถูกตั้งและวิ่ง — คนที่ถือ A อยู่ต้องถูกปลด ส่วนคนที่ถือ B ต้องไม่ถูกแตะ
+    expect(rows[UID.schedule]).toContainEqual(expect.objectContaining({ op: 'unlink-members' }))
+    const byId = (id: string) => rows[UID.member]!.find((row) => row['documentId'] === id)!
+    expect(byId('mem1')['linkedRichMenuId']).toBeNull()
+    expect(byId('mem2')['linkedRichMenuId']).toBe('line-rm-2')
+  })
 })
 
 describe('members controller — audience', () => {
@@ -896,6 +1015,9 @@ describe('members controller — เส้นใหม่ทั้งหมด�
       const route = admin.routes.find((r) => r.path === path)
       expect(route, `${path} ไม่มีใน route table`).toBeDefined()
       const policies = route!.config.policies as { name: string; config: { actions: string[] } }[]
+      // เช็คชื่อ policy ด้วย ไม่ใช่แค่ actions — policy ตัวอื่นที่บังเอิญมี config.actions รูปเดียวกัน
+      // ผ่านด่านนี้ได้ทั้งที่ไม่ได้บังคับสิทธิ์อะไรเลย ชื่อคือตัวที่บอกว่าใครเป็นคนบังคับ
+      expect(policies[0]!.name).toBe('admin::hasPermissions')
       expect(policies[0]!.config.actions).toEqual([PERMISSION.publish])
     }
   })
