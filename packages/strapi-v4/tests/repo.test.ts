@@ -87,6 +87,7 @@ describe('createChannelRepo', () => {
     expect(row).toEqual({
       id: '10', name: 'ร้าน', channelId: '1650000000',
       channelAccessToken: 'v1.a.b.c', channelSecret: null, accessTokenLast4: 'WXYZ', isDefault: true,
+      memberRichMenuId: null,
     })
   })
 
@@ -95,6 +96,26 @@ describe('createChannelRepo', () => {
     await createChannelRepo(strapi).findMany({ filters: { isDefault: true } })
     expect(calls[0]!.uid).toBe(UID.channel)
     expect(calls[0]!.args[0]).toMatchObject({ filters: { isDefault: true } })
+  })
+
+  // Task 8 ปิดช่องว่างฝั่ง v4 ของคอลัมน์นี้ (v5 ปิดไปแล้วที่ Task 7 — ดูคอมเมนต์ที่
+  // ChannelRow.memberRichMenuId ใน core) — ต้องอ่านค่าที่ตั้งไว้จริงกลับมาได้ ไม่ใช่แค่ไม่พังตอน
+  // เป็น undefined
+  it('อ่าน memberRichMenuId ที่ตั้งไว้จริงกลับมาได้', async () => {
+    const { strapi } = fakeStrapi({
+      findOne: {
+        id: 10, name: 'ร้าน', channelId: '1650000000', channelAccessToken: 'v1.a.b.c',
+        channelSecret: null, accessTokenLast4: 'WXYZ', isDefault: true, memberRichMenuId: 'richmenu-member',
+      },
+    })
+    const row = await createChannelRepo(strapi).findOne('10')
+    expect(row!.memberRichMenuId).toBe('richmenu-member')
+  })
+
+  it('channel ที่ยังไม่ได้ตั้งเมนูสำหรับสมาชิก อ่าน memberRichMenuId เป็น null ไม่ใช่ undefined หลุดออกไป', async () => {
+    const { strapi } = fakeStrapi({ findOne: { id: 10, name: 'ร้าน', channelId: '1650000000', channelAccessToken: 'v1.a.b.c', channelSecret: null, accessTokenLast4: 'WXYZ', isDefault: true } })
+    const row = await createChannelRepo(strapi).findOne('10')
+    expect(row!.memberRichMenuId).toBeNull()
   })
 })
 

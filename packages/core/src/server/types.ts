@@ -51,14 +51,15 @@ export interface ChannelRow {
   isDefault: boolean
   /**
    * เมนูที่ควรได้เมื่อ LINE user คนนั้นมีแถวใน line-member ของ channel นี้ — Task 5/6 เพิ่มคอลัมน์นี้
-   * ไว้ในสคีมาของทั้งสอง adapter แล้ว แต่ไม่ได้ผูกเข้า repo/service ชั้นนี้เลยสักที่ (Task 7 เป็น
-   * ผู้บริโภคจริงคนแรก จึงเป็นคนปิดช่องว่างนี้)
+   * ไว้ในสคีมาของทั้งสอง adapter แล้ว Task 7 (v5) และ Task 8 (v4) ผูกเข้า `toRow` ของ repo ตัวเอง
+   * ครบทั้งคู่แล้ว
    *
-   * optional เพราะ adapter ของ Strapi 4 (Task 8) ยังไม่ได้เพิ่ม key นี้ใน `toRow` ของตัวเอง —
-   * แถวที่มาจากที่นั่นจะไม่มี key นี้เลย ไม่ใช่ตั้งใจให้เป็น `null`; แยกจาก `undefined` (adapter เก่า
-   * ไม่รู้จัก field นี้) ไปเป็น `string | null` เสมอที่ `ChannelRecord` (ดู `toChannelRecord`)
+   * required ไม่ใช่ optional — เคย optional ไว้ชั่วคราวระหว่างที่ v4 ยังไม่ได้ผูกคอลัมน์นี้ เพื่อให้
+   * v4 คอมไพล์ผ่านโดยไม่ต้องแก้พร้อมกับ v5 ตอนนี้ทั้งสอง adapter ผูกครบแล้วจึงบังคับกลับมาเป็น
+   * required: adapter ตัวที่สามในอนาคตที่ลืมผูกคอลัมน์นี้เข้า `toRow` จะคอมไพล์ไม่ผ่านทันที
+   * แทนที่จะเงียบแล้วไปโผล่เป็น `undefined` ที่ runtime
    */
-  memberRichMenuId?: string | null
+  memberRichMenuId: string | null
 }
 
 /** สิ่งที่ออกจาก service ได้ — ไม่มีฟิลด์ลับ ไม่ว่าจะเป็น plaintext หรือ ciphertext */

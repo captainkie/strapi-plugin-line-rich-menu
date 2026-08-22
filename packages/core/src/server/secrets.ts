@@ -86,9 +86,7 @@ export function toChannelRecord(row: ChannelRow): ChannelRecord {
     channelId: row.channelId,
     accessTokenPreview: previewOf(row.accessTokenLast4),
     isDefault: row.isDefault,
-    // `row.memberRichMenuId` อาจไม่มี key เลยจาก adapter ที่ยังไม่ผูก field นี้ (ดูคอมเมนต์ที่
-    // ChannelRow) — `??` ปรับให้เป็น null เสมอ ไม่ปล่อย undefined หลุดออกไปให้ผู้เรียก service เห็น
-    memberRichMenuId: row.memberRichMenuId ?? null,
+    memberRichMenuId: row.memberRichMenuId,
   }
 }
 

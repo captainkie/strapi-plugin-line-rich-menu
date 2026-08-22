@@ -13,6 +13,27 @@ export interface StrapiLogger {
   error(...args: unknown[]): void
 }
 
+/**
+ * รูปทรงขั้นต่ำของ event ที่ `db.lifecycles` ส่งเข้า subscriber แต่ละตัว — v4 ใช้ `@strapi/database`
+ * ตัวเดียวกับ v5 เป๊ะ (`db.lifecycles.subscribe` ไม่ใช่ของ v5 เท่านั้น) รูปทรง event จึงเหมือนกัน
+ * ทุกประการ ต่างแค่ว่า relation/primary key ที่อยู่ในนั้นเป็นเลข id ตัวเลขของ v4 ไม่ใช่ documentId
+ * ของ v5 — ไม่มีเอกสารระบุตรง ๆ ว่าที่ระดับนี้ (ก่อน entityService แนบ relation ให้) ค่าจะเป็น
+ * เลข id ดิบ, object ที่ populate แล้ว (`{id}`), หรือรูป `{connect:[...]}`/`{set:[...]}`
+ * ผู้เรียก (`lifecycles.ts`) ต้องเผื่อเองแทนที่จะเชื่อ type ที่แคบเกินจริง
+ */
+export interface LifecycleEvent {
+  params: { data?: Record<string, unknown>; where?: Record<string, unknown> }
+  result?: Record<string, unknown>
+}
+
+export type LifecycleSubscriber = {
+  models: string[]
+  beforeCreate?(event: LifecycleEvent): Promise<void>
+  beforeUpdate?(event: LifecycleEvent): Promise<void>
+  afterCreate?(event: LifecycleEvent): Promise<void>
+  afterDelete?(event: LifecycleEvent): Promise<void>
+}
+
 export interface StrapiV4 {
   log: StrapiLogger
   config: { get<T>(path: string, defaultValue?: T): T }
@@ -24,7 +45,11 @@ export interface StrapiV4 {
     update(uid: string, id: number | string, params: { data: unknown }): Promise<unknown>
     delete(uid: string, id: number | string): Promise<unknown>
   }
-  db: { connection: unknown }
+  db: {
+    connection: unknown
+    /** Task 8 — `lifecycles.ts` ใช้ตัวนี้ผูก link/unlink สมาชิกเข้ากับ create/delete ของ line-member */
+    lifecycles: { subscribe(subscriber: LifecycleSubscriber): void }
+  }
   admin: { services: { permission: { actionProvider: { registerMany(actions: unknown[]): Promise<void> } } } }
   cron: { add(jobs: Record<string, unknown>): void }
   /** ใช้อ่านไฟล์ของ upload provider แบบ local ที่คืน url สัมพัทธ์ */

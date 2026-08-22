@@ -211,7 +211,7 @@ describe('กฎ default ช่องเดียว', () => {
   const other = (over: Partial<ChannelRow> = {}): ChannelRow => ({
     id: '99', name: 'เดิม', channelId: '1600000001',
     channelAccessToken: 'v1.x.y.z', channelSecret: null, accessTokenLast4: 'ZZZZ',
-    isDefault: true, ...over,
+    isDefault: true, memberRichMenuId: null, ...over,
   })
 
   it('create เป็น default ปลด default ของช่องอื่นทุกช่อง', async () => {

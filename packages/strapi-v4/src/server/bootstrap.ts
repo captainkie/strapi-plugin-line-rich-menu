@@ -1,3 +1,4 @@
+import { registerMemberLifecycles } from './lifecycles.js'
 import { permissionActions } from './permissions.js'
 import type { StrapiV4 } from './strapi.js'
 import { registerCron } from './tick.js'
@@ -15,4 +16,5 @@ export async function registerPermissions(strapi: StrapiV4): Promise<void> {
 export async function bootstrap({ strapi }: { strapi: StrapiV4 }): Promise<void> {
   await registerPermissions(strapi)
   registerCron(strapi)
+  registerMemberLifecycles(strapi)
 }
