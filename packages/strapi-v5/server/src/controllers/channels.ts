@@ -8,11 +8,11 @@ const actorOf = (ctx: AdminContext): string | null =>
   ctx.state.user === undefined ? null : String(ctx.state.user.id)
 
 export const channels = ({ strapi }: { strapi: StrapiV5 }) => ({
-  find: guard(async (ctx) => {
+  find: guard(strapi, async (ctx) => {
     ctx.body = await getServices(strapi).channels.list()
   }),
 
-  create: guard(async (ctx) => {
+  create: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const input = channelCreateSchema.parse(ctx.request.body)
 
@@ -42,7 +42,7 @@ export const channels = ({ strapi }: { strapi: StrapiV5 }) => ({
     }
   }),
 
-  update: guard(async (ctx) => {
+  update: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const id = idParam.parse(ctx.params['id'])
     const input = channelUpdateSchema.parse(ctx.request.body)
@@ -54,7 +54,7 @@ export const channels = ({ strapi }: { strapi: StrapiV5 }) => ({
     )
   }),
 
-  test: guard(async (ctx) => {
+  test: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const id = idParam.parse(ctx.params['id'])
     // withSecrets() ถูกเรียกตรงนี้เท่านั้นในทั้งไฟล์ — เป็นจุดเดียวที่ต้องใช้ token จริง
@@ -63,7 +63,7 @@ export const channels = ({ strapi }: { strapi: StrapiV5 }) => ({
     ctx.body = { userId: info.userId, basicId: info.basicId, displayName: info.displayName }
   }),
 
-  deleteOrphan: guard(async (ctx) => {
+  deleteOrphan: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const id = idParam.parse(ctx.params['id'])
     const lineRichMenuId = lineRichMenuIdParam.parse(ctx.params['lineRichMenuId'])
