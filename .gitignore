@@ -51,3 +51,8 @@ examples/*/.pack
 # แคชของตัวตรวจเวอร์ชันใน Strapi CLI — มีแต่ timestamp ที่เปลี่ยนทุกครั้งที่บูต
 # ไม่ใช่ผลของการตั้งค่าอะไร การ track มันแปลว่า `pnpm e2e:*` ทิ้ง diff ไว้ทุกรอบ
 examples/*/.strapi-updater.json
+
+# Planning and spec documents from the build process. Kept on a maintainer's disk, never
+# committed: they are a task-by-task internal record in Thai, and a public repository's docs
+# directory is for people using the plugin, not for the history of how it was written.
+docs/superpowers/
