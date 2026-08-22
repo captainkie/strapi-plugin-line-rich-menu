@@ -290,6 +290,14 @@ export function createImageStore(strapi: StrapiV5): ImageStore {
       return readFile(join(strapi.dirs.static.public, url))
     },
 
+    // ไฟล์ที่ถูกลบไปจาก Media Library แล้วคืน `null` ไม่โยน — หน้ารายการที่มีเมนูสิบอันต้องไม่ล้ม
+    // ทั้งหน้าเพราะรูปของเมนูเดียวหายไป ต่างจาก `read()` ข้างบนที่อยู่บนเส้นทาง publish ซึ่ง
+    // เดินต่อโดยไม่มีไบต์ไม่ได้จริง ๆ
+    async url(fileId) {
+      const file = await uploadService().findOne(fileId)
+      return file?.url ?? null
+    },
+
     async write({ buffer, mime, filename }) {
       const directory = await mkdtemp(join(tmpdir(), 'line-rich-menu-'))
       const filepath = join(directory, filename)

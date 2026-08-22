@@ -40,3 +40,30 @@ export function combineDisplayAt(date: Date | null, time: string): string {
   const minutes = Number(minutesRaw ?? 0) || 0
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0, 0).toISOString()
 }
+
+/** `2026/08/22 00:00` — เรียงจากหน่วยใหญ่ไปเล็กเสมอ ไม่ขึ้นกับ locale ของเครื่องที่เปิดดู */
+function formatStamp(iso: string): string | null {
+  const parsed = new Date(iso)
+  if (Number.isNaN(parsed.getTime())) return null
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${parsed.getFullYear()}/${pad(parsed.getMonth() + 1)}/${pad(parsed.getDate())}`
+    + ` ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`
+}
+
+/**
+ * ช่วงเวลาแสดงผลในรูปแบบที่ LINE OA Manager ใช้ในหน้ารายการและหน้ารายละเอียด —
+ * `2026/08/22 00:00 - 2026/08/31 23:59`
+ *
+ * คืน `null` เมื่อ **ไม่มี**ขอบเวลาเลย ซึ่งไม่เหมือนกับ "ช่วงเวลาว่างเปล่า": เมนูที่ไม่ได้ตั้งเวลา
+ * ไม่ได้แปลว่าไม่แสดง แต่แปลว่าไม่มีตารางเวลามาเกี่ยวข้อง จุดเรียกจึงต้องเลือกข้อความเองว่าจะพูดว่า
+ * อะไร แทนที่จะได้ `' - '` ที่อ่านเหมือนข้อมูลหาย
+ *
+ * ขอบข้างเดียวยังคืนค่า — ตั้งแต่วันที่เท่านั้น หรือถึงวันที่เท่านั้น เป็นสิ่งที่ตั้งได้จริงในฟอร์ม
+ * และเป็นสิ่งที่ผู้ใช้ต้องมองเห็น ไม่ใช่กรณีผิดปกติที่ควรถูกซ่อน
+ */
+export function formatDisplayPeriod(startAt: string | null, endAt: string | null): string | null {
+  const start = startAt === null || startAt === '' ? null : formatStamp(startAt)
+  const end = endAt === null || endAt === '' ? null : formatStamp(endAt)
+  if (start === null && end === null) return null
+  return `${start ?? ''} - ${end ?? ''}`.trim()
+}

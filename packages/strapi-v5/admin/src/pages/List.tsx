@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  ChannelSettings, ENDPOINTS, RichMenuList, usePort, type ChannelSummary,
-} from '@fosivo/line-rich-menu-ui'
+import { ENDPOINTS, RichMenuList, usePort, type ChannelSummary } from '@fosivo/line-rich-menu-ui'
 import { PLUGIN_ID } from '../plugin-id.js'
 
 /**
@@ -57,11 +55,14 @@ export function ListPage() {
           >
             {t('list.create')}
           </ui.Button>
+          {/* ตั้งค่าบัญชีย้ายไปหน้าของตัวเองแล้ว (ดูคอมเมนต์ที่ pages/Channels.tsx) — ที่นี่เหลือ
+              แค่ทางเข้า ไม่ใช่ทั้งฟอร์มมากองอยู่ใต้รายการ */}
+          <ui.Button variant="secondary" testId="manage-channels" onClick={() => navigate(`${BASE}/channels`)}>
+            {t('list.manageChannels')}
+          </ui.Button>
         </ui.Flex>
 
         <RichMenuList channelId={channelId} />
-        <ui.Divider />
-        <ChannelSettings />
       </ui.Flex>
     </ui.Page>
   )

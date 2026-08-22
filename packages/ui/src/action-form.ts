@@ -105,3 +105,28 @@ export function fromAction(action: Action): ActionFormState {
   if ('clipboardText' in action) state.clipboardText = action.clipboardText
   return state
 }
+
+/**
+ * ค่าที่ "อ่านแล้วรู้ว่า action นี้ทำอะไร" สำหรับคอลัมน์ Action ของหน้ารายการและหน้าพรีวิว —
+ * LINE OA Manager เขียนบรรทัดนี้ว่า `A : Text - test` คือ ป้ายช่อง, ชนิด, แล้วค่าที่สำคัญที่สุด
+ * ของชนิดนั้น
+ *
+ * เดินผ่าน `fromAction` แทนที่จะแยกฟิลด์จาก union เอง — การอ่าน `Action` ตรง ๆ จะกลายเป็น
+ * ที่ที่สองที่รู้ว่าฟิลด์ไหนคู่กับชนิดไหน และสองที่นั้นจะเลิกตรงกันในวันที่ LINE เพิ่มชนิดใหม่
+ *
+ * `postback` เลือก `displayText` ก่อน `data` เพราะ `displayText` คือสิ่งที่ผู้ใช้ปลายทางเห็นจริง
+ * ส่วน `data` เป็นค่าที่ส่งกลับหลังบ้าน ซึ่งมักไม่มีความหมายกับคนที่อ่านรายการ
+ */
+export function actionSummary(action: Action): string {
+  const state = fromAction(action)
+  switch (state.type) {
+    case 'message': return state.text
+    case 'uri': return state.uri
+    case 'postback': return state.displayText === '' ? state.data : state.displayText
+    case 'datetimepicker': return state.data
+    case 'richmenuswitch': return state.richMenuAliasId
+    case 'clipboard': return state.clipboardText
+    // camera / cameraRoll / location ไม่มีค่าอื่นเลยนอกจากป้ายที่ LINE บังคับให้มี
+    default: return state.label
+  }
+}

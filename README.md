@@ -100,18 +100,26 @@ Then give a role the four permissions under **Settings → Roles → Plugins →
 `settings` is deliberately separate from `publish`: you can let someone ship menus without
 ever letting them see the LINE OA's access token.
 
-**Your menus, per LINE account.** Draft and published side by side, with the account's access
-token masked to its last four characters — the list never decrypts anything.
+**Your menus, per LINE account.** The same table LINE's own console shows: a thumbnail of the
+real layout with your artwork behind it, every area's action, the display period, and the
+status — so you can tell two menus apart without opening either.
 
 ![The rich menu list](docs/screenshots/list.png)
+
+**Look before you edit.** Click a title for a read-only preview — the menu inside a LINE chat
+on the left, its settings on the right, area outlines on a toggle.
+
+![The rich menu preview](docs/screenshots/preview.png)
 
 **Pick a layout.** Seven large and five compact templates, each showing the canvas sizes LINE
 accepts for it, or turn on *Adjust the layout manually* and drag the areas yourself.
 
 ![Template picker](docs/screenshots/templates.png)
 
-**Connect an account.** Test the connection before you save it, and check for rich menus that
-exist on LINE but not here.
+**Connect an account.** Channels live on their own page, away from the menus — test the
+connection before you save it, and check for rich menus that exist on LINE but not here. The
+access token is masked to its last four characters everywhere it appears; nothing on these
+screens ever decrypts it.
 
 ![Connected LINE Official Accounts](docs/screenshots/channel.png)
 

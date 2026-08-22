@@ -101,9 +101,17 @@ export function ChannelSettings() {
     }
   }
 
+  /**
+   * ไม่มี `<h1>` ของตัวเองแล้ว — หน้าที่ประกอบมันอยู่ (`pages/Channels.tsx` ของทั้งสองอะแดปเตอร์)
+   * ตั้ง `ui.Page title={t('channel.heading')}` ซึ่งวาด `<h1>` ข้อความเดียวกันอยู่แล้ว
+   *
+   * ตอนที่ตัวนี้ยังอยู่ท้ายหน้ารายการ มันคือหัวข้อของ "ท่อนหนึ่ง" ในหน้าที่มีหัวข้ออื่นอยู่ก่อน
+   * พอมันกลายเป็นทั้งหน้า หัวข้อสองอันที่เป็นข้อความเดียวกันจึงซ้อนกันพอดี — ทั้งจอ (ชื่อโผล่
+   * สองครั้งติดกัน) และใน accessibility tree (`<h1>` สองอันชื่อเหมือนกันเป๊ะ) เจอตอนสคริปต์
+   * ถ่ายภาพล้มด้วย strict mode ของ Playwright ซึ่งจับได้เพราะมันเจอสองอัน ไม่ใช่ศูนย์
+   */
   return (
     <ui.Flex direction="column" gap={3}>
-      <ui.Typography as="h1" variant="alpha">{t('channel.heading')}</ui.Typography>
       {error === null ? null : <ui.Alert variant="danger">{error}</ui.Alert>}
       {tested === null ? null : <ui.Alert variant="success">{tested}</ui.Alert>}
 

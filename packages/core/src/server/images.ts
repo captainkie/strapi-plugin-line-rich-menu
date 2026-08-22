@@ -11,6 +11,20 @@ import type { AreaRecord } from './types.js'
 export interface ImageStore {
   read(fileId: number): Promise<Buffer>
   write(input: { buffer: Buffer; mime: 'image/jpeg' | 'image/png'; filename: string }): Promise<{ id: number }>
+  /**
+   * url ของไฟล์สำหรับ "เอาไปแสดง" ไม่ใช่ "เอาไปประมวลผล" — `read()` คืนไบต์ ซึ่งเป็นสิ่งที่
+   * publish ต้องการ แต่หน้าจอต้องการ url ให้ `<img>` ไปโหลดเอง
+   *
+   * ก่อนหน้านี้ไม่มีเมธอดนี้ และผลของมันคือดีเฟกต์ที่มองเห็นได้: `GET /menus/:id` คืนแค่
+   * `imageFileId` เปิดเมนูเก่าที่มีรูปขึ้นมาแก้ ฟอร์มจึงขึ้นว่า "ยังไม่มีรูป" เสมอ (ดูคอมเมนต์ยาว
+   * ที่ `saved` ใน pages/Editor.tsx ของทั้งสองอะแดปเตอร์ ซึ่งเป็นการชดเชยผลข้างเคียงของ
+   * ช่องว่างนี้ ไม่ใช่ฟีเจอร์) และหน้ารายการกับพรีวิวก็วาดรูปที่ผู้ใช้อัปโหลดไว้ไม่ได้เลย
+   *
+   * คืน `null` เมื่อไฟล์ถูกลบไปจาก Media Library แล้ว ซึ่งเกิดขึ้นได้ตามปกติ — ไม่ใช่ข้อผิดพลาด
+   * ที่ควรทำให้ทั้งรายการล้ม ต่างจาก `read()` ที่โยน `MenuNotReadyError` เพราะที่นั่นคือเส้นทาง
+   * publish ซึ่งเดินต่อโดยไม่มีไบต์ไม่ได้
+   */
+  url(fileId: number): Promise<string | null>
 }
 
 export interface ImageSourceInput {

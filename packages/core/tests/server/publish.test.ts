@@ -164,6 +164,8 @@ function fakeLine(initial: { defaultId?: string | null; aliases?: Record<string,
 function imageStore(): ImageStore & { write: ReturnType<typeof vi.fn> } {
   return {
     async read() { return Buffer.from('normalized-bytes') },
+    // publish อ่านไบต์ ไม่เคยอ่าน url — มีไว้ให้ครบสัญญาของ `ImageStore` เท่านั้น
+    async url() { return null },
     write: vi.fn(async () => ({ id: 0 })),
   }
 }

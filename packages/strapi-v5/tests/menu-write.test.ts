@@ -64,6 +64,8 @@ function fakeStore(source: Buffer): ImageStore {
   let nextId = 900
   return {
     async read() { return source },
+    // เส้นทางเขียนไม่เคยอ่าน url — มีไว้ให้ครบสัญญาของ `ImageStore`
+    async url() { return null },
     async write() { return { id: nextId++ } },
   }
 }
