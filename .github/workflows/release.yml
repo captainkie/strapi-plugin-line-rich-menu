@@ -47,6 +47,22 @@ jobs:
           cp README.md packages/strapi-v4/README.md
           cp README.md packages/strapi-v5/README.md
 
+      # ขั้นตอนปล่อยของรันบน Node 22 ต่างจากด่านข้างบนที่รันบน .nvmrc (20.20.0) โดยตั้งใจ —
+      # เหตุผลเดียวกับ job `mutation` ใน ci.yml: เครื่องมือไม่ใช่สินค้า สิ่งที่ต้องพิสูจน์ว่าทำงาน
+      # บน Node 20 คือ typecheck/lint/test/build ข้างบน ซึ่งยังรันบน 20 ครบทุกด่านเหมือนเดิม
+      #
+      # จำเป็นจริง ไม่ใช่ความชอบ: `@changesets/cli@3.0.1` (เวอร์ชันล่าสุด ณ ตอนนี้ ไม่มีตัวแก้)
+      # มี bin shim ที่เช็คผิดตัว —
+      #     if (globalThis.process?.getBuiltinModule) { …enableCompileCache() }
+      # `getBuiltinModule` มีตั้งแต่ Node 20.16 แต่ `enableCompileCache` เพิ่งมีใน 22.1 บน
+      # Node 20.20.0 เงื่อนไขจึงผ่านแล้วไปตายที่บรรทัดถัดมาด้วย `TypeError:
+      # enableCompileCache is not a function` — ล้มก่อนแตะ npm ด้วยซ้ำ (ยืนยันแล้วทั้งสอง
+      # เวอร์ชันในเครื่อง: บน 20.20.0 เป็น undefined บน 22 เป็น function)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
       - name: changeset publish
         run: pnpm exec changeset publish
         env:
