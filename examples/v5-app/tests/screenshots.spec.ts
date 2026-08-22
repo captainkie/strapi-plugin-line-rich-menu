@@ -253,6 +253,24 @@ function pastAnyElement(height: number, boxes: readonly ElementBox[]): number {
  * แล้วปัดพ้นองค์ประกอบใด ๆ ที่เผอิญโดนตัดกลาง (`pastAnyElement`) วัดซ้ำหนึ่งรอบหลัง resize เพราะ
  * อวาตาร์ที่ pin ก้นแถบขยับตำแหน่งทุกครั้งที่ viewport เปลี่ยนความสูง
  */
+/**
+ * รอให้ modal ของ Radix (DS v2) วาดเสร็จจริง ไม่ใช่แค่ "มีอยู่ในหน้า"
+ *
+ * `toBeVisible()` ตรวจ display/visibility/ขนาดกล่องเท่านั้น **ไม่ตรวจ opacity** — ระหว่าง
+ * transition ตอนเปิด กล่อง dialog มีขนาดเต็มและถือว่า visible ตั้งแต่ opacity ยังเป็น 0
+ * ผลคือเทสต์เขียวแต่ภาพที่ได้เป็นหน้าเดิมล้วน ๆ ไม่มี modal อยู่ในนั้นเลย
+ *
+ * เจอมาแล้วสองครั้งกับสองภาพคนละใบ: templates.png (รอบก่อน) และ preview.png (รอบนี้)
+ * ครั้งแรกแก้ด้วยการรอข้อความในหัว dialog ซึ่งได้ผลเพราะ**บังเอิญ**มี await อีกหลายตัวตามหลัง
+ * (คลิก tile, รอ aria-pressed, รอปุ่ม Apply) กินเวลาจน transition จบไปเอง — ไม่ใช่เพราะการรอ
+ * ข้อความนั้นพิสูจน์อะไรเกี่ยวกับ opacity เลย ภาพที่สองที่ไม่มี await ตามหลังจึงพังทันที
+ *
+ * ตัวนี้ตรวจสิ่งที่ขาดจริง ๆ ตรง ๆ: opacity เป็น 1 แล้ว
+ */
+async function waitForDialogPaint(page: Page): Promise<void> {
+  await expect(page.getByRole('dialog')).toHaveCSS('opacity', '1')
+}
+
 async function shellShot(page: Page, path: string, contentBottom: number): Promise<void> {
   const candidate = Math.ceil(contentBottom) + BOTTOM_PAD
   // วัดตอน viewport สูงพอเสมอก่อน (ดูเหตุผลที่ navElementBoxes) แล้วค่อยตัดสินใจความสูงจริง
@@ -286,7 +304,7 @@ async function shellShot(page: Page, path: string, contentBottom: number): Promi
   await page.screenshot({ path })
 }
 
-test('ถ่ายภาพสี่ภาพที่ README ใช้', async ({ page, request }) => {
+test('ถ่ายภาพห้าภาพที่ README ใช้', async ({ page, request }) => {
   await mkdir(OUT, { recursive: true })
   // ความกว้างคงที่ตลอดทั้งไฟล์เพื่อให้ภาพชุดถัดไปเทียบกับชุดนี้ได้ตรง ๆ ใน diff — ความสูงเริ่มที่
   // 900 (ค่ามาตรฐานของทั้งชุด) แล้ว shellShot จะปรับขึ้นเป็นรายภาพเองถ้าเนื้อหาต้องการที่มากกว่านี้
@@ -309,6 +327,20 @@ test('ถ่ายภาพสี่ภาพที่ README ใช้', async 
   const rowBox = await lastMenuRow.boundingBox()
   if (rowBox === null) throw new Error('หา bounding box ของแถวเมนูสุดท้ายไม่เจอ')
   await shellShot(page, `${OUT}list.png`, rowBox.y + rowBox.height)
+
+  /**
+   * พรีวิว — กดชื่อเมนูในรายการแล้วได้จอโทรศัพท์กับรายละเอียดของเมนูนั้น
+   *
+   * ถ่ายทั้งหน้า ไม่ครอปเฉพาะกล่อง modal เพราะฉากหลังที่มืดลงคือสิ่งที่บอกว่านี่เป็น modal
+   * ที่เปิดคร่อมรายการอยู่ ไม่ใช่หน้าใหม่ที่พาผู้ใช้ออกไปจากรายการ ซึ่งเป็นทั้งหมดของเหตุผล
+   * ที่มันเป็น modal (ดูคอมเมนต์หัว MenuPreviewModal.tsx)
+   */
+  await page.setViewportSize({ width: SHELL_WIDTH, height: DEFAULT_HEIGHT })
+  await page.getByTestId(`preview-${menuId}`).click()
+  await expect(page.getByTestId('preview-action-0')).toBeVisible()
+  await waitForDialogPaint(page)
+  await page.screenshot({ path: `${OUT}preview.png` })
+  await page.keyboard.press('Escape')
 
   // ถ่าย editor.png จากเมนูที่ seed ไว้ (ตั้งค่าครบแล้ว) ไม่ใช่จากฟอร์มเปล่า /rich-menus/new
   // เหมือนรอบก่อน — นั่นคือสาเหตุที่ editor.png รอบก่อนโชว์ฟอร์มว่างเปล่าทั้งที่ปลั๊กอินมีของจริง
@@ -371,6 +403,7 @@ test('ถ่ายภาพสี่ภาพที่ README ใช้', async 
   // เทสต์ผ่านแต่ภาพที่ได้เป็นพื้นหลังเดิมไม่มี dialog เลย รอข้อความจริงในหัว dialog แทนจึงมั่นใจได้
   // ว่า transition จบแล้วเนื้อหาวาดเสร็จจริง
   await expect(dialog.getByRole('heading', { name: 'Select a template' })).toBeVisible()
+  await waitForDialogPaint(page)
   // เลือก template 6 ช่องเดียวกับที่ seed ใช้ก่อนถ่าย — ไม่งั้น Apply จะเป็นสีจางกดไม่ได้ (ยังไม่มี
   // อะไรถูกเลือกในตัวเลือก UI แม้ currentKey ของ draft จะชี้ไปที่ template นี้อยู่แล้วก็ตาม เพราะ
   // TemplatePicker เก็บ selection ของตัวเองแยกต่างหากใน state — ต้องคลิกจริงเพื่อให้ aria-pressed
@@ -385,24 +418,24 @@ test('ถ่ายภาพสี่ภาพที่ README ใช้', async 
   await page.screenshot({ path: `${OUT}templates.png` })
   await page.keyboard.press('Escape')
 
-  // ไม่มี route settings แยกต่างหากใน v5 (ต่างจากที่ task-14-brief.md สมมติไว้) — ChannelSettings
-  // ถูกวาดอยู่บนหน้าเดียวกับรายการเมนู ใต้ Divider (ดู admin/src/pages/List.tsx) จึงถ่ายเฉพาะ
-  // ส่วนนั้นด้วย element screenshot แทนที่จะเดินไปหน้าที่ไม่มีอยู่จริงแล้วได้ภาพที่ไม่เกี่ยวข้อง
-  await page.goto('/admin/plugins/line-rich-menu')
+  /**
+   * ตั้งค่าบัญชีมีหน้าของตัวเองแล้ว (`/channels`) ไม่ได้อยู่ใต้ Divider ของหน้ารายการเหมือนก่อน
+   *
+   * ตามด้วยการถ่ายทั้งเชลล์เหมือน list.png/editor.png ไม่ใช่ครอปเฉพาะกล่อง — เพราะสิ่งที่ภาพนี้
+   * ต้องบอกเปลี่ยนไปแล้ว: เดิมมันบอกว่า "ท่อนตั้งค่าหน้าตาแบบนี้" ตอนนี้มันบอกว่า "ตั้งค่าบัญชี
+   * เป็นหน้าแยกของมันเอง" ซึ่งเห็นได้จากแถบเมนูซ้ายกับหัวหน้าเท่านั้น
+   *
+   * การครอปแบบเดิม (`channelHeading.locator('xpath=..')`) ผูกอยู่กับการที่ `<h1>` เป็นของ
+   * ChannelSettings เอง พอหัวข้อกลายเป็นของ `ui.Page` พ่อของมันคือส่วนหัวของหน้า ไม่ใช่พาเนล
+   * ที่มีรายการบัญชีอยู่ — locator ยังหาเจอ แต่ครอปได้กล่องที่ไม่มีข้อมูลอยู่ในนั้นเลย
+   */
+  await page.goto('/admin/plugins/line-rich-menu/channels')
   await page.setViewportSize({ width: SHELL_WIDTH, height: DEFAULT_HEIGHT })
-  const channelHeading = page.getByRole('heading', { level: 1, name: 'LINE Official Accounts' })
-  await expect(channelHeading).toBeVisible()
-  const channelSection = channelHeading.locator('xpath=..')
-  // ขอบเขตให้แคบลงมาที่ channelSection เพราะ "Demo LINE OA" ปรากฏสองที่บนหน้านี้ — ในตัวเลือก
-  // channel ด้านบนด้วย — getByText แบบไม่ขอบเขตจะชน strict mode (เจอจริงตอนรันครั้งแรก)
-  await expect(channelSection.getByText('Demo LINE OA')).toBeVisible()
-  const panelBox = await channelSection.boundingBox()
-  if (panelBox === null) throw new Error('หา bounding box ของ channel section ไม่เจอ')
-  // รอบก่อนวาดกรอบ padding 24px ทับด้วย sharp หลังถ่ายภาพ เพราะตอนนั้นหน้านี้ไม่มี padding ของ
-  // ตัวเองเลยสักที่ (ListPage.tsx วาด ui.Flex เปล่า ๆ เป็นราก) — ช่องว่างนั้นถูกวาดเข้าไป ไม่ได้
-  // มีอยู่จริงในแอปที่ผู้ใช้เห็น ตอนนี้ ListPage ห่อด้วย ui.Page แล้ว (Task 17) ซึ่งจับคู่กับ
-  // Layouts.Content ของ Strapi 5 ที่ให้ padding ซ้าย-ขวาจริงมาฟรี "Add an account" จึงไม่ชนขอบ
-  // viewport อีกต่อไป — ครอปตรงจากภาพจริงเลย ไม่ต้องวาดอะไรเพิ่มเติม เพราะการวาดต่อตอนนี้จะเป็น
-  // การโกหกว่าผู้ใช้เห็นระยะห่างที่ไม่มีอยู่จริง
-  await page.screenshot({ path: `${OUT}channel.png`, clip: panelBox })
+  await expect(page.getByRole('heading', { level: 1, name: 'LINE Official Accounts' })).toBeVisible()
+  await expect(page.getByText('Demo LINE OA')).toBeVisible()
+  const addAccount = page.getByRole('button', { name: 'Add an account' })
+  await expect(addAccount).toBeVisible()
+  const addBox = await addAccount.boundingBox()
+  if (addBox === null) throw new Error('หา bounding box ของปุ่มเพิ่มบัญชีไม่เจอ')
+  await shellShot(page, `${OUT}channel.png`, addBox.y + addBox.height)
 })
