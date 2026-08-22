@@ -24,7 +24,8 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
   if (channelId === null) return <ui.Typography>{t('list.pickChannel')}</ui.Typography>
   if (error !== null) return <ui.Alert variant="danger">{error}</ui.Alert>
   if (menus === null) return <ui.Loader>{t('common.loading')}</ui.Loader>
-  // จุดที่ "ยังไม่มี rich menu สักอัน" คือจุดที่เครื่องหมาย LINE ของเราเองช่วยได้จริง (สเปกงานนี้ #2)
+  // จุดที่ "ยังไม่มี rich menu สักอัน" คือจุดที่โลโก้ LINE จริงช่วยได้จริง (สเปกงานนี้ #2, Task 22
+  // item 1 — LineMark เปลี่ยนจากรูปทรงวาดเองเป็นโลโก้จริงของ LINE แล้ว ดูคอมเมนต์เต็มที่ LineMark.tsx)
   // — บอกทันทีว่าจอนี้เกี่ยวกับ LINE โดยไม่ต้องพึ่งข้อความอย่างเดียว ไอคอนเป็นของตกแต่งอยู่แล้ว
   // (aria-hidden ในตัว) ข้อความ list.empty ยังเป็นสิ่งที่ screen reader ได้ยินตามปกติ
   if (menus.length === 0) {

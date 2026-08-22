@@ -37,6 +37,7 @@
     "dist",
     "LICENSE",
     "COMMERCIAL-LICENSE.md",
+    "THIRD_PARTY_NOTICES.md",
     "README.md"
   ],
   "strapi": {

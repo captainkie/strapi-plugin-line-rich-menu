@@ -11,8 +11,9 @@ export default {
   register(app: AdminApp): void {
     app.addMenuLink({
       to: `/plugins/${PLUGIN_ID}`,
-      // เครื่องหมาย LINE ที่วาดเอง (สเปกงานนี้ #2) แทนไอคอนกลาง ๆ ของ Strapi (`Message`) — บอกทันที
-      // ว่าปลั๊กอินนี้เกี่ยวกับ LINE โดยไม่ใช้โลโก้จริงของ LINE (ดูคอมเมนต์เต็มที่ LineMark.tsx)
+      // โลโก้จริงของ LINE (Task 22 item 1) แทนไอคอนกลาง ๆ ของ Strapi (`Message`) — บอกทันทีว่า
+      // ปลั๊กอินนี้เกี่ยวกับ LINE (ดูคอมเมนต์เต็มที่ LineMark.tsx และ THIRD_PARTY_NOTICES.md ที่ root
+      // ที่มา/สิทธิ์ของเครื่องหมายการค้านี้)
       icon: LineMark,
       intlLabel: { id: `${PLUGIN_ID}.plugin.name`, defaultMessage: 'LINE Rich Menu' },
       // เมนูฝั่งซ้ายซ่อนตัวเองจากคนที่ไม่มีสิทธิ์ `read` — ชั้นแรกของ deny by default

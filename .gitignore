@@ -9,6 +9,11 @@
 docs/files/
 docs/assets/files/
 
+# Task 22 item 1 — clipart-site/stock-aggregator scrapes the owner first offered as a batch here,
+# several of them JPEGs with no transparency; not usable, never committed. The real LINE app icon
+# that replaced them lives at docs/assets/logo/line-logo.png instead, which is tracked normally.
+docs/assets/line/
+
 # deps & build
 node_modules/
 dist/

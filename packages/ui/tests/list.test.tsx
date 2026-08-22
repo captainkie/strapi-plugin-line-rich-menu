@@ -43,12 +43,13 @@ describe('RichMenuList', () => {
     await waitFor(() => expect(screen.getByText('list.empty')).toBeInTheDocument())
   })
 
-  // สเปกงานนี้ #2 — empty-state คือจุดที่เครื่องหมาย LINE ที่วาดเองช่วยได้จริง ต้องแดงถ้ามีใครลบ
+  // สเปกงานนี้ #2 — empty-state คือจุดที่โลโก้ LINE จริงช่วยได้จริง ต้องแดงถ้ามีใครลบ
   // <LineMark/> ออกจากที่นี่ทิ้ง (เช่นตอน refactor empty-state กลับไปเป็น ui.Typography เปล่า ๆ)
-  it('empty-state มีเครื่องหมาย LINE อยู่ด้วย ไม่ใช่แค่ข้อความ', async () => {
+  // Task 22 item 1 — LineMark วาด <img> จาก data URI ของโลโก้จริงแล้ว ไม่ใช่ <svg> ที่วาดเองอีกต่อไป
+  it('empty-state มีโลโก้ LINE อยู่ด้วย ไม่ใช่แค่ข้อความ', async () => {
     setup(vi.fn(async () => []))
     await waitFor(() => expect(screen.getByText('list.empty')).toBeInTheDocument())
-    expect(document.querySelector('svg')).toBeInTheDocument()
+    expect(document.querySelector('img')).toBeInTheDocument()
   })
 
   // S1 (STANDING-CORRECTIONS) — Alert primitive วาด role="status" ไม่ใช่ "alert"
