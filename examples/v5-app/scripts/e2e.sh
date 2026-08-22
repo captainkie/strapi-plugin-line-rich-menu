@@ -106,11 +106,24 @@ mv "$PACK_DIR"/strapi-plugin-line-rich-menu-[0-9]*.tgz "$PACK_DIR/strapi-plugin-
 # `exports` map ชี้ไปที่ `./dist/admin/index.mjs` — ถ้ามันไม่ได้ถูกห่อมากับ tarball
 # Vite ของ `strapi build` จะ resolve `./strapi-admin` ไม่ได้แล้ว **ข้ามปลั๊กอินไปเงียบ ๆ**
 # ผลคือ server ครบทุก route แต่เมนูซ้ายไม่มีลิงก์เลย ด่านนี้จับตั้งแต่ก่อนติดตั้ง
+# อ่านรายการครั้งเดียวเก็บไว้ แล้วค้นจากตัวแปรด้วย here-string — **ห้ามเป็น pipeline**
+#
+# เดิมเขียนว่า `tar tzf ... | grep -qx "$required"` ซึ่งพังในแบบที่มองไม่เห็นจากเครื่องตัวเอง:
+# `grep -q` ออกทันทีที่เจอบรรทัดแรกที่ตรง ทำให้ `tar` ที่ยังเขียนอยู่โดน SIGPIPE แล้วจบด้วยสถานะ
+# ไม่ใช่ศูนย์ พอสคริปต์ตั้ง `set -o pipefail` ไว้ สถานะของทั้ง pipeline จึงกลายเป็นล้มเหลว **ทั้งที่
+# grep เจอของที่หา** แล้ว `!` ก็กลับค่าอีกชั้น ผลคือด่านนี้ฟ้องว่าไฟล์หายในตอนที่ไฟล์อยู่ครบ
+#
+# มันขึ้นกับจังหวะล้วน ๆ: รายการ 43 บรรทัดเล็กพอที่ tar จะเขียนจบก่อน grep ออกบนเครื่องพัฒนา
+# จึงเขียวเสมอในเครื่อง และแดงทุกครั้งบน runner ของ CI ที่ตารางเวลาต่างกัน — ด่านที่ฟ้องผิดแบบนี้
+# อันตรายพอ ๆ กับด่านที่ไม่ฟ้อง เพราะคนถัดไปจะปิดมันทิ้งแทนที่จะแก้
+#
+# `-F` ด้วย เพราะ path มีจุด และในโหมด regex จุดแปลว่า "ตัวอะไรก็ได้" ซึ่งหลวมกว่าที่ตั้งใจ
+tarball_entries="$(tar tzf "$PACK_DIR/strapi-plugin-line-rich-menu.tgz")"
 for required in package/dist/server/index.js package/dist/server/index.mjs \
                 package/dist/admin/index.js package/dist/admin/index.mjs; do
-  if ! tar tzf "$PACK_DIR/strapi-plugin-line-rich-menu.tgz" | grep -qx "$required"; then
+  if ! grep -qxF -- "$required" <<<"$tarball_entries"; then
     echo "::error::tarball ไม่มี $required — ตรวจ files allowlist กับ exports map ใน package.json" >&2
-    tar tzf "$PACK_DIR/strapi-plugin-line-rich-menu.tgz" >&2
+    printf '%s\n' "$tarball_entries" >&2
     exit 1
   fi
 done
