@@ -40,9 +40,12 @@ export interface DisplayPeriod {
  * `startAt` คือ `set-default` และ `endAt` คือ `clear-default` ทำให้ §10 กับหน้าจอเป็นเรื่องเดียวกัน
  * แทนที่ของเดิมทั้งหมดทุกครั้งที่ save เพื่อไม่ให้เหลือคิวจากค่าที่ผู้ใช้แก้ทิ้งไปแล้ว
  *
- * รับ `Repo<ScheduleRow>` ไม่ใช่ `Services` ทั้งก้อน เพราะสองฟังก์ชันนี้เป็นคู่ round trip
- * ที่เทสต์ของ repo (`tests/repo.test.ts`) เรียกตรง ๆ กับ repo ที่ประกอบจาก strapi ปลอม —
- * เดิมเทสต์นั้นถือสำเนาของตัวเองไว้ จึงพิสูจน์ได้แค่ fixture ของมันเอง ไม่ใช่ของจริง
+ * รับ `Repo<ScheduleRow>` ไม่ใช่ `Services` ทั้งก้อน เพราะสองฟังก์ชันนี้เป็นคู่ round trip ที่เรียก
+ * ตรง ๆ ได้ง่ายกับ repo ปลอมตัวเดียว ไม่ต้องประกอบ `Services` ทั้งชุด — เทสต์ของทั้งคู่อยู่ที่
+ * `tests/menu-write.test.ts` (Task 20 item 7, strapi-v5 M4) **ไม่ใช่** `tests/repo.test.ts`
+ * (คอมเมนต์เดิมตรงนี้อ้างว่าใช่ ซึ่งเป็นเท็จ — `repo.test.ts` ทดสอบแค่กลไก schedule repo เอง
+ * ผ่าน `describe('round trip ...')` ไม่เคยเรียกคู่ฟังก์ชันนี้เลยสักครั้ง คอมเมนต์ที่อ้างเทสต์ที่
+ * ไม่มีอยู่จริงแย่กว่าไม่มีคอมเมนต์เลย เพราะมันหยุดคนถัดไปที่มาเช็คดู)
  */
 export async function writeDisplayPeriod(
   schedules: Repo<ScheduleRow>,
