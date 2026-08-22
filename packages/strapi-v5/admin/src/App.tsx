@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router-dom'
 import { PortProvider } from '@fosivo/line-rich-menu-ui'
 import { usePluginPort } from './port.js'
 import { EditorPage } from './pages/Editor.js'
+import { ChannelsPage } from './pages/Channels.js'
 import { ListPage } from './pages/List.js'
 
 /**
@@ -21,6 +22,7 @@ export default function App() {
   return (
     <PortProvider value={port}>
       <Routes>
+        <Route path="channels" element={<ChannelsPage />} />
         <Route path="rich-menus/new" element={<EditorPage />} />
         <Route path="rich-menus/:id" element={<EditorPage />} />
         <Route path="*" element={<ListPage />} />

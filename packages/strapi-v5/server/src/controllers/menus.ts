@@ -13,18 +13,41 @@ import {
 const actorOf = (ctx: AdminContext): string | null =>
   ctx.state.user === undefined ? null : String(ctx.state.user.id)
 
+/**
+ * url ของรูปที่ควร "เอาไปโชว์" — รูปที่ normalize แล้วมาก่อนรูปดิบที่ผู้ใช้อัปมา เพราะตัวที่
+ * normalize แล้วคือตัวที่ถูกส่งขึ้น LINE จริง หน้าจอจึงควรแสดงตัวเดียวกับที่ผู้ใช้ปลายทางเห็น
+ */
+async function imageUrlOf(services: Services, row: RichMenuRow): Promise<string | null> {
+  const fileId = row.normalizedFileId ?? row.imageFileId
+  return fileId === null ? null : services.store.url(fileId)
+}
+
 /** รูปทรงที่ `RichMenuSummary` ใน packages/ui/src/api.ts ประกาศไว้ — ห้ามเพิ่มหรือลดฟิลด์ */
-const toSummary = (row: RichMenuRow) => ({
-  id: row.id,
-  title: row.name,
-  status: row.status,
-  channelId: row.channelId,
-  aliasId: row.aliasId,
-  updatedAt: row.updatedAt,
-})
+async function toSummary(services: Services, row: RichMenuRow) {
+  const [imageUrl, period] = await Promise.all([
+    imageUrlOf(services, row),
+    readDisplayPeriod(services.schedules, row.id),
+  ])
+  return {
+    id: row.id,
+    title: row.name,
+    status: row.status,
+    channelId: row.channelId,
+    aliasId: row.aliasId,
+    updatedAt: row.updatedAt,
+    size: row.size,
+    areas: row.areas,
+    imageUrl,
+    ...period,
+  }
+}
 
 async function toDetail(services: Services, row: RichMenuRow) {
-  return { ...row, ...await readDisplayPeriod(services.schedules, row.id) }
+  const [imageUrl, period] = await Promise.all([
+    imageUrlOf(services, row),
+    readDisplayPeriod(services.schedules, row.id),
+  ])
+  return { ...row, ...period, imageUrl }
 }
 
 /** ops ที่ menu-ops ต้องการ ประกอบจาก channel ของเมนูนั้น ๆ ไม่ใช่ channel เริ่มต้น */
@@ -41,7 +64,9 @@ export const menus = ({ strapi }: { strapi: StrapiV5 }) => ({
       ...(query.channel === undefined ? {} : { filters: { channelId: query.channel } }),
       sort: 'updatedAt:desc',
     })
-    ctx.body = rows.map(toSummary)
+    // ทีละแถวขนานกัน ไม่ใช่ทีละแถวต่อกัน — ทุกแถวต้องยิงสองคำถาม (url ของไฟล์ กับตารางเวลา)
+    // ถ้าปล่อยให้เป็น for-await ต่อกัน รายการยี่สิบแถวจะกลายเป็นสี่สิบคำขอที่รอกันเป็นทอด ๆ
+    ctx.body = await Promise.all(rows.map((row) => toSummary(services, row)))
   }),
 
   findOne: guard(strapi, async (ctx) => {

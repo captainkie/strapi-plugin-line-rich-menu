@@ -385,3 +385,75 @@ describe('toHttpError — error จาก @strapi/utils ที่ไม่มี
     expect(ctx.body).toEqual({ error: { code: 'internal_error' } })
   })
 })
+
+/**
+ * หน้ารายการแบบ LINE OA Manager อ่านหกฟิลด์นี้จาก `GET /menus` — ถ้าปลายทางคืนแค่ชื่อกับสถานะ
+ * เหมือนเดิม คอลัมน์ Image / Action / Display period จะว่างทั้งคอลัมน์โดยที่ไม่มีอะไรพัง
+ * (React ไม่บ่นกับ `undefined`) และหน้าจอจะ "ทำงานอยู่" ทั้งที่ไม่มีข้อมูลให้ดูเลย
+ *
+ * ทางเลือกเดียวที่หลีกเลี่ยงฟิลด์พวกนี้ได้คือให้หน้ารายการยิง `GET /menus/:id` ทีละแถว ซึ่งเป็น
+ * N+1 ที่รายการยี่สิบแถวกลายเป็นยี่สิบเอ็ดคำขอ — เป็นเหตุผลที่ข้อมูลต้องมากับรายการตั้งแต่แรก
+ */
+describe('menus controller > find — DTO ที่หน้ารายการต้องใช้', () => {
+  const menuRow = {
+    documentId: 'm1',
+    name: 'เมนูหลัก',
+    size: 'large',
+    status: 'draft',
+    channel: { documentId: 'c1' },
+    areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 843 }, action: { type: 'message', text: 'สวัสดี' } }],
+    image: { id: 42 },
+    updatedAt: '2026-08-22T00:00:00.000Z',
+  }
+
+  /** fake ตัวกลางคืน url ให้ทุกไฟล์ — ตัวจริงถาม upload plugin ตัวเดียวกันนี้ */
+  const withUpload = (strapi: ReturnType<typeof fakeStrapi>, url: string | null) => ({
+    ...strapi,
+    plugin: (name: string) => (name === 'upload'
+      ? { service: () => ({ findOne: async () => (url === null ? null : { url }), upload: async () => [{ id: 900 }] }) }
+      : { service: () => ({}), contentType: () => ({}) }),
+  }) as unknown as StrapiV5
+
+  it('คืน size, areas, imageUrl และช่วงเวลาแสดงผลมาพร้อมกับแถว', async () => {
+    const strapi = withUpload(fakeStrapi({
+      [UID.menu]: [{ ...menuRow }],
+      [UID.schedule]: [
+        { documentId: 's1', richMenu: { documentId: 'm1' }, runAt: '2026-08-22T00:00:00.000Z', op: 'set-default', state: 'pending' },
+        { documentId: 's2', richMenu: { documentId: 'm1' }, runAt: '2026-08-31T23:59:00.000Z', op: 'clear-default', state: 'pending' },
+      ],
+    }), '/uploads/main.png')
+
+    const ctx = makeCtx()
+    await controllers.menus({ strapi }).find(ctx)
+
+    const [row] = ctx.body as Record<string, unknown>[]
+    expect(row).toMatchObject({
+      id: 'm1',
+      title: 'เมนูหลัก',
+      size: 'large',
+      imageUrl: '/uploads/main.png',
+      startAt: '2026-08-22T00:00:00.000Z',
+      endAt: '2026-08-31T23:59:00.000Z',
+    })
+    expect(row!['areas']).toEqual(menuRow.areas)
+  })
+
+  it('ไฟล์ที่ถูกลบจาก Media Library แล้วให้ imageUrl เป็น null ไม่ใช่ทำให้ทั้งรายการล้ม', async () => {
+    const strapi = withUpload(fakeStrapi({ [UID.menu]: [{ ...menuRow }] }), null)
+
+    const ctx = makeCtx()
+    await controllers.menus({ strapi }).find(ctx)
+
+    const [row] = ctx.body as Record<string, unknown>[]
+    expect(row).toMatchObject({ id: 'm1', imageUrl: null })
+  })
+
+  it('รายละเอียดของเมนูเดียวก็มี imageUrl ด้วย — พรีวิวที่ไม่มีรูปที่อัปโหลดไว้ก็ไม่ใช่พรีวิว', async () => {
+    const strapi = withUpload(fakeStrapi({ [UID.menu]: [{ ...menuRow }] }), '/uploads/main.png')
+
+    const ctx = makeCtx({ params: { id: 'm1' } })
+    await controllers.menus({ strapi }).findOne(ctx)
+
+    expect(ctx.body).toMatchObject({ imageUrl: '/uploads/main.png' })
+  })
+})

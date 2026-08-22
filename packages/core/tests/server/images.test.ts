@@ -18,6 +18,11 @@ function fakeStore(files: Record<number, Buffer>): ImageStore & { written: { mim
       if (found === undefined) throw new Error(`no file ${fileId}`)
       return found
     },
+    // `url` ของ fake คืน path ที่เดาได้จาก id — เส้นทางที่เทสต์ชุดนี้เดินไม่ได้ใช้มัน แต่ต้องมี
+    // เพราะ `ImageStore` ประกาศไว้ ไฟล์ที่ไม่มีจริงคืน null เหมือนของจริงตอนไฟล์ถูกลบไปแล้ว
+    async url(fileId) {
+      return files[fileId] === undefined ? null : `/uploads/${fileId}.png`
+    },
     async write({ buffer, mime }) {
       written.push({ mime, bytes: buffer.length })
       return { id: next++ }

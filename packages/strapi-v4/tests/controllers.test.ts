@@ -278,3 +278,67 @@ describe('toHttpError', () => {
     })
   })
 })
+
+/**
+ * คู่ขนานกับ describe ชื่อเดียวกันใน packages/strapi-v5/tests/controllers.test.ts
+ *
+ * ต้องมีทั้งสองฝั่ง ไม่ใช่ฝั่งเดียว: `toSummary` เป็นโค้ดคนละก้อนกันในสองอะแดปเตอร์ (คนละ
+ * entityService/documents API) ส่วนหน้าจอที่กินผลของมันเป็นก้อน**เดียวกัน** — `RichMenuList`
+ * ใน packages/ui ด่านที่มีอยู่ฝั่งเดียวจะปล่อยให้ฝั่งที่ไม่มีเงียบไปทั้งที่หน้าจอพังเหมือนกัน
+ * ซึ่งเป็นรูปแบบเดียวกับที่ Task 20 item 3 เจอมาแล้วกับด่านกัน token หลุด
+ */
+describe('menus controller > find — DTO ที่หน้ารายการต้องใช้', () => {
+  const menuRow = {
+    id: 1,
+    name: 'เมนูหลัก',
+    size: 'large',
+    status: 'draft',
+    channel: { id: 7 },
+    areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 843 }, action: { type: 'message', text: 'สวัสดี' } }],
+    image: { id: 42 },
+    updatedAt: '2026-08-22T00:00:00.000Z',
+  }
+
+  it('คืน size, areas, imageUrl และช่วงเวลาแสดงผลมาพร้อมกับแถว', async () => {
+    const { strapi, rows } = fakeStrapi({ menus: [{ ...menuRow }] })
+    // `store.url()` ของ v4 ถาม entityService ตรง ๆ ที่ uid ของ upload — ตัวจริงก็เส้นทางนี้
+    rows['plugin::upload.file'] = [{ id: 42, url: '/uploads/main.png' }]
+    rows['plugin::line-rich-menu.rich-menu-schedule'] = [
+      { id: 11, richMenu: { id: 1 }, runAt: '2026-08-22T00:00:00.000Z', op: 'set-default', state: 'pending' },
+      { id: 12, richMenu: { id: 1 }, runAt: '2026-08-31T23:59:00.000Z', op: 'clear-default', state: 'pending' },
+    ]
+
+    const context = ctx()
+    await controllers.menus({ strapi }).find(context)
+
+    const [row] = context.body as Record<string, unknown>[]
+    expect(row).toMatchObject({
+      id: '1',
+      title: 'เมนูหลัก',
+      size: 'large',
+      imageUrl: '/uploads/main.png',
+      startAt: '2026-08-22T00:00:00.000Z',
+      endAt: '2026-08-31T23:59:00.000Z',
+    })
+    expect(row!['areas']).toEqual(menuRow.areas)
+  })
+
+  it('ไฟล์ที่ถูกลบจาก Media Library แล้วให้ imageUrl เป็น null ไม่ใช่ทำให้ทั้งรายการล้ม', async () => {
+    const { strapi } = fakeStrapi({ menus: [{ ...menuRow }] })
+
+    const context = ctx()
+    await controllers.menus({ strapi }).find(context)
+
+    expect((context.body as Record<string, unknown>[])[0]).toMatchObject({ id: '1', imageUrl: null })
+  })
+
+  it('รายละเอียดของเมนูเดียวก็มี imageUrl ด้วย — พรีวิวที่ไม่มีรูปที่อัปโหลดไว้ก็ไม่ใช่พรีวิว', async () => {
+    const { strapi, rows } = fakeStrapi({ menus: [{ ...menuRow }] })
+    rows['plugin::upload.file'] = [{ id: 42, url: '/uploads/main.png' }]
+
+    const context = ctx({ params: { id: '1' } })
+    await controllers.menus({ strapi }).findOne(context)
+
+    expect(context.body).toMatchObject({ imageUrl: '/uploads/main.png' })
+  })
+})

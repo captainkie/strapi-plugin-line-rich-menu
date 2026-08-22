@@ -26,6 +26,12 @@ const EXPECTED_EXPORTS = [
   'emptyActionForm',
   'toAction',
   'fromAction',
+  'actionSummary',
+
+  // datetime.ts
+  'splitDisplayAt',
+  'combineDisplayAt',
+  'formatDisplayPeriod',
 
   // styles.ts
   'injectStylesOnce',
@@ -44,6 +50,8 @@ const EXPECTED_EXPORTS = [
   'ImageField',
   'LineMark',
   'MainSettings',
+  'MenuPreviewModal',
+  'MenuThumbnail',
   'Preview',
   'TemplatePicker',
 

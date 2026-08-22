@@ -1,3 +1,5 @@
+import type { Action, Bounds } from '@fosivo/line-rich-menu-core/browser'
+
 /**
  * สัญญาระหว่าง ui กับ adapter — adapter ของทั้ง Strapi 4 และ 5 ต้อง implement path เหล่านี้
  * ให้เหมือนกัน ui ไม่รู้ว่าเบื้องหลังเป็น entityService หรือ documents()
@@ -31,6 +33,20 @@ export interface RichMenuSummary {
   channelId: string
   aliasId: string | null
   updatedAt: string
+  /**
+   * ห้าฟิลด์ล่างนี้เพิ่มเข้ามาเพื่อหน้ารายการแบบ LINE OA Manager — คอลัมน์ Image / Action /
+   * Display period ของมันวาดจากตรงนี้ ไม่ใช่จากการยิง `GET /menus/:id` ทีละแถว ซึ่งเป็น N+1
+   * ที่จะยิงสิบคำขอสำหรับรายการสิบแถว
+   *
+   * `size` + `areas` มาคู่กันเสมอ: ภาพย่อคือผังช่องที่วาดบนผืนผ้าใบขนาดนั้น ขาดตัวใดตัวหนึ่ง
+   * ก็วาดไม่ได้ ส่วน `areas` ยังเป็นที่มาของคอลัมน์ Action ด้วย (ประเภท action ของแต่ละช่อง)
+   */
+  size: 'large' | 'compact'
+  areas: { bounds: Bounds; action: Action }[]
+  /** `null` เมื่อยังไม่ได้อัปโหลดรูป หรือไฟล์ถูกลบไปจาก Media Library แล้ว */
+  imageUrl: string | null
+  startAt: string | null
+  endAt: string | null
 }
 
 export interface BotInfo {

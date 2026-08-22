@@ -3,6 +3,7 @@ import { PortProvider } from '@fosivo/line-rich-menu-ui'
 import { PLUGIN_ID } from '../server/permissions.js'
 import { usePluginPort } from './port.js'
 import { EditorPage } from './pages/Editor.js'
+import { ChannelsPage } from './pages/Channels.js'
 import { ListPage } from './pages/List.js'
 
 const BASE = `/plugins/${PLUGIN_ID}`
@@ -17,6 +18,7 @@ export default function App() {
   return (
     <PortProvider value={port}>
       <Switch>
+        <Route path={`${BASE}/channels`} component={ChannelsPage} exact />
         <Route path={`${BASE}/rich-menus/new`} component={EditorPage} exact />
         <Route path={`${BASE}/rich-menus/:id`} component={EditorPage} exact />
         <Route path={BASE} component={ListPage} />
