@@ -10,7 +10,7 @@ const NOW = new Date('2026-08-21T12:00:00.000Z')
 function scheduleRow(overrides: Partial<ScheduleRow> = {}): ScheduleRow {
   return {
     id: 's1', richMenuId: '1', runAt: '2026-08-21T11:00:00.000Z', op: 'set-default',
-    state: 'pending', lockedBy: null, lockedAt: null, lastError: null,
+    state: 'pending', lockedBy: null, lockedAt: null, lastError: null, cursor: null,
     ...overrides,
   }
 }

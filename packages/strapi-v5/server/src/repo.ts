@@ -202,6 +202,9 @@ export function createScheduleRepo(strapi: StrapiV5): Repo<ScheduleRow> {
       lockedBy: orNull<string>(entity['lockedBy']),
       lockedAt: orNull<string>(entity['lockedAt']),
       lastError: orNull<string>(entity['lastError']),
+      // คอลัมน์จริงยังไม่มีใน content-type นี้ — Task 5 เป็นคนเพิ่ม schema field ตัวนี้
+      // ตอนต่อสาย `link-members` เข้า scheduler ทำแค่ mapping ไว้ก่อนไม่ให้ type ของ core หลุด
+      cursor: orNull<string>(entity['cursor']),
     }),
     toData: (patch) => {
       const data: Entity = {}
@@ -212,6 +215,7 @@ export function createScheduleRepo(strapi: StrapiV5): Repo<ScheduleRow> {
       if (patch.lockedBy !== undefined) data['lockedBy'] = patch.lockedBy
       if (patch.lockedAt !== undefined) data['lockedAt'] = patch.lockedAt
       if (patch.lastError !== undefined) data['lastError'] = patch.lastError
+      if (patch.cursor !== undefined) data['cursor'] = patch.cursor
       return data
     },
   })

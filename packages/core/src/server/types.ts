@@ -6,6 +6,13 @@ import type { Action, Bounds, RichMenuSize, RichMenuSizeName } from '../types.js
  */
 export interface ListParams {
   filters?: Record<string, string | number | boolean | null>
+  /**
+   * เพจแบบ keyset สำหรับ enrolment routine (members.ts, Task 2) — แยกจาก `filters` ที่เป็น
+   * equality-only โดยตั้งใจ เพราะ "id มากกว่าค่านี้" ไม่ใช่เงื่อนไขเท่ากับ จะยัดลงในแมพเดิม
+   * แล้วให้ adapter เดา key พิเศษก็ได้ แต่จะเป็นสัญญาที่ไม่ปรากฏใน type เลย — ผู้เขียน adapter
+   * ใหม่ (Task 5/6) ต้องเห็นจาก interface ตรง ๆ ว่านี่คือ WHERE id > ? ไม่ใช่ WHERE idGreaterThan = ?
+   */
+  idGreaterThan?: string
   sort?: string
   limit?: number
   start?: number
@@ -21,10 +28,11 @@ export interface Repo<T> {
 }
 
 export type MenuStatus = 'draft' | 'publishing' | 'published' | 'failed'
-export type ScheduleOp = 'set-default' | 'clear-default' | 'swap-alias'
+export type ScheduleOp = 'set-default' | 'clear-default' | 'swap-alias' | 'link-members'
 export type ScheduleState = 'pending' | 'running' | 'done' | 'failed'
 export type AuditAction =
   | 'publish' | 'set-default' | 'clear-default' | 'swap-alias' | 'delete' | 'channel-update'
+  | 'link-members' | 'unlink-members'
 export type AuditResult = 'success' | 'failure'
 
 /** แถวดิบจาก DB — ฟิลด์ลับยังเป็น envelope `v1.<iv>.<tag>.<ct>` ที่ยังไม่ได้ถอด */
@@ -101,6 +109,12 @@ export interface ScheduleRow {
   lockedBy: string | null
   lockedAt: string | null
   lastError: string | null
+  /**
+   * id ของสมาชิกคนสุดท้ายที่ประมวลผลแล้ว ของงาน `link-members` — **ไม่ใช่ offset** (ดู
+   * เหตุผลเต็มที่ `linkMemberChunk` ใน members.ts) งานชนิดอื่นไม่ใช้ฟิลด์นี้และปล่อยเป็น null
+   * ตลอดอายุงาน ส่วน `link-members` เป็น null ก่อนเริ่ม pass แรกเท่านั้น
+   */
+  cursor: string | null
 }
 
 export interface AuditRow {
