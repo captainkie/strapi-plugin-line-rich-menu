@@ -83,4 +83,41 @@ describe('body ที่หน้า editor ส่ง ต้องผ่าน m
     expect(parsed.success ? [] : parsed.error.issues).toEqual([])
     expect(parsed.success).toBe(true)
   })
+
+  /**
+   * Task 20 item 1 (ui-core H2) repro ตรง ๆ: เลือก template แล้วกด "Save draft" ทันทีโดยไม่กรอก
+   * action เลย — ก่อนแก้ `menuInputSchema` (เข้ม, `min(1)` ทุก action field) จุดนี้ปฏิเสธ body จริง
+   * ที่ฟอร์มส่งออกไป ทำให้ปุ่มที่สองใช้บันทึกงานค้างไม่ได้เลยสักครั้ง แม้ฟอร์มฝั่ง UI จะยอมให้กดผ่าน
+   * ก็ตาม (ปุ่ม Save draft ตั้งใจข้าม validateRichMenu — ดู `action-form.ts`) ทดสอบทั้งคู่ (ฝั่งฟอร์ม
+   * ไม่บล็อกปุ่ม + ฝั่ง schema จริงไม่ปฏิเสธ body จริง) ไม่ใช่แค่ยิง object ที่พิมพ์เองใส่ schema
+   */
+  it('เลือก template แล้วกด Save draft ทันทีโดยไม่กรอก action เลย — body ที่ออกไปยังต้องผ่าน schema', async () => {
+    const post = vi.fn(async () => ({ id: '1' }))
+    const port = createStubPort({
+      t: (key: string) => key,
+      http: { ...createStubPort().http, get: async () => [] as never, post: post as never },
+    })
+    render(
+      <MemoryRouter initialEntries={['/plugins/line-rich-menu/menus/new?channel=10']}>
+        <Route path="/plugins/line-rich-menu/menus/new">
+          <PortProvider value={port}><EditorPage /></PortProvider>
+        </Route>
+      </MemoryRouter>,
+    )
+
+    fireEvent.change(screen.getByLabelText('editor.title'), { target: { value: 'เมนูใหม่' } })
+    fireEvent.click(screen.getByTestId('open-template-picker'))
+    fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_207'))
+    fireEvent.click(screen.getByTestId('template-apply'))
+    // ไม่แตะ action เลย — เจตนาให้ text ของ area 0 ยังเป็น '' ตามค่าเริ่มต้นของ emptyActionForm()
+
+    fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith(ENDPOINTS.menus, expect.anything()))
+    const [, body] = post.mock.calls[0] as unknown as [string, unknown]
+
+    const parsed = menuInputSchema.safeParse(body)
+    expect(parsed.success ? [] : parsed.error.issues).toEqual([])
+    expect(parsed.success).toBe(true)
+  })
 })

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { ValidationError, type ValidationIssue } from '../src/errors.js'
-import { isDisplayPeriodValid, validateRichMenu, VALIDATION_CODES } from '../src/schema.js'
+import {
+  actionSchema, draftActionSchema, isDisplayPeriodValid, validateRichMenu, VALIDATION_CODES,
+} from '../src/schema.js'
 
 /** เรียก validateRichMenu แล้วคืน issues ที่ได้ — ล้มเทสต์ถ้ามันดันผ่าน */
 function issuesOf(input: unknown): readonly ValidationIssue[] {
@@ -259,6 +261,65 @@ describe('validateRichMenu', () => {
       const trailingBang = [{ ...base.areas[0], action: { type: 'richmenuswitch', richMenuAliasId: 'tab-a!', data: 'x' } }]
       expect(() => validateRichMenu({ ...base, areas: trailingBang })).toThrow(ValidationError)
     })
+  })
+})
+
+/**
+ * Task 20 item 1 (ui-core H2) — "Save draft" ต้องบันทึกงานที่ยังไม่เสร็จได้จริง `draftActionSchema`
+ * คือด่านเดียวที่ยอมให้ action ไม่ครบ ส่วน `actionSchema` (ตัวที่ `richMenuPayloadSchema` ใช้ตอน
+ * publish จริง) ต้องยังเข้มเหมือนเดิมทุกประการ — คู่เทสต์นี้พิสูจน์ว่าสอง schema "ต่างกันจริง"
+ * ไม่ใช่แค่คนละชื่อที่พฤติกรรมเหมือนกันโดยบังเอิญ (ทำลาย guard ก่อนเชื่อ — ดู working agreement)
+ */
+describe('draftActionSchema', () => {
+  it('ยอมรับ message.text ว่าง — actionSchema ตัวเข้มต้องปฏิเสธ payload เดียวกัน', () => {
+    const draft = { type: 'message' as const, text: '' }
+    expect(() => draftActionSchema.parse(draft)).not.toThrow()
+    expect(() => actionSchema.parse(draft)).toThrow()
+  })
+
+  it('ยอมรับ uri.uri ว่าง (ไม่ผ่าน new URL() แน่นอน) — actionSchema ต้องปฏิเสธ', () => {
+    const draft = { type: 'uri' as const, uri: '' }
+    expect(() => draftActionSchema.parse(draft)).not.toThrow()
+    expect(() => actionSchema.parse(draft)).toThrow()
+  })
+
+  /**
+   * ด่านนี้ต้อง**ไม่**ผ่อนตาม min(1) — "กรอกไม่ครบ" แปลว่าว่างเท่านั้น ไม่ใช่ "ค่าอะไรก็ได้"
+   * ไม่งั้นร่างจะรับ scheme อันตรายเข้าไปเก็บในฐานข้อมูลได้ตั้งแต่ขอบของ route (ดูคอมเมนต์เต็มที่
+   * `draftActionSchema`) เทสต์คู่กับ "ปฏิเสธ uri scheme ที่อันตราย ตั้งแต่ขอบของ route" ในทั้งสอง
+   * adapter ที่ยืนยันว่า menuInputSchema (ซึ่งใช้ draftActionSchema) ยังปฏิเสธเหมือนกัน
+   */
+  it('ปฏิเสธ uri ที่ไม่ว่างแต่ใช้ scheme อันตราย — ผ่อนแค่ "ว่างได้" ไม่ใช่ผ่อนรูปแบบ', () => {
+    for (const uri of ['javascript:alert(1)', 'data:text/html,x', 'file:///etc/passwd']) {
+      expect(() => draftActionSchema.parse({ type: 'uri', uri }), uri).toThrow()
+    }
+  })
+
+  it('ยอมรับ postback.data / datetimepicker.data / clipboard.clipboardText ว่าง', () => {
+    expect(() => draftActionSchema.parse({ type: 'postback', data: '' })).not.toThrow()
+    expect(() => draftActionSchema.parse({ type: 'datetimepicker', data: '', mode: 'date' })).not.toThrow()
+    expect(() => draftActionSchema.parse({ type: 'clipboard', clipboardText: '' })).not.toThrow()
+  })
+
+  it('ยอมรับ camera/cameraRoll/location ที่ label ว่าง — actionSchema ต้องปฏิเสธ (LINE บังคับ label เสมอ)', () => {
+    for (const type of ['camera', 'cameraRoll', 'location'] as const) {
+      const draft = { type, label: '' }
+      expect(() => draftActionSchema.parse(draft), type).not.toThrow()
+      expect(() => actionSchema.parse(draft), type).toThrow()
+    }
+  })
+
+  it('ยอมรับ richmenuswitch.richMenuAliasId ว่าง แต่ยังปฏิเสธ slug รูปแบบผิด (ไม่ใช่แค่ผ่อนให้รับขยะ)', () => {
+    expect(() => draftActionSchema.parse({ type: 'richmenuswitch', richMenuAliasId: '', data: '' })).not.toThrow()
+    expect(() => draftActionSchema.parse({ type: 'richmenuswitch', richMenuAliasId: 'Not Valid!', data: '' })).toThrow()
+  })
+
+  it('ยังคง .strict() — ฟิลด์แปลกปลอมถูกปฏิเสธเหมือน actionSchema', () => {
+    expect(() => draftActionSchema.parse({ type: 'message', text: '', evil: 1 })).toThrow()
+  })
+
+  it('ยังคงเพดานความยาวสูงสุดไว้เหมือน actionSchema — ผ่อนแค่ "ต้องมีเนื้อหา" ไม่ใช่ผ่อนทุกอย่าง', () => {
+    expect(() => draftActionSchema.parse({ type: 'message', text: 'x'.repeat(301) })).toThrow()
   })
 })
 
