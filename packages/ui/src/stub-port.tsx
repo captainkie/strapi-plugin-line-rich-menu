@@ -173,8 +173,8 @@ const primitives: UIPrimitives = {
   // `gap` ที่ port ประกาศคือลำดับใน spacing scale แต่ตรงนี้วาดเป็นพิกเซลดิบ — เป็นค่าประมาณที่
   // ยอมรับไว้โดยรู้ตัว ไม่ใช่ความไม่ตรงกันแบบเงียบ ๆ: jsdom ไม่คำนวณ layout อยู่แล้ว เทสต์จึงไม่มีทาง
   // เห็นความต่าง ส่วน playground ต้องการแค่ระยะห่างที่ "พอดูออก" ไม่ใช่ระยะที่ตรงกับแอดมินจริงเป๊ะ
-  Flex: ({ direction = 'row', gap = 0, alignItems, justifyContent, wrap, children }) => (
-    <div style={{ display: 'flex', flexDirection: direction, gap, alignItems, justifyContent, flexWrap: wrap }}>
+  Flex: ({ direction = 'row', gap = 0, alignItems, justifyContent, wrap, grow, children }) => (
+    <div style={{ display: 'flex', flexDirection: direction, gap, alignItems, justifyContent, flexWrap: wrap, flexGrow: grow }}>
       {children}
     </div>
   ),

@@ -71,8 +71,22 @@ export interface UIPrimitives {
    * `gap` คือ "ลำดับใน spacing scale ของ design system" ไม่ใช่พิกเซล — DS ทั้งสองเวอร์ชันรับเลข
    * แบบนี้ (`gap={4}` ≈ 16px ในแอดมินจริง) adapter จึงส่งต่อได้ตรง ๆ ไม่ต้องแปลง ส่วน stub วาดเป็น
    * พิกเซลดิบ ซึ่งเป็นค่าประมาณที่ยอมรับไว้แล้ว (ดูคอมเมนต์ที่ Flex ใน stub-port.tsx)
+   *
+   * `grow` — "ลูกตัวนี้กินพื้นที่ที่เหลือของแกนหลัก (main axis) ของพ่อ" (สเปกงานนี้ #1) ก่อนหน้านี้
+   * `ui.Flex` ไม่มีพร็อพนี้เลย จุดเรียกที่อยากให้คอลัมน์หนึ่งขยายเต็มพื้นที่ที่เหลือ (เช่นสองคอลัมน์ของ
+   * `RichMenuEditor` ที่โทรศัพท์กว้างคงที่แต่คอลัมน์ settings ควรกินพื้นที่ว่างที่เหลือทั้งหมด) จึงทำ
+   * ไม่ได้เลยนอกจากวาด `<div style={{ flex: 1 }}>` ดิบทับ `ui.Flex` ซึ่งรั่วรายละเอียด flexbox ของ CSS
+   * เข้าไปใน component ที่ไม่ควรรู้จักมันเลย (สเปก §5.1 — component ทุกตัวของแพ็กเกจนี้วาดผ่าน port
+   * เท่านั้น ไม่ใช่เขียน style ดิบแข่งกับ adapter) ต้องอยู่ที่ port เพราะทั้งสอง design system รับ
+   * `grow` เหมือนกัน (DS v1 กับ v2 ต่างก็ map ไปที่ CSS `flex-grow` ผ่าน `Box` — ตรวจจาก source ของ
+   * ทั้งคู่แล้ว ไม่ใช่แค่เดา) ชั้นที่ใช้ร่วมกันนี้จึงไม่จำเป็นต้องรู้ว่ากำลังรันอยู่ใต้เวอร์ชันไหน
+   *
+   * union แคบแค่ `0 | 1` (ไม่ใช่ `number` เต็มช่วง) เพราะจุดเรียกทุกจุดในโปรเจกต์นี้ต้องการแค่
+   * "กิน" หรือ "ไม่กิน" พื้นที่ว่าง ไม่เคยต้องแบ่งสัดส่วนระหว่างพี่น้องหลายตัว (เช่น 1:2) — เพิ่ม
+   * ค่าที่กว้างกว่านี้ไว้ล่วงหน้าโดยยังไม่มีจุดเรียกไหนใช้จริงคือสิ่งที่คอมเมนต์ของ `basis` ด้านล่าง
+   * (ในสเปกงานนี้ #1) เตือนไว้ตรง ๆ ว่าไม่ให้ทำ
    */
-  Flex: ComponentType<{ direction?: 'row' | 'column'; gap?: number; alignItems?: 'flex-start' | 'center' | 'flex-end' | 'stretch' | 'baseline'; justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | 'space-around' | 'space-evenly'; wrap?: 'wrap' | 'nowrap'; children?: ReactNode }>
+  Flex: ComponentType<{ direction?: 'row' | 'column'; gap?: number; alignItems?: 'flex-start' | 'center' | 'flex-end' | 'stretch' | 'baseline'; justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | 'space-around' | 'space-evenly'; wrap?: 'wrap' | 'nowrap'; grow?: 0 | 1; children?: ReactNode }>
   Divider: ComponentType<Record<string, never>>
   Alert: ComponentType<{ variant: 'success' | 'warning' | 'danger'; title?: string; onClose?: () => void; children?: ReactNode }>
   Loader: ComponentType<{ children?: ReactNode }>

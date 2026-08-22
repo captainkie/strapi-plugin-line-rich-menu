@@ -112,6 +112,33 @@ describe('UIPort', () => {
     })
   })
 
+  // สเปกงานนี้ #1 (Task 21) — `ui.Flex` เดิมไม่มีทางบอกได้เลยว่า "ลูกตัวนี้กินพื้นที่ที่เหลือ"
+  // ก่อนหน้านี้จุดเรียกที่ต้องการผลแบบนี้ทำไม่ได้เลยนอกจากวาด style ดิบทับ ui.Flex ซึ่งรั่ว
+  // รายละเอียด flexbox เข้าไปใน component ที่ไม่ควรรู้จักมัน — เทสต์นี้ยึดว่า `grow` ที่รับมา
+  // ต้องลงเอยเป็น `flex-grow` จริงบน element เดียวกับที่ alignItems/justifyContent/wrap ลง
+  // (ไม่ใช่แค่รับพร็อพแล้วทิ้งเหมือนที่เทสต์ด้านบนเคยจับได้กับสามพร็อพนั้นมาก่อน)
+  it('ui.Flex วาด grow ที่รับมาเป็น flex-grow จริง ไม่ใช่รับแล้วทิ้ง', () => {
+    const port = createStubPort()
+    render(
+      <port.ui.Flex grow={1}>
+        <span data-testid="flex-grow-child">x</span>
+      </port.ui.Flex>,
+    )
+    const box = screen.getByTestId('flex-grow-child').parentElement!
+    expect(box).toHaveStyle({ flexGrow: '1' })
+  })
+
+  it('ui.Flex ไม่ระบุ grow เลย ต้องไม่ลง flex-grow: 0 มาแทน (ค่าเริ่มต้นของ CSS ต้องเป็นของจริง)', () => {
+    const port = createStubPort()
+    render(
+      <port.ui.Flex>
+        <span data-testid="flex-no-grow-child">x</span>
+      </port.ui.Flex>,
+    )
+    const box = screen.getByTestId('flex-no-grow-child').parentElement!
+    expect(box.style.flexGrow).toBe('')
+  })
+
   // สมาชิกไม่ได้ประกาศ `name` เอง — กลุ่มเป็นคนแจกให้ ถ้า adapter ตัวไหนลืมส่งต่อ radio จะกลาย
   // เป็นสี่ตัวที่ไม่ได้อยู่กลุ่มเดียวกันในสายตาเบราว์เซอร์ ติ๊กพร้อมกันได้หมดโดยไม่มี error ใดฟ้อง
   it('ui.RadioGroup แจก name ของกลุ่มลงไปถึงสมาชิกทุกตัว', () => {

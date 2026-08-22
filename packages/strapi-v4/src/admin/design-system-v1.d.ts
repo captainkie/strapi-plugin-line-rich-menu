@@ -33,6 +33,12 @@ declare module '@strapi/design-system' {
     alignItems?: string
     justifyContent?: string
     wrap?: 'wrap' | 'nowrap'
+    /**
+     * รับผ่าน `Box` (ตรวจจาก dist/Box/Box.js: `flex-grow: ${({ grow }) => grow}`) — DS v1 เองก็
+     * map ไปที่ CSS `flex-grow` ตรง ๆ เหมือน DS v2 (ดูคอมเมนต์ที่ `ui.Flex.grow` ใน port.ts ของ
+     * packages/ui — เหตุผลที่พร็อพนี้อยู่บน port แทนที่จะเป็น style ดิบ)
+     */
+    grow?: 0 | 1
   }>
 
   export const Typography: ComponentType<BoxLike & {

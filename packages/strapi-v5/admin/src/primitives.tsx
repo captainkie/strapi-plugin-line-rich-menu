@@ -318,13 +318,16 @@ export const primitives: UIPrimitives = {
    * เหตุผลเดียวกับฝั่ง v4: ทุกหน้าจอของ `packages/ui` ถูกเขียนและตรวจด้วยตาบน stub ซึ่งใช้
    * default ของ CSS ปล่อยให้เป็น `center` จะทำให้คอลัมน์ของฟอร์มหดเข้ามาอยู่กลางจอทุกอัน
    */
-  Flex: ({ direction, gap, alignItems, justifyContent, wrap, children }) => (
+  // `grow` ส่งต่อตรง ๆ ไม่ต้องแปลง — `Box` ของ DS v2 (ที่ `Flex` วางอยู่บน) รับ `grow` เป็น CSS
+  // `flex-grow` โดยตรงอยู่แล้ว (ตรวจจาก dist/primitives/Box/Box.d.ts: `grow?: ResponsiveProperty<CSSProperties['flexGrow']>`)
+  Flex: ({ direction, gap, alignItems, justifyContent, wrap, grow, children }) => (
     <DsFlex
       direction={direction ?? 'row'}
       gap={gap}
       alignItems={alignItems ?? 'stretch'}
       justifyContent={justifyContent}
       wrap={wrap}
+      grow={grow}
     >
       {children}
     </DsFlex>

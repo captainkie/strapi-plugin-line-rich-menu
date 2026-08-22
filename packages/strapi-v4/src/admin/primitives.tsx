@@ -242,13 +242,16 @@ export const primitives: UIPrimitives = {
    *
    * `gap` เป็นลำดับใน spacing scale ของ DS อยู่แล้ว ส่งต่อได้ตรง ๆ ไม่ต้องแปลงเป็นพิกเซล
    */
-  Flex: ({ direction, gap, alignItems, justifyContent, wrap, children }) => (
+  // `grow` ส่งต่อตรง ๆ ไม่ต้องแปลง — `Box` ของ DS v1 (ที่ `Flex` วางอยู่บน) รับ `grow` เป็น CSS
+  // `flex-grow` โดยตรงอยู่แล้ว (ดูคอมเมนต์ที่ type ของมันใน design-system-v1.d.ts)
+  Flex: ({ direction, gap, alignItems, justifyContent, wrap, grow, children }) => (
     <DsFlex
       direction={direction ?? 'row'}
       gap={gap}
       alignItems={alignItems ?? 'stretch'}
       justifyContent={justifyContent}
       wrap={wrap}
+      grow={grow}
     >
       {children}
     </DsFlex>

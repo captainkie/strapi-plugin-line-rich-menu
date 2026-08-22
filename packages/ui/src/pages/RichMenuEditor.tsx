@@ -390,7 +390,13 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
             />
           </ui.Flex>
 
-          <ui.Flex direction="column" gap={3}>
+          {/* grow={1} — คอลัมน์นี้กินพื้นที่ที่เหลือหลังโทรศัพท์ (ซึ่งกว้างคงที่ตาม width={480}
+              ของ Preview ด้านบน) แทนที่จะแคบเท่าเนื้อหาแล้วปล่อยแถบว่างไปจนขอบคอลัมน์คู่กันของ
+              ui.Flex ที่ห่อทั้งสองคอลัมน์นี้อยู่ — ก่อนพร็อพนี้จะมีบนพอร์ต (สเปกงานนี้ #1) คอลัมน์นี้
+              ไม่มีทางกว้างกว่าเนื้อหาของตัวเองได้เลย ทำให้กรอบของมันสุดหน้าจอแต่ฟอร์มข้างในหยุด
+              สั้นกว่ามาก — ฟอร์มของ ActionForm/MainSettings มาจาก DS ที่กว้างเต็มพ่อของมันเองอยู่แล้ว
+              (ยืนยันด้วยตาในเบราว์เซอร์จริงแล้ว ไม่ใช่แค่อ่านโค้ด) จึงพอแค่ grow ตัวห่อชั้นนี้ */}
+          <ui.Flex direction="column" gap={3} grow={1}>
             <ui.Flex gap={2} alignItems="center">
               <ui.Typography>{t('editor.template')}</ui.Typography>
               <ui.Button variant="secondary" testId="open-template-picker" onClick={() => setPicking(true)}>
