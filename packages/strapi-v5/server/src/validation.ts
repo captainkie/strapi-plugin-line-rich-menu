@@ -60,11 +60,17 @@ export const menuInputSchema = z.object({
   aliasId: z.string().regex(/^[a-z0-9_-]+$/).max(32).nullable(),
   startAt: isoDate.nullable(),
   endAt: isoDate.nullable(),
-  // Task 13 ruling — เพิ่มเข้ามาปิดช่องที่ `audience` เคยประกาศไว้ในสคีมา (Task 5/6) แต่ไม่มี
-  // เส้นทาง HTTP ไหนเขียนถึงมันได้เลย (ทั้ง `.strict()` เดิมไม่มีคีย์นี้ และ `saveMenu` ก็ไม่เคย
-  // เขียนคีย์นี้ลง patch) `optional().default('all')` ทำให้ caller เดิมทุกตัว (ทั้ง UI และเทสต์ที่
-  // ไม่ส่งฟิลด์นี้มา) ยังทำงานเหมือนเดิมทุกประการ — ไม่ต้องแก้ที่ไหนอื่นนอกจากที่นี่กับ `saveMenu`
-  audience: z.enum(['all', 'members']).optional().default('all'),
+  // Task 13 ruling รอบแรกใส่ `.default('all')` ไว้ตรงนี้ ซึ่งกลายเป็นบั๊ก (task-13-findings-2.md
+  // รอบ 3): มันแปลง "ฟิลด์ไม่ถูกส่งมา" ให้เป็น "ตั้งเป็น all" ตั้งแต่ก่อนที่ `saveMenu` จะรู้ตัวด้วยซ้ำ
+  // — editor's PUT body ไม่เคยส่ง `audience` มาเลย (ดู api.ts ของ ui) ดังนั้นทุกครั้งที่แก้เมนูสมาชิก
+  // (เปลี่ยนชื่อ, เปลี่ยนรูป ฯลฯ) ผ่านฟอร์ม ค่าจะถูกรีเซ็ตเป็น 'all' เงียบ ๆ ทั้งที่เมนูยัง live กับ
+  // สมาชิกจริงอยู่ — สถานะเดียวกับที่ guard ของ activate มีไว้กันไม่ให้เกิด แต่ผ่านทางอ้อม
+  //
+  // `.optional()` เฉย ๆ (ไม่มี default) ปล่อยให้ฟิลด์ที่ไม่ถูกส่งมาคงเป็น `undefined` จนถึง `saveMenu`
+  // ซึ่งไม่ใส่มันลง patch เมื่อเป็นแบบนั้น (ความหมายปกติของ partial update: "ไม่ส่งมา" คือ "ไม่เปลี่ยน"
+  // ไม่ใช่ "ตั้งเป็น default") เมนูใหม่ยังได้ 'all' เหมือนเดิม แต่มาจากคอลัมน์ default ของ content-type
+  // เอง (content-types/rich-menu.ts — `default: 'all', required: true`) ไม่ใช่จาก schema ชั้นนี้
+  audience: z.enum(['all', 'members']).optional(),
 }).strict().superRefine((value, ctx) => {
   // สเปกงานนี้ #4 — บังคับที่ขอบของ route ด้วย ไม่ใช่แค่ในฟอร์ม: RBAC กันคนนอกได้ แต่ไม่ได้การันตี
   // ว่าผู้เรียกคือฟอร์มของเรา (ดูคอมเมนต์เต็มที่ isDisplayPeriodValid ใน packages/core)

@@ -245,6 +245,15 @@ export function registerMemberLifecycles(strapi: StrapiV5): void {
       const services = getServices(strapi)
       try {
         const documentId = await documentIdByPk(strapi, UID.member, event.params.where?.['id'])
+        // เคสนี้ไม่ throw (documentIdByPk แค่คืน null) จึงไม่ตกไปที่ catch ข้างล่างเอง — แต่ผลลัพธ์
+        // ปลายทางเหมือนกันทุกประการ (afterDelete ข้าม unlink เงียบ ๆ) ถ้าไม่ log ไว้ตรงนี้ด้วย จะไม่มี
+        // ร่องรอยอะไรเลยว่าทำไมสมาชิกที่ถูกลบถึงยังถือเมนูค้างอยู่
+        if (documentId === null) {
+          services.logger.error(
+            'line-rich-menu: capture member before delete failed — cannot resolve documentId from where clause',
+            { where: event.params.where },
+          )
+        }
         event.state = {
           ...event.state,
           [DELETED_MEMBER]: documentId === null ? null : await services.members.findOne(documentId),

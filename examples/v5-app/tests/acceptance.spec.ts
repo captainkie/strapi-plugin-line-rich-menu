@@ -539,8 +539,9 @@ test.describe('scheduler บน Strapi 5', () => {
 })
 
 /**
- * Task 13 — ด่านสุดท้ายที่ตอบสามคำถามที่ยังไม่มีคำตอบของฟีเจอร์ audience สมาชิก (ดู
- * task-13-brief.md) ด้วยการสังเกตพฤติกรรมจริงบน Strapi 5 ตัวจริง ไม่ใช่เดาจากโค้ด:
+ * Task 13 — ด่านสุดท้ายที่พิสูจน์คำตอบของสามคำถามของฟีเจอร์ audience สมาชิก (ดู task-13-brief.md)
+ * ด้วยการสังเกตพฤติกรรมจริงบน Strapi 5 ตัวจริง ไม่ใช่เดาจากโค้ด — ทั้งสามข้อมีคำตอบแล้ว (ผลของ task
+ * นี้เอง) คำถามยังอยู่ตรงนี้เพื่อบอกว่าด่านข้างล่างพิสูจน์อะไร ไม่ใช่เพราะยังไม่รู้คำตอบ:
  * 1) `afterDelete` ของ Strapi ส่ง channel ที่ populate มาให้ lifecycle จริงไหม
  * 2) `beforeUpdate` ได้ identifier ที่ resolve แถวเดิมได้จริงไหม (documentId vs id)
  * 3) payload update ที่ไม่ส่ง `channel` มา ยัง establish channel ได้จริงไหม
@@ -649,9 +650,11 @@ test.describe('audience สมาชิก', () => {
     expect((await lateOnLine.json()).richMenuId).toBe(memberMenu.lineRichMenuId)
 
     // === คำถามที่ 1: afterDelete ของ Strapi ส่ง channel ที่ populate มาให้ lifecycle จริงไหม ===
-    // ถ้าไม่ populate `idOf(entity['channel'])` ใน lifecycles.ts จะได้ null แล้ว unlinkDeletedMember
-    // หา channel ไม่เจอ (error ถูกจับแล้วแค่ log — ดู unlinkDeletedMember) คนที่ถูกลบจะถือเมนูค้าง
-    // อยู่ตลอดไปโดยไม่มี error ให้เห็นที่ไหนเลย ใช้สมาชิกแยกต่างหาก ไม่ปนกับ uids/late ข้างบน
+    // คำตอบ: ไม่ — `beforeDelete` จึงต้องอ่านแถวเก็บไว้ก่อนแถวถูกลบจริง แล้ว stash ผ่าน `event.state`
+    // ให้ `afterDelete` อ่านต่อ (`stashedMember` ใน lifecycles.ts) ถ้า `beforeDelete` resolve
+    // identifier ไม่ออก จะ stash เป็น null แล้ว afterDelete ข้าม unlink ไปเงียบ ๆ (มี log แล้ว — ดู
+    // beforeDelete) คนที่ถูกลบจะถือเมนูค้างอยู่ตลอดไปถ้ากลไก stash นี้พังจริง ใช้สมาชิกแยกต่างหาก
+    // ไม่ปนกับ uids/late ข้างบน
     const toDeleteUid = uidOf('7')
     const toDelete = await createMember(request, token, { channelId, lineUserId: toDeleteUid })
     const beforeDelete = await request.get(`${LINE_MOCK}/v2/bot/user/${toDeleteUid}/richmenu`, lineAuth)

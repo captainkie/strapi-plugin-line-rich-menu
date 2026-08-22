@@ -96,7 +96,12 @@ export async function saveMenu(
     imageFileId: input.imageFileId,
     areaImages: input.areaImages,
     aliasId: input.aliasId,
-    audience: input.audience,
+    // input.audience เป็น undefined เมื่อ caller ไม่ส่งฟิลด์นี้มาเลย (editor's PUT ไม่เคยส่ง — ดู
+    // คอมเมนต์ที่ validation.ts) ไม่ใส่คีย์นี้ใน patch เลยตอนนั้น ไม่ใช่ใส่เป็น undefined — ความหมาย
+    // ปกติของ partial update คือ "ไม่ส่งมา" แปลว่า "ไม่เปลี่ยน" ไม่ใช่ "ตั้งเป็นค่า default" (Task 13
+    // fix round 3, task-13-findings-2.md — `.default('all')` ตัวเดิมใน validation.ts ทำให้ทุก save
+    // เขียนทับ audience เดิมเป็น 'all' เงียบ ๆ แม้เมนูยัง live กับสมาชิกจริงอยู่)
+    ...(input.audience === undefined ? {} : { audience: input.audience }),
   }
 
   const saved = existing === null

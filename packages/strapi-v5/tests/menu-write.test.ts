@@ -163,6 +163,48 @@ describe('saveMenu — ลบรูปทิ้งต้องเคลียร
 })
 
 /**
+ * Task 13 fix round 3 (task-13-findings-2.md) — Critical: `menuInputSchema` เคย `.default('all')`
+ * ทำให้ `input.audience` มีค่าเสมอแม้ caller ไม่ส่งมา แล้ว `saveMenu` เขียนมันลง patch แบบไม่มีเงื่อนไข
+ * ผลคือแก้เมนูสมาชิกผ่าน editor (PUT body ไม่มีคีย์ `audience` เลย — ดู api.ts ของ ui) รีเซ็ต audience
+ * เป็น 'all' เงียบ ๆ ทุกครั้ง แม้เมนูยัง live กับสมาชิกจริงอยู่ — เทสต์เดิมใน describe ก่อนหน้าไม่มีทาง
+ * จับได้ เพราะทุกที่ที่เรียก saveMenu ส่ง `audience: 'all'` มาชัดเจนเสมอ (baseInput) ไม่เคยจำลอง body
+ * ที่ไม่มีคีย์นี้เลย ซึ่งเป็นรูปทรงเดียวที่เกิดขึ้นจริงตอนแก้ไขผ่านฟอร์ม — ตรรกะเหมือน v4 ทุกไบต์
+ * (ดู packages/strapi-v4/tests/menu-write.test.ts) รันซ้ำที่นี่เพราะ patch ทั้งสอง adapter แยกกัน
+ */
+describe('saveMenu — audience: ไม่ส่งฟิลด์มาต้องแปลว่า "ไม่เปลี่ยน" ไม่ใช่ "ตั้งเป็น all" (Task 13 fix round 3)', () => {
+  it('แก้เมนูสมาชิกด้วย body รูปทรงเดียวกับที่ editor ส่งจริง (ไม่มีคีย์ audience เลย) — audience เดิมต้องรอด', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg())
+    const created = await saveMenu(services, { ...baseInput, audience: 'members' }, null, null)
+    expect(created.audience).toBe('members') // sanity check ก่อนพิสูจน์ค่าที่ต้องรอด
+
+    // destructure คีย์ออกจริง ๆ ไม่ใช่ตั้งเป็น undefined ตรง ๆ — ต้องได้ object ที่ไม่มีคีย์ audience
+    // เลย เหมือน body จริงของ PUT ที่ editor ส่ง ไม่ใช่แค่ค่าที่บังเอิญเป็น undefined
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { audience: _omitted, ...withoutAudience } = { ...baseInput, audience: 'members' as const }
+
+    const updated = await saveMenu(services, withoutAudience, created, null)
+    expect(updated.audience, 'ฟิลด์ที่ไม่ถูกส่งมาต้องแปลว่าไม่เปลี่ยน ไม่ใช่ถูกรีเซ็ตเป็น all เงียบ ๆ')
+      .toBe('members')
+  })
+
+  it('สร้างเมนูใหม่โดยไม่ส่ง audience มาเลย — saveMenu เองไม่ยัด \'all\' ลง patch (ค่า default มาจากคอลัมน์ของ content-type แทน)', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg())
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { audience: _omitted, ...withoutAudience } = baseInput
+
+    const created = await saveMenu(services, withoutAudience, null, null)
+
+    // fakeRepo ไม่จำลอง default ของคอลัมน์ Strapi จริง (content-types/rich-menu.ts) — ค่าที่ได้ตรงนี้
+    // จึงเป็น undefined ไม่ใช่ 'all' ถ้า saveMenu เขียนคีย์นี้เข้า patch เอง ด่านนี้จะแดงทันที
+    // (การยืนยันว่าเมนูใหม่ยังได้ 'all' จริงบน Strapi จริงคือหน้าที่ของ acceptance.spec.ts — ดูด่าน
+    // 'activate เมนูที่ audience เป็น all ถูกปฏิเสธ...' ที่ใช้เมนูแรกสุดของไฟล์ซึ่งไม่เคยส่ง audience)
+    expect(created.audience).toBeUndefined()
+  })
+})
+
+/**
  * `assertAliasFree` ไม่ได้ export จากไฟล์นี้ (ตั้งใจ — เป็น implementation detail ของ saveMenu)
  * จึงพิสูจน์ผ่านพฤติกรรมของ saveMenu เอง ซึ่งเป็นวิธีเดียวกับที่ผู้ใช้จริงเจอ: กด save สองครั้ง
  * ด้วย alias เดียวกัน — v5 ไม่เคยมีเทสต์นี้เลยมาก่อน (รีวิวชี้ไว้ตรง ๆ ว่าเป็นช่องว่าง)

@@ -362,6 +362,29 @@ const memberEntity = (over: Record<string, unknown>) => ({
   displayName: null, linkedRichMenuId: null, linkedAt: null, ...over,
 })
 
+/**
+ * จำลอง Map ที่ provider จริงของ `@strapi/database` ใช้เก็บ `state` ระหว่าง before/after hook ของ
+ * คำสั่งเดียวกัน แล้วส่งกลับมาเป็น `state` ของ event **คนละ object** ที่ hook ตัวหลังได้รับ (ดูคอมเมนต์
+ * ที่ `LifecycleEvent.state` ใน strapi.ts) — ก่อนหน้านี้เทสต์ของ beforeDelete/afterDelete ในไฟล์นี้
+ * ส่ง event object เดียวกันให้ทั้งสอง hook ซึ่งพิสูจน์ได้แค่ว่าโค้ดอ่านค่าที่ตัวเองเพิ่งเขียนลง object
+ * เดียวกันได้ ไม่ใช่ว่าสัญญาการส่งผ่าน state ข้าม hook ทำงานจริง (จะเขียวอยู่ดีแม้ beforeDelete ไม่ได้
+ * เขียนผ่าน event.state เลย) คนละ event object ต่อ hook คือสิ่งที่ทำให้เทสต์นี้ล้มได้จริงถ้าสัญญานั้นพัง
+ */
+function fakeProviderStates() {
+  let stored: Record<string, unknown> | undefined
+  return {
+    before(shape: Omit<LifecycleEvent, 'state'>): LifecycleEvent {
+      return { ...shape, state: stored }
+    },
+    capture(event: LifecycleEvent): void {
+      stored = event.state
+    },
+    after(shape: Omit<LifecycleEvent, 'state'>): LifecycleEvent {
+      return { ...shape, state: stored }
+    },
+  }
+}
+
 describe('registerMemberLifecycles', () => {
   it('ลงทะเบียน subscriber ตัวเดียวกับ model line-member และมี handler ครบทั้งห้าตัว', () => {
     const { strapi, subscribe } = fakeFullStrapi([], [])
@@ -442,20 +465,25 @@ describe('registerMemberLifecycles', () => {
    * ยืนยันด้วย audit ที่เขียนออกมา ไม่ใช่แค่ "ไม่ throw" — `richMenuId: 'rm-1'` มีอยู่เฉพาะในแถว
    * ที่อ่านไว้ล่วงหน้า ถ้า afterDelete กลับไปพึ่ง event.result จะไม่มีทางเขียนค่านี้ได้เลย
    */
-  it('beforeDelete เก็บแถวไว้ให้ afterDelete unlink — ไม่พึ่ง event.result ที่ไม่มี channel', async () => {
+  it('beforeDelete เก็บแถวไว้ให้ afterDelete unlink — ผ่าน state คนละ event object เหมือน provider จริง ไม่พึ่ง event.result ที่ไม่มี channel', async () => {
     const { strapi, subscribe, created } = fakeFullStrapi(
       [memberEntity({ linkedRichMenuId: 'rm-1', linkedAt: '2026-01-01T00:00:00.000Z' })],
       [CHANNEL_ROW],
     )
     registerMemberLifecycles(strapi)
     const subscriber = subscribe.mock.calls[0]![0] as LifecycleSubscriber
+    const states = fakeProviderStates()
 
-    const event: LifecycleEvent = { params: { where: { id: 1 } }, result: { documentId: 'mem1', lineUserId: UID_A } }
-    await subscriber.beforeDelete!(event)
-    await expect(subscriber.afterDelete!(event)).resolves.toBeUndefined()
+    const beforeEvent = states.before({ params: { where: { id: 1 } }, result: { documentId: 'mem1', lineUserId: UID_A } })
+    await subscriber.beforeDelete!(beforeEvent)
+    states.capture(beforeEvent)
+
+    const afterEvent = states.after({ params: { where: { id: 1 } }, result: { documentId: 'mem1', lineUserId: UID_A } })
+    await expect(subscriber.afterDelete!(afterEvent)).resolves.toBeUndefined()
 
     // ครึ่งที่คุยกับ LINE จริงถูกพิสูจน์ไปแล้วที่ describe ของ unlinkDeletedMember — ที่นี่พิสูจน์
-    // แค่ว่าค่าที่ beforeDelete เก็บไว้เดินทางถึง unlinkDeletedMember จริง
+    // แค่ว่าค่าที่ beforeDelete เก็บไว้เดินทางถึง unlinkDeletedMember จริง ผ่าน state ที่ provider
+    // ส่งต่อข้าม event object จริง ๆ ไม่ใช่แค่ mutation ของ object เดียวกัน
     expect(created.filter((row) => row.uid === UID.audit))
       .toEqual([{ uid: UID.audit, data: expect.objectContaining({ action: 'unlink-members', richMenuId: 'rm-1' }) }])
   })
@@ -464,10 +492,34 @@ describe('registerMemberLifecycles', () => {
     const { strapi, subscribe, created } = fakeFullStrapi([], [])
     registerMemberLifecycles(strapi)
     const subscriber = subscribe.mock.calls[0]![0] as LifecycleSubscriber
+    const states = fakeProviderStates()
 
-    const event: LifecycleEvent = { params: { where: { id: 1 } }, result: { documentId: 'mem1' } }
-    await subscriber.beforeDelete!(event)
+    const beforeEvent = states.before({ params: { where: { id: 1 } }, result: { documentId: 'mem1' } })
+    await subscriber.beforeDelete!(beforeEvent)
+    states.capture(beforeEvent)
+
+    const afterEvent = states.after({ params: { where: { id: 1 } }, result: { documentId: 'mem1' } })
+    await expect(subscriber.afterDelete!(afterEvent)).resolves.toBeUndefined()
+    expect(created).toEqual([])
+  })
+
+  /**
+   * Minor (task-13-findings-2.md รอบ 3): เคสที่ยังไม่เคยมีเทสต์เลย — provider ไม่ได้ส่งต่อ state
+   * มาให้ afterDelete จริง ๆ (ต่างจากเคส "beforeDelete อ่านแถวไม่เจอ" ข้างบน ที่ยัง stash `null`
+   * ไว้ให้ผ่าน event.state) `stashedMember` ต้องอ่าน `event.state?.[...]` ด้วย optional chaining
+   * แล้วได้ null กลับมา ไม่ใช่ throw เพราะ `event.state` เป็น undefined ล้วน ๆ
+   */
+  it('afterDelete ที่ไม่มี state ถูกส่งต่อมาให้เลย (beforeDelete ไม่เคยรันมาก่อน) เป็น no-op เงียบ ๆ', async () => {
+    const { strapi, subscribe, created } = fakeFullStrapi(
+      [memberEntity({ linkedRichMenuId: 'rm-1', linkedAt: '2026-01-01T00:00:00.000Z' })],
+      [CHANNEL_ROW],
+    )
+    registerMemberLifecycles(strapi)
+    const subscriber = subscribe.mock.calls[0]![0] as LifecycleSubscriber
+
+    const event: LifecycleEvent = { params: { where: { id: 1 } }, result: { documentId: 'mem1', lineUserId: UID_A } }
     await expect(subscriber.afterDelete!(event)).resolves.toBeUndefined()
+    // ต้องไม่ unlink ทั้งที่แถวจริงมี linkedRichMenuId — พิสูจน์ว่า afterDelete ไม่ได้ไปอ่านค่าจากที่อื่น
     expect(created).toEqual([])
   })
 })
