@@ -100,6 +100,9 @@ Then give a role the four permissions under **Settings → Roles → Plugins →
 `settings` is deliberately separate from `publish`: you can let someone ship menus without
 ever letting them see the LINE OA's access token.
 
+From here the **[usage guide](docs/USAGE.md)** walks through connecting an Official Account and
+shipping your first menu.
+
 **Your menus, per LINE account.** The same table LINE's own console shows: a thumbnail of the
 real layout with your artwork behind it, every area's action, the display period, and the
 status — so you can tell two menus apart without opening either.
@@ -122,6 +125,16 @@ access token is masked to its last four characters everywhere it appears; nothin
 screens ever decrypts it.
 
 ![Connected LINE Official Accounts](docs/screenshots/channel.png)
+
+## Documentation
+
+| | |
+|---|---|
+| **[Usage guide](docs/USAGE.md)** | Connect an account, build a menu, schedule it, publish it, and fix it when LINE says no |
+| **[How it is built](docs/SPEC.md)** | The design and the reasoning — the two seams that let one plugin run inside two incompatible Strapi versions |
+| **[Security](SECURITY.md)** | What is defended, what is not, how to report a vulnerability |
+| **[Running the demo](docs/DEMO.md)** | Deploying this yourself, and the traps that cost us time |
+| **[Releasing](docs/RELEASING.md)** | The checklist behind a published version |
 
 ## Known limits
 
