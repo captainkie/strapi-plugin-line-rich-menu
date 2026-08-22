@@ -142,8 +142,12 @@ describe('menuInputSchema', () => {
    * `saveMenu` ever sees `input.audience === undefined`, so the round-3 unit test in
    * menu-write.test.ts — which calls `saveMenu` directly and never runs zod — cannot catch it.
    *
-   * Assert the key is absent, not `=== undefined`: `{audience: undefined}` also satisfies
-   * `toBe(undefined)` and is a different object from `{}` once it reaches the spread in `saveMenu`.
+   * Assert the key is absent, not `=== undefined`. Both forms actually go red under the mutation
+   * below: `saveMenu`'s spread omits the key entirely rather than writing `undefined`, and
+   * `repo.ts` guards `patch.audience !== undefined` a second time, so `{audience: undefined}` and
+   * `{}` reach the database identically. `in` is preferred because it states the contract itself —
+   * zod must not synthesise the key at all — rather than passing by accident of two downstream
+   * guards that a later refactor could remove.
    * `menu` above never included an `audience` key — that omission is the whole point here, it's
    * the exact shape the real editor's PUT sends (see api.ts of ui).
    *
