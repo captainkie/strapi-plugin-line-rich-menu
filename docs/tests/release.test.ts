@@ -203,3 +203,42 @@ describe('docs/RELEASING.md', () => {
     expect(releasing, 'ต้องมี NPM_TOKEN เป็น GitHub secret จริง ไม่ใช่แค่ใน .env.local').toContain('NPM_TOKEN')
   })
 })
+
+/**
+ * ขั้นตอน publish ต้องรันบน Node 22 ส่วนด่านคุณภาพต้องรันบน .nvmrc ต่อไป
+ *
+ * ทำไมต้องมีด่านนี้: การปล่อย v1.0.0 ครั้งแรกล้มจริงที่ขั้นสุดท้าย หลังผ่าน typecheck/lint/
+ * test/build/check:deps/verify มาครบแล้ว ด้วย `TypeError: enableCompileCache is not a
+ * function` — `@changesets/cli@3.0.1` มี bin shim ที่เช็ค `process.getBuiltinModule`
+ * (มีตั้งแต่ Node 20.16) แล้วเรียก `enableCompileCache` (เพิ่งมีใน Node 22.1) บน Node 20.20.0
+ * เงื่อนไขจึงผ่านแล้วไปตายบรรทัดถัดมา ไม่มีเวอร์ชันใหม่กว่าให้อัปเป็น
+ *
+ * ถ้าใครลบ setup-node ตัวที่สองออกเพราะดู "ซ้ำซ้อน" การปล่อยครั้งถัดไปจะล้มแบบเดิม — และจะรู้
+ * ตอนที่ tag ถูก push ไปแล้ว ซึ่งเป็นจุดที่แพงที่สุดที่จะรู้ ด่านนี้ทำให้รู้ตั้งแต่ตอนแก้ไฟล์
+ */
+describe('release.yml — Node ของขั้น publish', () => {
+  const nodeStep = release.indexOf('node-version: 22')
+  const publishStep = release.indexOf('name: changeset publish')
+
+  it('publish รันบน Node 22 เพราะ changesets 3.0.1 พังบน Node 20', () => {
+    expect(nodeStep, 'ไม่มี setup-node ที่ปักเป็น Node 22 เลย').toBeGreaterThan(-1)
+  })
+
+  it('setup-node ตัวนั้นมาก่อนขั้น publish ไม่ใช่หลัง', () => {
+    expect(publishStep).toBeGreaterThan(-1)
+    expect(nodeStep).toBeLessThan(publishStep)
+  })
+
+  /**
+   * ด้านกลับของด่านบน: สินค้าต้องถูกพิสูจน์บนเวอร์ชันที่ลูกค้ารันจริง การย้าย publish ไป Node 22
+   * ต้องไม่ลามไปย้ายด่านคุณภาพตามไปด้วย
+   */
+  it('ด่านคุณภาพยังรันบน .nvmrc และมาก่อน Node 22 เสมอ', () => {
+    const nvmrcStep = release.indexOf('node-version-file: .nvmrc')
+    expect(nvmrcStep).toBeGreaterThan(-1)
+    expect(nvmrcStep).toBeLessThan(nodeStep)
+    for (const gate of ['pnpm typecheck', 'pnpm lint', 'pnpm test', 'pnpm build']) {
+      expect(release.indexOf(gate), `${gate} ต้องอยู่ก่อนขั้น publish`).toBeLessThan(nodeStep)
+    }
+  })
+})
