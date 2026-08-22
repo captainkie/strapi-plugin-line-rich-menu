@@ -1,11 +1,28 @@
-# LINE Rich Menu for Strapi
+<h1 align="center">📱 LINE Rich Menu for Strapi</h1>
 
-Design, schedule and publish [LINE](https://developers.line.biz/en/docs/messaging-api/rich-menus-overview/)
-rich menus from inside the Strapi admin panel — templates, a drag-and-drop canvas, multi-tab
-menus via aliases, scheduled display periods, and a publish path that cleans up after itself
-when LINE says no.
+<p align="center">
+  <b>Design, schedule and publish LINE rich menus without leaving the Strapi admin panel.</b><br/>
+  Templates, a drag-and-drop canvas, multi-tab menus via aliases, scheduled display periods,
+  and a publish path that cleans up after itself when
+  <a href="https://developers.line.biz/en/docs/messaging-api/rich-menus-overview/">LINE</a>
+  says no. One plugin, <b>Strapi 4 and Strapi 5</b>.
+</p>
 
-![The rich menu list](docs/screenshots/list.png)
+<p align="center">
+  <a href="https://github.com/captainkie/strapi-plugin-line-rich-menu/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/captainkie/strapi-plugin-line-rich-menu/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="./LICENSE"><img alt="License: AGPL v3" src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg"></a>
+  <img alt="Strapi" src="https://img.shields.io/badge/Strapi-4%20%7C%205-4945ff">
+  <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D20.15-brightgreen">
+  <a href="https://github.com/sponsors/captainkie"><img alt="Sponsor" src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ff69b4"></a>
+  <a href="https://buymeacoffee.com/captainkiez"><img alt="Buy Me a Coffee" src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?logo=buymeacoffee&logoColor=black"></a>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/editor.png" width="880"
+       alt="The rich menu editor — a live iPhone preview of the menu inside a LINE chat, beside the template, image and per-area action settings">
+</p>
+
+---
 
 ## Which package do I install?
 
@@ -57,8 +74,19 @@ Then give a role the four permissions under **Settings → Roles → Plugins →
 `settings` is deliberately separate from `publish`: you can let someone ship menus without
 ever letting them see the LINE OA's access token.
 
-![The editor](docs/screenshots/editor.png)
+**Your menus, per LINE account.** Draft and published side by side, with the account's access
+token masked to its last four characters — the list never decrypts anything.
+
+![The rich menu list](docs/screenshots/list.png)
+
+**Pick a layout.** Seven large and five compact templates, each showing the canvas sizes LINE
+accepts for it, or turn on *Adjust the layout manually* and drag the areas yourself.
+
 ![Template picker](docs/screenshots/templates.png)
+
+**Connect an account.** Test the connection before you save it, and check for rich menus that
+exist on LINE but not here.
+
 ![Connected LINE Official Accounts](docs/screenshots/channel.png)
 
 ## Known limits
@@ -105,6 +133,18 @@ reached end of life on 30 April 2026 — running the v4 adapter means accepting 
 own unpatched dependency tree, with or without this plugin installed. Full policy, what the
 plugin defends against, and what it doesn't: **[SECURITY.md](SECURITY.md)**.
 
+## Authors
+
+A product of **[Fosivo Labs Co., Ltd.](https://fosivo.com)**, built by
+**Narenrit Hadsadintorn** ([@captainkie](https://github.com/captainkie)) together with
+**Claude** (Anthropic) as an AI pair-builder.
+
+That second name is not decoration. The plugin's shape — one injected `UIPort` carrying
+everything version-specific, so a single React layer renders identically against two
+incompatible design systems — was argued out between the two of them, and most of the defects
+worth naming in this repository's history were found by making a guard fail on purpose rather
+than by reading the code.
+
 ## Licence
 
 Dual-licensed.
@@ -125,7 +165,7 @@ This plugin is free under the AGPL and will stay that way. If it saved you a wee
 say thanks:
 
 - [GitHub Sponsors](https://github.com/sponsors/captainkie)
-- [Buy Me a Coffee](https://buymeacoffee.com/captainkie)
+- [Buy Me a Coffee](https://buymeacoffee.com/captainkiez)
 - Or buy a [commercial licence](COMMERCIAL-LICENSE.md) — that funds it directly
 
 Bug reports and reproductions are worth as much as money and take less of it.
