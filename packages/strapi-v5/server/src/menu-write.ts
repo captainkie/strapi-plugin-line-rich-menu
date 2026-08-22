@@ -122,6 +122,7 @@ export async function saveMenu(
       imageFileId: input.imageFileId,
       areaImages: input.areaImages,
       aliasId: input.aliasId,
+      audience: input.audience,
     }
 
     const saved = existing === null

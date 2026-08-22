@@ -26,6 +26,11 @@ const STATUS_BY_CODE: Record<string, number> = {
   channel_not_found: 404,
   menu_not_found: 404,
   menu_not_ready: 409,
+  // Task 13 ruling — เมนูที่ publish แล้วแต่ audience ไม่ใช่ 'members' ยัง activate/sync ให้เป็น
+  // เมนูสมาชิกไม่ได้ (ดู assertMembersAudience ใน core/server/menu-ops.ts) 409 เหมือน menu_not_ready
+  // เพราะเป็น "เมนูนี้ยังทำสิ่งที่ขอไม่ได้" ไม่ใช่ 400 ที่แปลว่า "คำขอผิดรูปแบบ" แต่แยก code ออกจาก
+  // menu_not_ready เพราะสาเหตุคนละเรื่องและแก้ต่างกัน (publish เมนู vs เปลี่ยน audience ของเมนู)
+  menu_not_members_audience: 409,
   alias_not_published: 409,
   publish_already_running: 409,
   publish_rate_limited: 429,

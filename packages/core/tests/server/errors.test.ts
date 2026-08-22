@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CoreError } from '../../src/errors.js'
 import {
   AliasNotPublishedError, ChannelNotFoundError, EncryptionKeyMissingError, MenuNotFoundError,
-  MenuNotReadyError, PublishRateLimitedError,
+  MenuNotMembersAudienceError, MenuNotReadyError, PublishRateLimitedError,
 } from '../../src/server/errors.js'
 
 describe('error ของชั้น service (server/errors.ts)', () => {
@@ -13,6 +13,13 @@ describe('error ของชั้น service (server/errors.ts)', () => {
     expect(new ChannelNotFoundError('x').code).toBe('channel_not_found')
     expect(new MenuNotFoundError('x').code).toBe('menu_not_found')
     expect(new EncryptionKeyMissingError('x').code).toBe('encryption_key_missing')
+    expect(new MenuNotMembersAudienceError('m1').code).toBe('menu_not_members_audience')
+  })
+
+  it('MenuNotMembersAudienceError พก menuId จริงใน message', () => {
+    const e = new MenuNotMembersAudienceError('m-99')
+    expect(e.menuId).toBe('m-99')
+    expect(e.message).toBe("rich menu m-99 is not audience:'members', cannot be activated for members")
   })
 
   it('เป็นลูกของ CoreError และ Error ทั้งหมด', () => {

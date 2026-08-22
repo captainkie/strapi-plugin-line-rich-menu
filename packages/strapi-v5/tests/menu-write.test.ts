@@ -107,6 +107,7 @@ const baseInput: MenuInput = {
   aliasId: null,
   startAt: null,
   endAt: null,
+  audience: 'all',
 }
 
 /**

@@ -50,6 +50,23 @@ export class MenuNotFoundError extends CoreError {
   readonly code = 'menu_not_found'
 }
 
+/**
+ * Task 13 ruling — `activate`/`sync` ปักหมุด `channel.memberRichMenuId` ไปที่เมนูนี้ ทำแบบนั้นกับ
+ * เมนูที่ `audience` ไม่ใช่ `'members'` ไม่ได้ เพราะ "active" ของ `audience: 'all'` ถูกอ่านจาก
+ * ค่า default ของ LINE จริง ๆ ไม่ใช่จาก `channel.memberRichMenuId` (ดู `members.audience` ทั้งสอง
+ * adapter) — เมนูที่ label ว่า `'all'` แต่ถูก activate จะกลายเป็น live สำหรับสมาชิกจริง ๆ ขณะที่
+ * หน้าจอยังบอกว่าปิดอยู่ เพราะหน้าจอเช็คคนละแหล่งสำหรับ label นั้น ไม่มีใครเห็นสถานะที่แท้จริง
+ * และไม่มีทางปิดจาก UI ได้เลย — 409 เหมือน `menu_not_ready` (ทั้งคู่คือ "เมนูนี้ยังทำสิ่งที่ขอไม่ได้"
+ * ไม่ใช่ 400 ที่แปลว่า "คำขอผิดรูปแบบ") แต่แยก code ออกจากกันเพราะสาเหตุคนละเรื่อง: `not_published`
+ * แก้ได้ด้วยการ publish ส่วนอันนี้แก้ได้ด้วยการเปลี่ยน audience ของเมนู
+ */
+export class MenuNotMembersAudienceError extends CoreError {
+  readonly code = 'menu_not_members_audience'
+  constructor(readonly menuId: string) {
+    super(`rich menu ${menuId} is not audience:'members', cannot be activated for members`)
+  }
+}
+
 /** ไม่มี encryptionKey และไม่มี APP_KEYS[0] ให้ derive — ปฏิเสธตั้งแต่ตอน bootstrap */
 export class EncryptionKeyMissingError extends CoreError {
   readonly code = 'encryption_key_missing'

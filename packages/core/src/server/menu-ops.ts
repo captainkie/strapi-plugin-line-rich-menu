@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { BatchOperation, LineClient } from '../line/client.js'
 import type { AuditWriter } from './audit.js'
-import { MenuNotFoundError, MenuNotReadyError } from './errors.js'
+import { MenuNotFoundError, MenuNotMembersAudienceError, MenuNotReadyError } from './errors.js'
 import type { Repo, RichMenuRow } from './types.js'
 
 export interface MenuOpsDeps {
@@ -25,6 +25,23 @@ export async function publishedMenuOrThrow(menus: Repo<RichMenuRow>, menuId: str
     throw new MenuNotReadyError('not_published')
   }
   return menu
+}
+
+/**
+ * Task 13 ruling — export ออกมาเหมือน `publishedMenuOrThrow` ข้างบน ให้ทั้ง strapi-v5 และ strapi-v4
+ * เรียกจุดเดียวกันจาก `controllers/members.ts`'s `activateOrSync` แทนเขียนด่านนี้ซ้ำสองรอบในสอง
+ * adapter — บทเรียนเดียวกับที่คอมเมนต์ของ `publishedMenuOrThrow` เตือนไว้แล้ว (token-leak guard
+ * เคยมีอยู่แค่ฝั่งเดียวเพราะแยกเขียน)
+ *
+ * เรียก**หลัง** `publishedMenuOrThrow` เสมอ ไม่ใช่แทนที่ — เมนูต้องผ่านทั้งสองด่าน: publish แล้ว
+ * (มี `lineRichMenuId` ให้ผูก) และ `audience: 'members'` (เป็นเมนูที่ถูกประกาศไว้สำหรับสมาชิกจริง ๆ)
+ * ไม่ตรวจ audience ก่อน publish เพราะ error ที่ผู้ใช้ควรเห็นก่อนคือ "ยัง publish ไม่ได้" ถ้าทั้งสอง
+ * อย่างผิดพร้อมกัน — แก้ปัญหาที่ปิดกั้นกว่าก่อน
+ */
+export function assertMembersAudience(menu: RichMenuRow): void {
+  if (menu.audience !== 'members') {
+    throw new MenuNotMembersAudienceError(menu.id)
+  }
 }
 
 export async function setMenuAsDefault(

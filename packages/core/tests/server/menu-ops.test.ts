@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { LineServerError, LineValidationError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
-import { MenuNotReadyError } from '../../src/server/errors.js'
+import { MenuNotMembersAudienceError, MenuNotReadyError } from '../../src/server/errors.js'
 import {
-  clearChannelDefault, deleteOrphan, reconcileChannel, setMenuAsDefault, swapMenuAlias,
-  unlinkAllFromMenu,
+  assertMembersAudience, clearChannelDefault, deleteOrphan, reconcileChannel, setMenuAsDefault,
+  swapMenuAlias, unlinkAllFromMenu,
 } from '../../src/server/menu-ops.js'
 import type { AuditRow, Repo, RichMenuRow } from '../../src/server/types.js'
 
@@ -67,6 +67,29 @@ function client(overrides: Record<string, unknown> = {}) {
     ...overrides,
   } as never
 }
+
+/**
+ * Task 13 ruling — `assertMembersAudience` เป็นด่านเดียวที่ทั้งสอง adapter เรียกร่วมกันจาก
+ * `activateOrSync` (controllers/members.ts) แทนเขียนเช็คนี้ซ้ำสองรอบ (ดูคอมเมนต์ที่ตัวฟังก์ชันเอง
+ * ใน menu-ops.ts) — เทสต์ตรงนี้คือด่านเดียวที่พิสูจน์ตรรกะของมันเองแยกจากกลไกของ controller ทั้งคู่
+ */
+describe('assertMembersAudience', () => {
+  it('เมนู audience: members ผ่านโดยไม่โยนอะไร', () => {
+    expect(() => assertMembersAudience(menuRow({ audience: 'members' }))).not.toThrow()
+  })
+
+  it('เมนู audience: all โยน MenuNotMembersAudienceError พร้อม id ของเมนูนั้น', () => {
+    const menu = menuRow({ id: 'm-42', audience: 'all' })
+    try {
+      assertMembersAudience(menu)
+      throw new Error('ต้องโยนก่อนถึงบรรทัดนี้')
+    } catch (error) {
+      expect(error).toBeInstanceOf(MenuNotMembersAudienceError)
+      expect((error as MenuNotMembersAudienceError).code).toBe('menu_not_members_audience')
+      expect((error as MenuNotMembersAudienceError).menuId).toBe('m-42')
+    }
+  })
+})
 
 describe('setMenuAsDefault', () => {
   it('ตั้ง default บน LINE แล้วเขียน audit ที่บอกว่าจากอะไรเป็นอะไร', async () => {

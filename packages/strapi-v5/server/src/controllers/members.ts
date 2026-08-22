@@ -1,4 +1,6 @@
-import { publishedMenuOrThrow, unlinkAllFromMenu, type RichMenuRow } from '@fosivo/line-rich-menu-core'
+import {
+  assertMembersAudience, publishedMenuOrThrow, unlinkAllFromMenu, type RichMenuRow,
+} from '@fosivo/line-rich-menu-core'
 import { getServices, type Services } from '../container.js'
 import { guard, type AdminContext } from '../http-error.js'
 import type { StrapiV5 } from '../strapi.js'
@@ -85,6 +87,14 @@ export const members = ({ strapi }: { strapi: StrapiV5 }) => {
     // เมนูที่ยังไม่เคย publish ไม่มี lineRichMenuId ให้ผูกสมาชิกด้วย — โยน MenuNotReadyError
     // ('not_published') แบบเดียวกับที่ publish path ใช้อยู่แล้ว แม็ปเป็น 409 menu_not_ready
     const menu = await publishedMenuOrThrow(services.menus, id)
+    // Task 13 ruling — เมนูที่ publish แล้วแต่ audience ไม่ใช่ 'members' ยัง activate ไม่ได้: ทำแบบ
+    // นั้นจะปักหมุด channel.memberRichMenuId ไปที่เมนูที่ไม่ได้ประกาศไว้ว่าเป็นของสมาชิก แล้วหน้าจอ
+    // (ซึ่งเช็ค audience: 'all' จากค่า default ของ LINE ไม่ใช่จาก pointer นี้) จะบอกว่ามันปิดอยู่
+    // ทั้งที่ live จริงสำหรับสมาชิก — ไม่ใช้ activate เพื่อ "เดา" ว่าผู้ใช้ตั้งใจให้เป็นเมนูสมาชิก
+    // และไม่แก้ audience ให้เองด้วย (ดู assertMembersAudience) เพราะนั่นคือการเขียนทับเจตนาที่
+    // ประกาศไว้แทนที่จะเคารพมัน — โยน 409 menu_not_members_audience (http-error.ts) ให้ผู้ใช้แก้
+    // audience ของเมนูก่อนแล้วค่อยกลับมา activate ใหม่
+    assertMembersAudience(menu)
     await enqueueLinkMembers(services, menu)
     // เรียก tick ในคำขอนี้เลย ไม่ใช่ให้ผู้ใช้รอ cron รอบถัดไป (สูงสุด 1 นาที) — งานที่พึ่ง
     // ต้องกดปุ่มแล้วเห็นผลทันที ไม่ใช่ตารางเวลาที่ตั้งไว้ล่วงหน้า

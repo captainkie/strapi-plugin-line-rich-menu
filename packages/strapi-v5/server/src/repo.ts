@@ -196,6 +196,11 @@ export function createMenuRepo(strapi: StrapiV5): Repo<RichMenuRow> {
         data['normalizedHeight'] = patch.normalizedSize === null ? null : patch.normalizedSize.height
       }
       if (patch.aliasId !== undefined) data['aliasId'] = patch.aliasId
+      // Task 13 ruling — `toRow` อ่านคอลัมน์นี้มาตั้งแต่ Task 11 (ดูคอมเมนต์ที่ toRow ข้างบน) แต่
+      // `toData` ไม่เคยเขียนกลับเลยสักครั้ง: `saveMenu` ส่ง `audience` เข้ามาใน patch ได้แล้ว
+      // (validation.ts) แต่ถ้าไม่เพิ่มบรรทัดนี้ด้วย มันจะหายไปเงียบ ๆ ตรงนี้แทน — allowlist ของ
+      // toData ไม่ auto-forward ฟิลด์ที่ไม่ได้ประกาศไว้
+      if (patch.audience !== undefined) data['audience'] = patch.audience
       if (patch.status !== undefined) data['status'] = patch.status
       if (patch.lineRichMenuId !== undefined) data['lineRichMenuId'] = patch.lineRichMenuId
       if (patch.publishedAt !== undefined) data['linePublishedAt'] = patch.publishedAt

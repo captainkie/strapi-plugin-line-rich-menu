@@ -416,11 +416,15 @@ async function seedAudienceChannel(strapi: StrapiV4, suffix: string): Promise<st
   return (context.body as { id: string }).id
 }
 
+// Task 13 ruling — default เป็น 'members' เพราะ fixture นี้แทนเมนูที่ถูกประกาศไว้สำหรับ activate/sync
+// จริง ๆ (นั่นคือสิ่งที่ทุกเทสต์ในบล็อกนี้ยกเว้นบล็อก guard ท้ายไฟล์ต้องการทดสอบ) — ก่อน Task 13 ปิด
+// ช่องเขียน `audience` คอลัมน์นี้ไม่มีทางถูกตั้งเป็น 'members' ได้จากเส้นทาง HTTP เลย fixture จึงไม่
+// เคยต้องประกาศมันมาก่อน ตอนนี้ที่ activate เช็คจริงแล้ว (assertMembersAudience) ต้องประกาศชัดเจน
 function audienceMenuFixture(id: number, channelId: number, over: Record<string, unknown> = {}) {
   return {
     id, name: 'เมนูสมาชิก', size: 'large', chatBarText: '', chatBarMode: 'default',
     selected: true, templateKey: null, areas: [], areaImages: [],
-    status: 'draft', lineRichMenuId: null, channel: channelId,
+    status: 'draft', lineRichMenuId: null, channel: channelId, audience: 'members',
     updatedAt: '2026-01-01T00:00:00.000Z', ...over,
   }
 }
@@ -437,6 +441,34 @@ describe('members controller — activate / sync', () => {
 
     expect(context.status).toBe(409)
     expect(context.body).toMatchObject({ error: { code: 'menu_not_ready' } })
+  })
+
+  /**
+   * Task 13 ruling — เมนูที่ publish แล้วแต่ audience ไม่ใช่ 'members' ต้องถูกปฏิเสธ ไม่ใช่ activate
+   * ผ่านแบบเงียบ ๆ (ดู assertMembersAudience ใน core/server/menu-ops.ts และคอมเมนต์ที่ activateOrSync
+   * ใน controllers/members.ts) — ตรวจทั้ง code เฉพาะของมันและว่า channel.memberRichMenuId ไม่ถูกแตะ
+   * เลย ไม่ใช่แค่ status code ผิด เพราะ "ปฏิเสธแต่ยังเผลอเขียน pointer ไปแล้ว" ก็นับเป็นบั๊กเหมือนกัน
+   */
+  it('activate เมนูที่ audience เป็น all ตอบ 409 menu_not_members_audience ไม่ใช่ activate ผ่าน', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '0a')
+    rows[UID.menu] = [audienceMenuFixture(1, Number(channelId), {
+      status: 'published', lineRichMenuId: 'line-rm-1', audience: 'all',
+    })]
+    rows[UID.schedule] = []
+
+    const context = ctx({ params: { id: '1' } })
+    await controllers.members({ strapi }).activate(context)
+
+    expect(context.status).toBe(409)
+    expect(context.body).toMatchObject({ error: { code: 'menu_not_members_audience' } })
+    // fixture นี้ยังไม่เคย activate สำเร็จเลยสักครั้ง — ค่าตอนสร้างเป็น undefined ไม่ใช่ 'line-rm-1'
+    // (ต่างจากเทสต์ deactivate ข้างล่างที่ตั้งค่านี้เองก่อนแล้วค่อยเช็คว่ามันถูกล้าง) ยืนยันแค่ว่า
+    // activate ที่ถูกปฏิเสธไม่ได้แอบเขียน pointer ไปที่เมนูนี้ ไม่ใช่ยืนยันรูปทรงตอน "ว่าง" ของ fixture
+    const channelRow = rows[UID.channel]!.find((r) => r['id'] === Number(channelId))!
+    expect(channelRow['memberRichMenuId']).not.toBe('line-rm-1')
+    expect(rows[UID.schedule]).toHaveLength(0)
   })
 
   it('activate ตั้ง memberRichMenuId ของ channel และสร้างงาน link-members', async () => {

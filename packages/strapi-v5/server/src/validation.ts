@@ -60,6 +60,11 @@ export const menuInputSchema = z.object({
   aliasId: z.string().regex(/^[a-z0-9_-]+$/).max(32).nullable(),
   startAt: isoDate.nullable(),
   endAt: isoDate.nullable(),
+  // Task 13 ruling — เพิ่มเข้ามาปิดช่องที่ `audience` เคยประกาศไว้ในสคีมา (Task 5/6) แต่ไม่มี
+  // เส้นทาง HTTP ไหนเขียนถึงมันได้เลย (ทั้ง `.strict()` เดิมไม่มีคีย์นี้ และ `saveMenu` ก็ไม่เคย
+  // เขียนคีย์นี้ลง patch) `optional().default('all')` ทำให้ caller เดิมทุกตัว (ทั้ง UI และเทสต์ที่
+  // ไม่ส่งฟิลด์นี้มา) ยังทำงานเหมือนเดิมทุกประการ — ไม่ต้องแก้ที่ไหนอื่นนอกจากที่นี่กับ `saveMenu`
+  audience: z.enum(['all', 'members']).optional().default('all'),
 }).strict().superRefine((value, ctx) => {
   // สเปกงานนี้ #4 — บังคับที่ขอบของ route ด้วย ไม่ใช่แค่ในฟอร์ม: RBAC กันคนนอกได้ แต่ไม่ได้การันตี
   // ว่าผู้เรียกคือฟอร์มของเรา (ดูคอมเมนต์เต็มที่ isDisplayPeriodValid ใน packages/core)
