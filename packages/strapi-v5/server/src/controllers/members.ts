@@ -1,9 +1,14 @@
-import { publishedMenuOrThrow, type RichMenuRow } from '@fosivo/line-rich-menu-core'
+import { publishedMenuOrThrow, unlinkAllFromMenu, type RichMenuRow } from '@fosivo/line-rich-menu-core'
 import { getServices, type Services } from '../container.js'
-import { guard } from '../http-error.js'
+import { guard, type AdminContext } from '../http-error.js'
 import type { StrapiV5 } from '../strapi.js'
 import { runTick } from '../tick.js'
 import { audienceQuerySchema, idParam } from '../validation.js'
+
+// เหมือนกับ actorOf ของ controllers/menus.ts และ channels.ts เป๊ะ — คงรูปแบบ "หนึ่งไฟล์คุมของตัวเอง"
+// เดียวกันไว้ ไม่ดึงข้ามไฟล์ controller มาแชร์ (ทั้งสองไฟล์นั้นก็ไม่ export ตัวนี้ออกมาเหมือนกัน)
+const actorOf = (ctx: AdminContext): string | null =>
+  ctx.state.user === undefined ? null : String(ctx.state.user.id)
 
 /**
  * activate และ sync ทำงานเหมือนกันทุกประการ (สเปกบอกตรง ๆ ว่า sync คือ activate ของเมนูที่
@@ -139,6 +144,30 @@ export const members = ({ strapi }: { strapi: StrapiV5 }) => {
         ? null
         : (await services.members.findMany({ filters: { channelId: id } })).length
       ctx.body = { defaultRichMenuId, memberRichMenuId: channel.memberRichMenuId, memberCount }
+    }),
+
+    /**
+     * Task 12 — การบำรุงรักษาที่ตั้งใจให้หายาก: ปลดทุกคนที่ LINE รู้ว่ายังถือเมนูนี้อยู่ ไม่ใช่แค่
+     * คนที่แถว line-member ของเรายังอ้างถึง (ต่างจาก deactivate ข้างบนที่ตั้งงานให้ scheduler ปลด
+     * ทีละคนจากแถวของเราเอง) — ใช้ตอนแถวสมาชิกหายไประหว่าง LINE ล่ม หรือมีคนถูกผูกไว้ตั้งแต่ก่อน
+     * ฟีเจอร์นี้มีอยู่ ธุรกิจตรงกับ activate/sync ข้างบน: เช็คว่าแถวเมนูมีอยู่จริงก่อน (404 ต่างจาก
+     * "publish แล้วหรือยัง" 409 ที่ unlinkAllFromMenu เช็คเองอีกชั้นผ่าน publishedMenuOrThrow)
+     * ทำงานอยู่ในคำขอนี้เลย ไม่ผ่าน scheduler เหมือน deactivate — batch ของ LINE เป็นคำสั่งเดียว
+     * ต่อเมนู ไม่ใช่งานที่ต้องแบ่ง chunk ตามจำนวนสมาชิกแบบ unlink-members
+     */
+    unlinkAll: guard(strapi, async (ctx) => {
+      const services = getServices(strapi)
+      const id = idParam.parse(ctx.params['id'])
+      const menu = await services.menus.findOne(id)
+      if (menu === null) { ctx.status = 404; ctx.body = { error: { code: 'menu_not_found' } }; return }
+
+      const channel = await services.channels.withSecrets().findOne(menu.channelId)
+      await unlinkAllFromMenu(
+        { client: services.clientFor(channel), menus: services.menus, audit: services.audit },
+        { menuId: id, actorId: actorOf(ctx) },
+      )
+      ctx.status = 204
+      ctx.body = null
     }),
 
     verify: guard(strapi, async (ctx) => {

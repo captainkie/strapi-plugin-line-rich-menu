@@ -22,7 +22,7 @@ export const richMenuAudit: { schema: ContentTypeSchema } = {
         // ประวัติของงานสมาชิกจึงหายไปเงียบ ๆ ทั้งที่โค้ดเรียกเขียนอยู่จริง (lifecycles + scheduler)
         enum: [
           'publish', 'set-default', 'clear-default', 'swap-alias', 'delete', 'channel-update',
-          'link-members', 'unlink-members',
+          'link-members', 'unlink-members', 'unlink-all',
         ],
         required: true,
       },

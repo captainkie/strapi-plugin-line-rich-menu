@@ -127,6 +127,13 @@ describe('content type ทั้งห้า', () => {
     expect(actions).toContain('unlink-members')
   })
 
+  // Task 12 — unlink-all คือ action ใหม่ของ unlinkAllFromMenu (core/menu-ops.ts) ค่าที่ไม่อยู่ใน
+  // enum นี้ถูก Strapi ปฏิเสธตอนเขียนเงียบ ๆ เหมือนสองค่าข้างบน (ดูคอมเมนต์ที่เทสต์ก่อนหน้า)
+  it('audit รับ action unlink-all ของปุ่มปลดทุกคนออกจากเมนู (Task 12)', () => {
+    const actions = contentTypes['rich-menu-audit'].schema.attributes['action']?.enum
+    expect(actions).toContain('unlink-all')
+  })
+
   it('line-member: channel เป็น relation required, lineUserId required, ที่เหลือ optional', () => {
     const attributes = contentTypes['line-member'].schema.attributes
     expect(attributes['channel']).toMatchObject({

@@ -40,6 +40,11 @@ export const admin = {
     { method: 'POST', path: '/menus/:id/audience/deactivate', handler: 'members.deactivate', config: withPermission(PERMISSION.publish) },
     { method: 'POST', path: '/menus/:id/audience/sync', handler: 'members.sync', config: withPermission(PERMISSION.publish) },
 
+    // Task 12 — ที่เดียวที่ยิง POST /v2/bot/richmenu/batch ในทั้งโปรเจกต์ (โควตา 3 ครั้ง/ชม./account
+    // ดูคอมเมนต์เต็มที่ unlinkAllFromMenu ใน core) จึงเป็น publish เหมือนเส้น audience อื่นข้างบน
+    // ไม่ใช่ปุ่มที่กดซ้ำได้อิสระ
+    { method: 'POST', path: '/menus/:id/audience/unlink-all', handler: 'members.unlinkAll', config: withPermission(PERMISSION.publish) },
+
     // :id คือแถว line-member — ยิง LINE ตรง ๆ หนึ่งครั้งต่อคำขอ (ดูคอมเมนต์ที่ controllers/members.ts)
     { method: 'GET', path: '/members/:id/verify', handler: 'members.verify', config: withPermission(PERMISSION.publish) },
 

@@ -1,4 +1,5 @@
-import type { LineClient } from '../line/client.js'
+import { randomUUID } from 'node:crypto'
+import type { BatchOperation, LineClient } from '../line/client.js'
 import type { AuditWriter } from './audit.js'
 import { MenuNotFoundError, MenuNotReadyError } from './errors.js'
 import type { Repo, RichMenuRow } from './types.js'
@@ -92,6 +93,53 @@ export async function swapMenuAlias(
       else await deps.client.updateAlias(aliasId, target)
     },
     () => ({ aliasId, richMenuId: target }),
+  )
+}
+
+/**
+ * Task 12 — ที่เดียวในทั้ง repo ที่ยิง `POST /v2/bot/richmenu/batch` จุดประสงค์ต่างจาก
+ * `unlink-members` (ที่ deactivate ตั้งไว้ให้ scheduler ทำทีละ chunk — ดู `enqueueUnlinkMembers`
+ * ในแต่ละ adapter): เส้นนั้นปลดได้เฉพาะคนที่แถว line-member ของเรายังอ้างถึงอยู่ ส่วนคนที่แถวถูกลบไป
+ * ระหว่าง LINE ล่ม หรือถูกผูกไว้ตั้งแต่ก่อนฟีเจอร์นี้มีอยู่ ไม่มีแถวให้เราชี้ไปหาคนเหล่านั้นอีกเลย
+ * `batch` ของ LINE เจาะจงด้วย richMenuId ฝั่งเขาเอง จึงเข้าถึงคนกลุ่มนี้ได้โดยไม่ต้องรู้จักใครเลย
+ * — นี่คือเหตุผลเดียวที่ยอมรับต้นทุนของมัน (โควตา 3 ครั้ง/ชม./account)
+ *
+ * `validateBatch` ก่อนเสมอ (ตรวจ payload ไม่กินโควตา) ตามด้วย `batchControl` ตัวจริงครั้งเดียว —
+ * ไม่มี retry เพิ่มชั้นนี้ `LineClient#send` มี retry ของตัวเองอยู่แล้วสำหรับ 429/5xx และใช้
+ * `resumeRequestKey` เดียวกันตลอดการ retry ภายในคำขอเดียวกันนั้น (ดูคอมเมนต์ที่ `batchControl`
+ * ใน client.ts) — `randomUUID()` ที่นี่จึงสุ่มใหม่ต่อการเรียกฟังก์ชันนี้หนึ่งครั้งเท่านั้น ไม่ใช่ต่อ
+ * การ retry แต่ละรอบ: กดปุ่มนี้สองครั้งที่ต่างกันของผู้ใช้ต้องนับเป็นคนละคำขอสำหรับ LINE
+ *
+ * request id จาก `batchControl` (ถ้ามี) เก็บไว้ใน audit.after เพื่อ debug เท่านั้น — ตาม ruling ของ
+ * Task 1: `batchControl` เองไม่เคยโยนเพราะ header หาย (คืน `null` เฉย ๆ) และฟังก์ชันนี้ไม่พยายาม
+ * อ่าน progress ต่อเลย ปฏิบัติการปลด (ซึ่งจำเป็นและทำได้ไม่บ่อย) ต้องไม่ถูกเงื่อนไข "อ่าน progress
+ * ไม่ได้" ทำให้ล้มไปด้วย
+ */
+export async function unlinkAllFromMenu(
+  deps: MenuOpsDeps,
+  input: { menuId: string; actorId: string | null },
+): Promise<{ requestId: string | null }> {
+  const menu = await publishedMenuOrThrow(deps.menus, input.menuId)
+  const operations: BatchOperation[] = [{ type: 'unlink', from: menu.lineRichMenuId! }]
+
+  return deps.audit.around(
+    {
+      actorId: input.actorId,
+      action: 'unlink-all',
+      // id ฝั่ง LINE ไม่ใช่ id แถวเมนูของเรา — unlink-all เป็นงานระดับสมาชิกเหมือน unlink-members
+      // (คำถามหลังเกิดเหตุคือ "ใครยังถือเมนูตัวไหนอยู่บน LINE") ไม่ใช่งานระดับเมนูแบบ set-default/
+      // swap-alias/delete ที่เก็บ id แถวของเราเพราะสิ่งที่ถูกกระทำคือแถวนั้นเอง (ดูคอมเมนต์เต็มที่
+      // AuditRow.richMenuId ใน types.ts — บั๊กนี้เคยเกิดมาแล้วจริงกับ link-members ใน Task 4)
+      richMenuId: menu.lineRichMenuId,
+      channelId: menu.channelId,
+      before: null,
+    },
+    async () => {
+      await deps.client.validateBatch(operations)
+      const requestId = await deps.client.batchControl(operations, randomUUID())
+      return { requestId }
+    },
+    (value) => value,
   )
 }
 

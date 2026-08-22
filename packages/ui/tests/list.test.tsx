@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ENDPOINTS } from '../src/api.js'
+import { MESSAGES } from '../src/i18n/index.js'
 import { PortProvider } from '../src/port.js'
 import { createStubPort } from '../src/stub-port.js'
 import { RichMenuList } from '../src/pages/RichMenuList.js'
@@ -176,5 +177,111 @@ describe('RichMenuList', () => {
     await waitFor(() => expect(screen.getByTestId('edit-1')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('edit-1'))
     expect(push).toHaveBeenCalledWith('/rich-menus/1')
+  })
+})
+
+/** t() ที่ lookup คำแปลจริงจาก MESSAGES — identity `(k) => k` พิสูจน์ได้แค่ว่าโค้ดเรียกคีย์ถูก
+ * ไม่พิสูจน์ว่าคำแปลจริงพูดถึงโควตา 3 ครั้ง/ชม. จริงไหม (เหมือน realT ใน audience-toggle.test.tsx) */
+function realT(locale: 'en' | 'th') {
+  return (key: string, values?: Record<string, string | number>): string => {
+    const template = MESSAGES[locale][key] ?? key
+    return values === undefined
+      ? template
+      : Object.entries(values).reduce((s, [name, value]) => s.replaceAll(`{${name}}`, String(value)), template)
+  }
+}
+
+function setupUnlinkAll({
+  post = vi.fn(async () => undefined),
+  t = (k: string) => k,
+}: { post?: ReturnType<typeof vi.fn>; t?: (key: string, values?: Record<string, string | number>) => string } = {}) {
+  const get = vi.fn(async () => menus)
+  const base = createStubPort({ t })
+  const port = { ...base, http: { ...base.http, get, post } as typeof base.http }
+  render(<PortProvider value={port}><RichMenuList channelId="c1" /></PortProvider>)
+  return { get, post }
+}
+
+/**
+ * Task 12 — ปุ่ม "เลิกผูกทุกคน" ต่อแถว, กล่องยืนยันที่ต้องบอกโควตา 3 ครั้ง/ชม. เป็นคำพูด, และ
+ * POST ไปที่ /menus/:id/audience/unlink-all ของแถวนั้นเท่านั้นหลังยืนยัน
+ */
+describe('RichMenuList — unlink-all (Task 12)', () => {
+  it('เมนูที่ยัง draft (ไม่มี lineRichMenuId) ปิดปุ่มเลิกผูกทุกคนไว้', async () => {
+    setupUnlinkAll()
+    await waitFor(() => expect(screen.getByTestId('unlink-all-2')).toBeInTheDocument())
+    expect(screen.getByTestId('unlink-all-2')).toBeDisabled()
+    expect(screen.getByTestId('unlink-all-1')).not.toBeDisabled()
+  })
+
+  it('กดปุ่มเลิกผูกทุกคนเปิดกล่องยืนยันก่อน ไม่ยิง POST ทันที', async () => {
+    const { post } = setupUnlinkAll()
+    await waitFor(() => expect(screen.getByTestId('unlink-all-1')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('unlink-all-1'))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  /**
+   * หัวใจของ non-negotiable ของ task นี้ — โควตาจริงคือ 3 ครั้ง/ชม./account และคำขอที่สี่ล้มโดย
+   * LINE ไม่บอกเหตุผล ต้องยืนยันด้วยคำแปลจริงทั้งสองภาษา ไม่ใช่แค่เช็คว่าโค้ดเรียกคีย์ถูก (ดู
+   * คอมเมนต์เดียวกันใน audience-toggle.test.tsx สำหรับเหตุผลที่ identity t() พิสูจน์เรื่องนี้ไม่ได้)
+   */
+  it('เนื้อหากล่องยืนยันบอกโควตา 3 ครั้งต่อชั่วโมงจริง ทั้งไทยและอังกฤษ', async () => {
+    for (const locale of ['en', 'th'] as const) {
+      const { unmount } = render(
+        <PortProvider value={(() => {
+          const base = createStubPort({ t: realT(locale) })
+          return {
+            ...base,
+            http: { ...base.http, get: vi.fn(async () => menus), post: vi.fn(async () => undefined) } as typeof base.http,
+          }
+        })()}
+        >
+          <RichMenuList channelId="c1" />
+        </PortProvider>,
+      )
+      await waitFor(() => expect(screen.getByTestId('unlink-all-1')).not.toBeDisabled())
+      fireEvent.click(screen.getByTestId('unlink-all-1'))
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      const body = screen.getByRole('dialog').textContent ?? ''
+      expect(body).toContain('3')
+      expect(body).toMatch(locale === 'th' ? /ชั่วโมง/ : /hour/i)
+      unmount()
+    }
+  })
+
+  it('กดยกเลิกในกล่องปิดกล่องโดยไม่ยิง POST', async () => {
+    const { post } = setupUnlinkAll()
+    await waitFor(() => expect(screen.getByTestId('unlink-all-1')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('unlink-all-1'))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('common.cancel'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('กดยืนยันแล้วยิง POST ไปที่ unlink-all ของแถวนั้น แล้วโชว์ผลว่าส่งคำสั่งแล้ว', async () => {
+    const { post } = setupUnlinkAll()
+    await waitFor(() => expect(screen.getByTestId('unlink-all-1')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('unlink-all-1'))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('confirm-unlink-all'))
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith(ENDPOINTS.menuAudienceUnlinkAll('1')))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByTestId('unlink-all-result-1')).toBeInTheDocument()
+  })
+
+  it('ยืนยันล้มเหลว ขึ้น error ในกล่อง ไม่เงียบ และไม่โชว์ผลว่าส่งสำเร็จ', async () => {
+    const post = vi.fn(async () => { throw new Error('boom') })
+    setupUnlinkAll({ post })
+    await waitFor(() => expect(screen.getByTestId('unlink-all-1')).not.toBeDisabled())
+    fireEvent.click(screen.getByTestId('unlink-all-1'))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('confirm-unlink-all'))
+
+    await waitFor(() => expect(screen.getByText('audience.actionFailed')).toBeInTheDocument())
+    expect(screen.queryByTestId('unlink-all-result-1')).not.toBeInTheDocument()
   })
 })

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { areaLabel } from '@fosivo/line-rich-menu-core/browser'
 import { actionSummary } from '../action-form.js'
 import { ENDPOINTS, type RichMenuSummary } from '../api.js'
-import { formatDisplayPeriod } from '../datetime.js'
+import { formatClockTime, formatDisplayPeriod } from '../datetime.js'
 import { usePort } from '../port.js'
 import { AudienceToggle } from '../components/AudienceToggle.js'
 import { CurrentMenuCard } from '../components/CurrentMenuCard.js'
@@ -29,6 +29,40 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
   // เมนู B ให้เป็นเมนูสมาชิกจะปิดเมนู A ที่เคยเป็นอยู่ไปด้วยในตัว (channel.memberRichMenuId
   // ชี้ได้ทีละอัน) — แถวของ A ไม่มีทางรู้ว่าตัวเองถูกปิดไปแล้วถ้าไม่ถูกสั่งให้โหลดสถานะใหม่
   const [audienceRefreshToken, setAudienceRefreshToken] = useState(0)
+
+  /**
+   * Task 12 — การบำรุงรักษาที่ตั้งใจให้หายาก: ปลดทุกคนที่ LINE รู้ว่ายังถือเมนูนี้อยู่ ผ่าน
+   * POST /v2/bot/richmenu/batch (โควตา 3 ครั้ง/ชม./account) เก็บ state ไว้ที่หน้านี้แทนที่จะแยก
+   * เป็น component ใหม่แบบ AudienceToggle เพราะปุ่มนี้มีแค่แถวเดียวที่ "กำลังยืนยัน" ได้พร้อมกัน
+   * ทั้งตาราง (ไม่เหมือน AudienceToggle ที่แต่ละแถวเป็นอิสระต่อกัน) กล่องยืนยันเดียวจึงพอ
+   */
+  const [unlinkAllTarget, setUnlinkAllTarget] = useState<string | null>(null)
+  const [unlinkAllBusy, setUnlinkAllBusy] = useState(false)
+  const [unlinkAllError, setUnlinkAllError] = useState<string | null>(null)
+  const [unlinkAllSentAt, setUnlinkAllSentAt] = useState<{ menuId: string; at: Date } | null>(null)
+
+  const askUnlinkAll = (menuId: string) => {
+    setUnlinkAllError(null)
+    setUnlinkAllTarget(menuId)
+  }
+
+  const confirmUnlinkAll = async () => {
+    if (unlinkAllTarget === null) return
+    const menuId = unlinkAllTarget
+    setUnlinkAllBusy(true)
+    setUnlinkAllError(null)
+    try {
+      await http.post(ENDPOINTS.menuAudienceUnlinkAll(menuId))
+      // ยืนยันได้แค่ "ส่งคำสั่งแล้ว" เหมือนกับ AudienceToggle — batch ของ LINE เป็น async เช่นกัน
+      // (ดูคอมเมนต์ที่ audience.notConfirmable และ unlinkAllFromMenu ใน core)
+      setUnlinkAllSentAt({ menuId, at: new Date() })
+      setUnlinkAllTarget(null)
+    } catch {
+      setUnlinkAllError(t('audience.actionFailed'))
+    } finally {
+      setUnlinkAllBusy(false)
+    }
+  }
 
   useEffect(() => {
     if (channelId === null) return
@@ -160,6 +194,21 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
                 menu={menu}
                 onChanged={() => setAudienceRefreshToken((n) => n + 1)}
               />
+              {/* Task 12 — เมนูที่ไม่เคย publish ไม่มี lineRichMenuId ให้ batch อ้างถึง เหตุผล
+                  เดียวกับที่ AudienceToggle ปิดสวิตช์ไว้ตอนเมนูยัง draft */}
+              <ui.Button
+                variant="danger"
+                testId={`unlink-all-${menu.id}`}
+                disabled={menu.lineRichMenuId === null || unlinkAllBusy}
+                onClick={() => askUnlinkAll(menu.id)}
+              >
+                {t('audience.unlinkAll')}
+              </ui.Button>
+              {unlinkAllSentAt?.menuId !== menu.id ? null : (
+                <span data-testid={`unlink-all-result-${menu.id}`}>
+                  {t('audience.sent', { time: formatClockTime(unlinkAllSentAt.at) })}
+                </span>
+              )}
             </div>
 
             <div role="cell" style={{ ...cell, justifyContent: 'flex-end' }}>
@@ -177,6 +226,41 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
 
       {previewing === null ? null : (
         <MenuPreviewModal menuId={previewing} onClose={() => setPreviewing(null)} />
+      )}
+
+      {/*
+        Task 12 — โควตาของ batch คือ 3 ครั้ง/ชม./account และ LINE ไม่บอกเหตุผลตอนคำขอที่สี่ล้ม
+        (ดู unlinkAllFromMenu ใน core) ข้อความยืนยันจึงต้องบอกเลขนี้ตรง ๆ เป็นคำพูด ก่อนผู้ดูแล
+        จะกดยืนยัน ไม่ใช่ให้ไปเจอ error ที่อ่านไม่ออกทีหลัง
+      */}
+      {unlinkAllTarget === null ? null : (
+        <ui.Modal
+          open
+          onClose={() => setUnlinkAllTarget(null)}
+          title={t('audience.unlinkAll.confirm.title')}
+          footer={
+            <>
+              <ui.Button variant="secondary" onClick={() => setUnlinkAllTarget(null)}>{t('common.cancel')}</ui.Button>
+              <ui.Button
+                variant="danger"
+                testId="confirm-unlink-all"
+                disabled={unlinkAllBusy}
+                onClick={() => void confirmUnlinkAll()}
+              >
+                {t('audience.unlinkAll')}
+              </ui.Button>
+            </>
+          }
+        >
+          <ui.Flex direction="column" gap={2}>
+            <ui.Alert variant="warning">{t('audience.unlinkAll.confirm.body')}</ui.Alert>
+            {/* คำเดียวกับ AudienceToggle แต่แยกคีย์ต่างหาก — audience.notConfirmable พูดถึง
+                "สมาชิกได้รับเมนู" (ฝั่ง activate) ส่วนที่นี่คือ "ทุกคนถูกเลิกผูกจริงไหม" คนละเรื่อง
+                ใช้ข้อความเดียวกันจะพูดผิดสิ่งที่ปุ่มนี้ทำ */}
+            <ui.Typography textColor="neutral600">{t('audience.unlinkAll.notConfirmable')}</ui.Typography>
+            {unlinkAllError === null ? null : <ui.Alert variant="danger">{unlinkAllError}</ui.Alert>}
+          </ui.Flex>
+        </ui.Modal>
       )}
     </>
   )

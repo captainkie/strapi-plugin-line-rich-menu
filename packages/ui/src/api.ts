@@ -20,6 +20,12 @@ export const ENDPOINTS = {
   menuAudienceActivate: (id: string) => `/line-rich-menu/menus/${id}/audience/activate`,
   menuAudienceDeactivate: (id: string) => `/line-rich-menu/menus/${id}/audience/deactivate`,
   /**
+   * Task 12 — การบำรุงรักษาที่ตั้งใจให้หายาก: ปลดทุกคนที่ LINE รู้ว่ายังถือเมนูนี้อยู่ ผ่าน
+   * POST /v2/bot/richmenu/batch (โควตา 3 ครั้ง/ชม./account) ต่างจาก deactivate ข้างบนที่ปลด
+   * เฉพาะคนที่แถว line-member ของเรายังอ้างถึง — :id คือ "เมนู" เหมือนสองเส้นข้างบน
+   */
+  menuAudienceUnlinkAll: (id: string) => `/line-rich-menu/menus/${id}/audience/unlink-all`,
+  /**
    * `count: true` เป็น opt-in — `memberCount` มาจาก `findMany` ทั้งตารางฝั่งเซิร์ฟเวอร์ (ไม่มี
    * `Repo.count()` ให้ใช้) endpoint นี้ถูกเรียกทุกครั้งที่เปิดหน้ารายการ (ผ่านทั้ง `CurrentMenuCard`
    * และ `AudienceToggle` ทุกแถว) จึงส่ง `count` เฉพาะตอนที่ผลลัพธ์จะถูกใช้จริง คือตอนกล่องยืนยัน

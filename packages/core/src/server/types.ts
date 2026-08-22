@@ -33,7 +33,7 @@ export type ScheduleOp =
 export type ScheduleState = 'pending' | 'running' | 'done' | 'failed'
 export type AuditAction =
   | 'publish' | 'set-default' | 'clear-default' | 'swap-alias' | 'delete' | 'channel-update'
-  | 'link-members' | 'unlink-members'
+  | 'link-members' | 'unlink-members' | 'unlink-all'
 export type AuditResult = 'success' | 'failure'
 
 /** แถวดิบจาก DB — ฟิลด์ลับยังเป็น envelope `v1.<iv>.<tag>.<ct>` ที่ยังไม่ได้ถอด */
@@ -150,9 +150,11 @@ export interface AuditRow {
    *   ฐานข้อมูลเรา** เพราะสิ่งที่ถูกกระทำคือแถวนั้น หน้าจอต้องลิงก์กลับไปหามันได้ และเมนูที่
    *   publish ไม่ผ่านก็ยังไม่มี id ฝั่ง LINE ให้เก็บด้วยซ้ำ (`clear-default` เป็น null เพราะเป็น
    *   งานระดับ channel ไม่ผูกกับเมนูตัวใดตัวหนึ่ง)
-   * - งานระดับสมาชิก (`link-members`/`unlink-members`) เก็บ **id ฝั่ง LINE** เพราะคำถามหลัง
-   *   เกิดเหตุคือ "ตอนนี้ใครยังถือเมนูตัวไหนอยู่" ซึ่งเทียบกับคอลัมน์ `linkedRichMenuId` ของแถว
-   *   สมาชิกตรง ๆ ค่าที่บันทึกไว้จึงต้องเป็นค่าเดียวกับในคอลัมน์นั้น ไม่ใช่ค่าที่ต้องแปลงอีกทอด
+   * - งานระดับสมาชิก (`link-members`/`unlink-members`/`unlink-all`) เก็บ **id ฝั่ง LINE** เพราะ
+   *   คำถามหลังเกิดเหตุคือ "ตอนนี้ใครยังถือเมนูตัวไหนอยู่" ซึ่งเทียบกับคอลัมน์ `linkedRichMenuId`
+   *   ของแถวสมาชิกตรง ๆ ค่าที่บันทึกไว้จึงต้องเป็นค่าเดียวกับในคอลัมน์นั้น ไม่ใช่ค่าที่ต้องแปลง
+   *   อีกทอด — `unlink-all` (Task 12) เข้ากลุ่มนี้ด้วยแม้จะไม่มีแถวสมาชิกให้เทียบเลยสักแถว เพราะ
+   *   มันตอบคำถามเดียวกัน (ใครถือเมนูนี้อยู่บน LINE) แค่ผ่าน batch แทนที่จะเทียบทีละแถวในตารางเรา
    */
   richMenuId: string | null
   channelId: string

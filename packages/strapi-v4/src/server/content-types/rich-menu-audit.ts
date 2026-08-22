@@ -21,7 +21,7 @@ export const richMenuAudit: { schema: ContentTypeSchema } = {
         // ถูกทิ้งเงียบมาตั้งแต่นั้น
         enum: [
           'publish', 'set-default', 'clear-default', 'swap-alias', 'delete', 'channel-update',
-          'link-members', 'unlink-members',
+          'link-members', 'unlink-members', 'unlink-all',
         ],
         required: true,
       },

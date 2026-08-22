@@ -164,13 +164,14 @@ describe('rich-menu-audit', () => {
   // Task 10 — enum เดิมมีแค่หกค่าตามสเปก §11.5 ขาดสองค่าของงานสมาชิก (link-members/unlink-members)
   // ที่ Task 8 เพิ่มเข้า schedule op แล้วแต่ลืมเติมที่นี่ ทำให้ audit ของงานสมาชิกทุกแถวถูก Strapi
   // ปฏิเสธแล้วหายไปเงียบ ๆ ผ่าน persistQuietly (ดู audit.ts) — เทสต์นี้ต้องครอบ AuditAction ของ
-  // core ทั้งแปดค่า ไม่ใช่แค่หกค่าเดิม ไม่งั้น regression แบบเดียวกันจะไม่ถูกจับอีก
-  it('action ครอบทั้งแปดอย่างของ AuditAction รวมสองงานสมาชิก', () => {
+  // core ทั้งเก้าค่า (Task 12 เพิ่ม 'unlink-all') ไม่ใช่แค่หกค่าเดิม ไม่งั้น regression แบบเดียวกัน
+  // จะไม่ถูกจับอีก
+  it('action ครอบทั้งเก้าอย่างของ AuditAction รวมสองงานสมาชิกและ unlink-all', () => {
     expect(attributes['action']).toMatchObject({
       type: 'enumeration',
       enum: [
         'publish', 'set-default', 'clear-default', 'swap-alias', 'delete', 'channel-update',
-        'link-members', 'unlink-members',
+        'link-members', 'unlink-members', 'unlink-all',
       ],
       required: true,
     })

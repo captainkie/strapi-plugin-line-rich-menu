@@ -1039,20 +1039,110 @@ describe('members controller — verify', () => {
 })
 
 /**
- * สเปก §11.4 — เทสต์นี้ล้อกับ `route ทุกเส้น` ด้านบนแต่เจาะจงเส้นใหม่ 5 เส้นของ task นี้เพื่อ
+ * Task 12 — การบำรุงรักษาที่ตั้งใจให้หายาก ที่เดียวที่ยิง POST /v2/bot/richmenu/batch ทั้ง repo
+ * (โควตา 3 ครั้ง/ชม./account — validateBatch ก่อนเสมอเพื่อไม่กินโควตาไปกับ payload ผิด)
+ */
+describe('members controller — unlinkAll (Task 12: ปลดทุกคนออกจากเมนูผ่าน batch)', () => {
+  it('unlink-all ใช้ batch และผ่าน validate/batch ก่อนเพื่อไม่เปลืองโควตา 3 ครั้ง/ชม.', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '50')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+
+    const calls: string[] = []
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      calls.push(String(url))
+      return new Response('{}', { status: 202, headers: { 'x-line-request-id': 'req-1' } })
+    })
+
+    const ctx = makeCtx({ params: { id: 'm1' } })
+    await controllers.members({ strapi }).unlinkAll(ctx)
+    fetchSpy.mockRestore()
+
+    expect(ctx.status).toBe(204)
+    expect(calls).toEqual([
+      'https://api.line.me/v2/bot/richmenu/validate/batch',
+      'https://api.line.me/v2/bot/richmenu/batch',
+    ])
+  })
+
+  it('เมนูที่ยังไม่ publish ปลดทุกคนไม่ได้ — 409 menu_not_ready ไม่ยิง LINE เลยสักครั้ง', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '51')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'draft', lineRichMenuId: null })]
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const ctx = makeCtx({ params: { id: 'm1' } })
+    await controllers.members({ strapi }).unlinkAll(ctx)
+    fetchSpy.mockRestore()
+
+    expect(ctx.status).toBe(409)
+    expect((ctx.body as { error: { code: string } }).error.code).toBe('menu_not_ready')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('เมนูไม่มีอยู่จริงตอบ 404 menu_not_found', async () => {
+    const strapi = fakeMembersStrapi({})
+    const ctx = makeCtx({ params: { id: 'nope' } })
+    await controllers.members({ strapi }).unlinkAll(ctx)
+    expect(ctx.status).toBe(404)
+    expect((ctx.body as { error: { code: string } }).error.code).toBe('menu_not_found')
+  })
+
+  /**
+   * ruling ของ Task 1 ไล่มาถึงชั้น controller จริง — LINE ตอบ 202 โดยไม่แนบ x-line-request-id เลย
+   * (เคสจริงที่ progress อ่านไม่ได้) ปฏิบัติการต้องยังถือว่าสำเร็จ ไม่ใช่ 500 ที่มองไม่เห็นสาเหตุ
+   */
+  it('LINE ไม่แนบ x-line-request-id มาด้วย — ยังสำเร็จ 204 ไม่ใช่ล้มไปด้วย', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '52')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 202 }))
+    const ctx = makeCtx({ params: { id: 'm1' } })
+    await controllers.members({ strapi }).unlinkAll(ctx)
+    fetchSpy.mockRestore()
+
+    expect(ctx.status).toBe(204)
+  })
+
+  it('เขียนแถว audit action unlink-all ด้วย richMenuId ฝั่ง LINE ไม่ใช่ id แถวของเรา', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '53')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('{}', { status: 202, headers: { 'x-line-request-id': 'req-9' } }))
+    await controllers.members({ strapi }).unlinkAll(makeCtx({ params: { id: 'm1' } }))
+    fetchSpy.mockRestore()
+
+    const auditRows = rows[UID.audit] ?? []
+    expect(auditRows).toContainEqual(
+      expect.objectContaining({ action: 'unlink-all', result: 'success', richMenuId: 'line-rm-1' }),
+    )
+  })
+})
+
+/**
+ * สเปก §11.4 — เทสต์นี้ล้อกับ `route ทุกเส้น` ด้านบนแต่เจาะจงเส้นใหม่ของ task นี้เพื่อ
  * ให้ regression ที่แคบกว่าอ่านชัดกว่า "หนึ่งใน N เส้นทั้งหมดผิด"
  *
  * `expect(route, ...).toBeDefined()` ต้องมาก่อนเช็ค policy เสมอ — ไม่งั้นถ้าเผลอลบ route ออกจาก
  * ตารางไปทั้งแถว `.find()` จะคืน undefined แล้ว `route!.config` ข้างล่างจะ throw เป็น TypeError
  * ที่อ่านไม่ออกว่าจริง ๆ แล้ว "route หายไป" ไม่ใช่ "permission ผิด" — ยืนยันจริงว่าด่านนี้จับ route
  * ที่หายไปได้ (ไม่ใช่แค่ permission ผิด) ด้วยการลบ path หนึ่งออกจาก `admin.routes` ชั่วคราวแล้ว
- * รันเทสต์นี้แยก ดูรายงาน task-9 สำหรับผลจริง
+ * รันเทสต์นี้แยก ดูรายงาน task-9 สำหรับผลจริง (Task 12 เพิ่ม unlink-all เข้า paths — ยืนยันซ้ำ
+ * ด้วยวิธีเดียวกันสำหรับเส้นใหม่นี้ ดู task-12-report.md)
  */
 describe('members controller — เส้นใหม่ทั้งหมดต้องการสิทธิ์ publish (สเปก §11.4)', () => {
   it('ทุกเส้นใหม่ต้องการสิทธิ์ publish', () => {
     const paths = [
       '/menus/:id/audience/activate', '/menus/:id/audience/deactivate',
-      '/menus/:id/audience/sync', '/channels/:id/audience', '/members/:id/verify',
+      '/menus/:id/audience/sync', '/menus/:id/audience/unlink-all',
+      '/channels/:id/audience', '/members/:id/verify',
     ]
     for (const path of paths) {
       const route = admin.routes.find((r) => r.path === path)

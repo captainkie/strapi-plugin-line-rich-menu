@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { LineServerError } from '../../src/errors.js'
+import { LineServerError, LineValidationError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
 import { MenuNotReadyError } from '../../src/server/errors.js'
 import {
   clearChannelDefault, deleteOrphan, reconcileChannel, setMenuAsDefault, swapMenuAlias,
+  unlinkAllFromMenu,
 } from '../../src/server/menu-ops.js'
 import type { AuditRow, Repo, RichMenuRow } from '../../src/server/types.js'
 
@@ -61,6 +62,8 @@ function client(overrides: Record<string, unknown> = {}) {
     createAlias: vi.fn(async () => {}),
     updateAlias: vi.fn(async () => {}),
     listRichMenus: vi.fn(async () => [] as { richMenuId: string }[]),
+    validateBatch: vi.fn(async () => {}),
+    batchControl: vi.fn(async () => 'req-1' as string | null),
     ...overrides,
   } as never
 }
@@ -157,6 +160,96 @@ describe('reconcileChannel', () => {
     const report = await reconcileChannel({ client: line, menus, audit }, { channelId: '10' })
 
     expect(report).toEqual({ orphans: ['richmenu-stray'], missing: ['richmenu-gone'] })
+  })
+})
+
+describe('unlinkAllFromMenu', () => {
+  it('ผ่าน validateBatch ก่อนเสมอ แล้วค่อยยิง batchControl ตัวจริง ด้วย operation unlink ของเมนูนี้', async () => {
+    const { menus, audit } = repos([menuRow({ lineRichMenuId: 'richmenu-a' })])
+    const calls: string[] = []
+    const line = client({
+      validateBatch: vi.fn(async () => { calls.push('validate') }),
+      batchControl: vi.fn(async (operations: unknown) => {
+        calls.push('batch')
+        expect(operations).toEqual([{ type: 'unlink', from: 'richmenu-a' }])
+        return 'req-1'
+      }),
+    })
+
+    await unlinkAllFromMenu({ client: line, menus, audit }, { menuId: '1', actorId: '3' })
+
+    // ลำดับคือหัวใจของเทสต์นี้ — validate ไม่กินโควตา 3 ครั้ง/ชม. แต่ batch กิน สลับกันจะเสียโควตา
+    // ไปกับ payload ที่ผิดโดยไม่มีทางรู้ล่วงหน้า
+    expect(calls).toEqual(['validate', 'batch'])
+    const validateBatchMock = (line as unknown as { validateBatch: ReturnType<typeof vi.fn> }).validateBatch
+    expect(validateBatchMock).toHaveBeenCalledWith([{ type: 'unlink', from: 'richmenu-a' }])
+  })
+
+  it('เมนูที่ยังไม่ publish ปลดทุกคนไม่ได้ — ไม่ยิง LINE เลยสักครั้ง (validate หรือ batch)', async () => {
+    const { menus, audit } = repos([menuRow({ status: 'draft', lineRichMenuId: null })])
+    const line = client()
+
+    await expect(unlinkAllFromMenu({ client: line, menus, audit }, { menuId: '1', actorId: null }))
+      .rejects.toBeInstanceOf(MenuNotReadyError)
+
+    expect((line as unknown as { validateBatch: ReturnType<typeof vi.fn> }).validateBatch).not.toHaveBeenCalled()
+    expect((line as unknown as { batchControl: ReturnType<typeof vi.fn> }).batchControl).not.toHaveBeenCalled()
+  })
+
+  /**
+   * richMenuId ของแถว audit ต้องเป็น id ฝั่ง LINE ('richmenu-a') ไม่ใช่ id แถวเมนูของเรา ('1') —
+   * unlink-all เป็นงานระดับสมาชิกเหมือน unlink-members (ดูคอมเมนต์เต็มที่ AuditRow.richMenuId ใน
+   * types.ts) เขียนผิดกลุ่มไปครั้งหนึ่งระหว่างพัฒนา task นี้แล้วเทสต์นี้จับได้ทันที (ดู task-12-report.md)
+   */
+  it('สำเร็จแล้วเขียน audit action unlink-all พร้อม request id ที่ได้จาก batchControl', async () => {
+    const { menus, audit, auditRows } = repos([menuRow({ lineRichMenuId: 'richmenu-a' })])
+    const line = client({ batchControl: vi.fn(async () => 'req-42') })
+
+    const result = await unlinkAllFromMenu({ client: line, menus, audit }, { menuId: '1', actorId: '3' })
+
+    expect(result).toEqual({ requestId: 'req-42' })
+    expect(auditRows[0]).toMatchObject({
+      action: 'unlink-all', result: 'success', actorId: '3', channelId: '10', richMenuId: 'richmenu-a',
+      after: { requestId: 'req-42' },
+    })
+  })
+
+  /**
+   * ruling ของ Task 1 พิสูจน์ตรงนี้ — request id ที่หาไม่ได้ (header หาย) ต้องไม่ทำให้ปฏิบัติการนี้
+   * ล้ม แค่ทำให้ progress อ่านไม่ได้เท่านั้น ถ้าเทสต์นี้ล้มแปลว่ามีใครเผลอเพิ่มเงื่อนไข throw เมื่อ
+   * requestId เป็น null เข้าไปใน unlinkAllFromMenu ซึ่งขัดกับ ruling ตรง ๆ
+   */
+  it('batchControl คืน request id เป็น null (header หาย) — ยังถือว่าสำเร็จ ไม่โยน', async () => {
+    const { menus, audit, auditRows } = repos([menuRow({ lineRichMenuId: 'richmenu-a' })])
+    const line = client({ batchControl: vi.fn(async () => null) })
+
+    const result = await unlinkAllFromMenu({ client: line, menus, audit }, { menuId: '1', actorId: '3' })
+
+    expect(result).toEqual({ requestId: null })
+    expect(auditRows[0]).toMatchObject({ action: 'unlink-all', result: 'success', after: { requestId: null } })
+  })
+
+  it('validateBatch ปฏิเสธ payload → ไม่ยิง batchControl ตัวจริง (ไม่เสียโควตา) และ audit บันทึกว่าล้ม', async () => {
+    const { menus, audit, auditRows } = repos([menuRow({ lineRichMenuId: 'richmenu-a' })])
+    const line = client({
+      validateBatch: vi.fn(async () => { throw new LineValidationError(['operations: invalid']) }),
+    })
+
+    await expect(unlinkAllFromMenu({ client: line, menus, audit }, { menuId: '1', actorId: '3' }))
+      .rejects.toBeInstanceOf(LineValidationError)
+
+    expect((line as unknown as { batchControl: ReturnType<typeof vi.fn> }).batchControl).not.toHaveBeenCalled()
+    expect(auditRows[0]).toMatchObject({ action: 'unlink-all', result: 'failure' })
+  })
+
+  it('LINE ล้มตอน batchControl ตัวจริง → ยังมีแถว audit ที่บอกว่าล้มด้วย code อะไร', async () => {
+    const { menus, audit, auditRows } = repos([menuRow({ lineRichMenuId: 'richmenu-a' })])
+    const line = client({ batchControl: vi.fn(async () => { throw new LineServerError(503) }) })
+
+    await expect(unlinkAllFromMenu({ client: line, menus, audit }, { menuId: '1', actorId: '3' }))
+      .rejects.toBeInstanceOf(LineServerError)
+
+    expect(auditRows[0]).toMatchObject({ action: 'unlink-all', result: 'failure', errorCode: 'line_server_error' })
   })
 })
 
