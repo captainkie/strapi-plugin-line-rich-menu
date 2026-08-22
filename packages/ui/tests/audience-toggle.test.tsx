@@ -129,15 +129,43 @@ describe('AudienceToggle', () => {
     expect(screen.getByRole('dialog').textContent).toContain('1042')
   })
 
-  /** ข้อความต้องไม่อ้างสิ่งที่ยืนยันไม่ได้ — bulk/link ตอบ 202 เปล่า ๆ (สเปก "What we cannot know") */
-  it('หลังเปิดสวิตช์บอกว่า "ส่งคำสั่งแล้ว" ไม่ใช่ "สมาชิกได้รับแล้ว"', async () => {
-    await activate()
-    expect(screen.getByTestId('audience-result').textContent).toContain('audience.sent')
-    expect(screen.getByTestId('audience-result').textContent).not.toMatch(/received|ได้รับแล้ว/)
+  /**
+   * Task 11 fix round 1 — memberCount แพง (findMany ทั้งตาราง ไม่มี Repo.count()) endpoint
+   * `channels/:id/audience` ถูกเรียกทุกครั้งที่ mount (การ์ด + สวิตช์ทุกแถว) แต่ตัวเลขนี้มีประโยชน์
+   * แค่ตอนกล่องยืนยันกำลังจะเปิด — เทสต์นี้แยก URL สองแบบออกจากกันจริง ๆ (mount ต้องไม่มี `count=1`
+   * เลยสักคำขอ ส่วนตอนกดสวิตช์ต้องมี) ไม่ใช่แค่เดาว่า "component เรียก http.get สองครั้ง"
+   */
+  it('ขอ memberCount เฉพาะตอนกำลังจะเปิดกล่องยืนยัน ไม่ใช่ทุกครั้งที่ mount', async () => {
+    const get = vi.fn(async (url: string) => (
+      url.includes('count=1') ? { ...noOneActive, memberCount: 7 } : { ...noOneActive, memberCount: null }
+    ))
+    // ต้องใช้ realT — เนื้อหากล่องยืนยัน (ที่มี {count} แทนแล้ว) เป็นสิ่งที่เทสต์นี้อ่านจริง
+    // identity `(k) => k` จะทิ้งค่า count ไปเลย แล้ว assertion ท้ายเทสต์จะหา "7" ไม่เจอ
+    const base = createStubPort({ t: realT('th') })
+    const port = { ...base, http: { ...base.http, get, post: vi.fn(async () => undefined) } as typeof base.http }
+    render(<PortProvider value={port}><AudienceToggle menu={publishedMenu} /></PortProvider>)
+
+    await waitFor(() => expect(screen.getByRole('switch')).not.toBeDisabled())
+    expect(get.mock.calls.some(([url]) => String(url).includes('count=1'))).toBe(false)
+
+    fireEvent.click(screen.getByRole('switch'))
+    await waitFor(() => expect(get).toHaveBeenCalledWith(expect.stringContaining('count=1')))
+    await waitFor(() => expect(screen.getByRole('dialog').textContent).toContain('7'))
   })
 
-  // เวอร์ชันที่ใช้คำแปลจริง (ไม่ใช่ identity key) — ปิดช่องโหว่ที่เทสต์ข้างบนพิสูจน์ได้แค่
-  // "เรียก t ด้วยคีย์ audience.sent จริง" แต่พิสูจน์เนื้อหาคำแปลจริงไม่ได้เลย
+  /**
+   * ข้อความต้องไม่อ้างสิ่งที่ยืนยันไม่ได้ — bulk/link ตอบ 202 เปล่า ๆ (สเปก "What we cannot know")
+   *
+   * มีทางเดียวเท่านั้นที่พิสูจน์เรื่องนี้ได้จริง: render ผ่าน `t()` ที่ lookup คำแปลจริงจาก
+   * `MESSAGES` (ทั้งไทยและอังกฤษ) แล้วอ่านข้อความที่ *ออกจอจริง* — ไม่ใช่ identity `t: (k) => k`
+   * ที่คืนคีย์ดิบ (`'audience.sent'`) เฉย ๆ เวอร์ชัน identity เคยอยู่ในไฟล์นี้และดูเหมือนพิสูจน์
+   * เรื่องนี้ได้ (มัน assert `.not.toMatch(/received|ได้รับแล้ว/)` เหมือนกัน) แต่รีวิวจับได้ว่ามัน
+   * เขียวอยู่ตลอดไม่ว่าคำแปลจริงจะเขียนว่าอะไร — ลองแก้ `en.json` ให้ `audience.sent` พูดว่า
+   * "Members received this menu at {time}" ตรง ๆ ดู เทสต์แบบ identity จะยังเขียว เพราะมันไม่เคย
+   * อ่านค่าจาก `en.json` เลยสักตัวอักษร มันแค่เช็คว่าโค้ดเรียก `t('audience.sent', ...)` ด้วยคีย์
+   * ที่ถูกต้องเท่านั้น ถูกลบออกจากไฟล์นี้แล้วเพื่อไม่ให้มีเทสต์สองตัวคุ้มเรื่องเดียวกัน — ตัวจริงเขียว
+   * ตัวปลอมก็เขียวตาม ๆ กันไป จนกว่าตัวจริงพังแล้วไม่มีใครสังเกตเพราะตัวปลอมยังเขียวอยู่
+   */
   it('เนื้อหาคำแปลจริงทั้งไทยและอังกฤษก็ไม่อ้างว่าได้รับแล้ว', async () => {
     for (const locale of ['en', 'th'] as const) {
       const { unmount } = render(

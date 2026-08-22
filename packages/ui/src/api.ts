@@ -19,7 +19,14 @@ export const ENDPOINTS = {
   // จะขึ้นต้นด้วย "audience" เหมือนกันก็ตาม
   menuAudienceActivate: (id: string) => `/line-rich-menu/menus/${id}/audience/activate`,
   menuAudienceDeactivate: (id: string) => `/line-rich-menu/menus/${id}/audience/deactivate`,
-  channelAudience: (id: string) => `/line-rich-menu/channels/${id}/audience`,
+  /**
+   * `count: true` เป็น opt-in — `memberCount` มาจาก `findMany` ทั้งตารางฝั่งเซิร์ฟเวอร์ (ไม่มี
+   * `Repo.count()` ให้ใช้) endpoint นี้ถูกเรียกทุกครั้งที่เปิดหน้ารายการ (ผ่านทั้ง `CurrentMenuCard`
+   * และ `AudienceToggle` ทุกแถว) จึงส่ง `count` เฉพาะตอนที่ผลลัพธ์จะถูกใช้จริง คือตอนกล่องยืนยัน
+   * activate กำลังจะเปิด (Task 11 fix round 1) ไม่ใช่ทุกครั้งที่เรียกเพื่ออ่านแค่ default/memberRichMenuId
+   */
+  channelAudience: (id: string, opts?: { count?: boolean }) =>
+    `/line-rich-menu/channels/${id}/audience${opts?.count === true ? '?count=1' : ''}`,
   upload: '/upload',
 } as const
 
@@ -73,8 +80,13 @@ export interface RichMenuSummary {
 export interface ChannelAudience {
   defaultRichMenuId: string | null
   memberRichMenuId: string | null
-  /** จำนวนแถว line-member ของ channel นี้ — กล่องยืนยันก่อน activate ใช้บอกว่าจะกระทบกี่คน */
-  memberCount: number
+  /**
+   * จำนวนแถว line-member ของ channel นี้ — กล่องยืนยันก่อน activate ใช้บอกว่าจะกระทบกี่คน
+   * `null` เมื่อไม่ได้ขอผ่าน `ENDPOINTS.channelAudience(id, { count: true })` (Task 11 fix
+   * round 1 — คำนวณแพงจาก `findMany` ทั้งตาราง เซิร์ฟเวอร์จึงข้ามให้เมื่อไม่มีใครขอ) ไม่ใช่ 0
+   * ซึ่งมีความหมายต่างกัน (0 = นับแล้วไม่มีใครเลย)
+   */
+  memberCount: number | null
 }
 
 export interface BotInfo {

@@ -768,7 +768,9 @@ describe('members controller — audience', () => {
     const context = ctx({ params: { id: channelId } })
     await controllers.members({ strapi }).audience(context)
 
-    expect(context.body).toEqual({ defaultRichMenuId: 'line-rm-9', memberRichMenuId: 'line-rm-1', memberCount: 0 })
+    // ไม่ส่ง `?count=1` — memberCount ต้องเป็น null ไม่ใช่ 0 (0 คือ "นับแล้วไม่มีใครเลย" ซึ่งเป็นคนละ
+    // ความหมายกับ "ยังไม่ได้นับ" — ดูคอมเมนต์ที่ audienceQuerySchema)
+    expect(context.body).toEqual({ defaultRichMenuId: 'line-rm-9', memberRichMenuId: 'line-rm-1', memberCount: null })
     fetchSpy.mockRestore()
   })
 
@@ -781,17 +783,35 @@ describe('members controller — audience', () => {
     const context = ctx({ params: { id: channelId } })
     await controllers.members({ strapi }).audience(context)
 
-    expect(context.body).toEqual({ defaultRichMenuId: null, memberRichMenuId: null, memberCount: 0 })
+    expect(context.body).toEqual({ defaultRichMenuId: null, memberRichMenuId: null, memberCount: null })
     fetchSpy.mockRestore()
   })
 
-  // Task 11 — กล่องยืนยันก่อนกด activate ต้องบอกจำนวนสมาชิกที่จะโดน นับจากแถว line-member
-  // จริงของ channel นี้ ไม่ใช่ค่าคงที่หรือความยาวของอะไรอื่น
-  it('นับจำนวนสมาชิกของ channel นี้จริง ไม่ใช่ของ channel อื่น', async () => {
+  // Task 11 fix round 1 — memberCount แพงกว่าสมาชิกทั่วไป (findMany ทั้งตาราง ไม่มี Repo.count())
+  // endpoint นี้ถูกเรียกทุกครั้งที่เปิดหน้ารายการ (การ์ด + สวิตช์ทุกแถว) จึงต้อง**ไม่**นับให้
+  // เว้นแต่ถูกขอผ่าน `?count=1` จริง ๆ — สองเทสต์นี้พิสูจน์ทั้งสองฝั่งของเงื่อนไขเดียวกัน ไม่ใช่แค่
+  // ฝั่งที่นับได้ถูกฝั่งเดียว (ซึ่งจะไม่มีทางจับได้ถ้ามีใครลบเงื่อนไข `if` ทิ้งแล้วนับเสมอ)
+  it('ไม่ส่ง ?count=1 — memberCount เป็น null แม้ channel จะมีสมาชิกจริงอยู่ก็ตาม (ไม่นับให้เปล่า ๆ)', async () => {
     const rows: Record<string, Record<string, unknown>[]> = {}
     const strapi = fakeMembersStrapi(rows)
     const channelId = await seedAudienceChannel(strapi, '22')
-    const otherChannelId = await seedAudienceChannel(strapi, '23')
+    rows[UID.member] = [
+      { id: 1, channel: Number(channelId), lineUserId: `U${'a'.repeat(32)}`, linkedRichMenuId: null, linkedAt: null },
+    ]
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 404 }))
+    const context = ctx({ params: { id: channelId } })
+    await controllers.members({ strapi }).audience(context)
+
+    expect((context.body as { memberCount: number | null }).memberCount).toBeNull()
+    fetchSpy.mockRestore()
+  })
+
+  it('ส่ง ?count=1 — นับจำนวนสมาชิกของ channel นี้จริง ไม่ใช่ของ channel อื่น', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '24')
+    const otherChannelId = await seedAudienceChannel(strapi, '25')
     rows[UID.member] = [
       { id: 1, channel: Number(channelId), lineUserId: `U${'a'.repeat(32)}`, linkedRichMenuId: null, linkedAt: null },
       { id: 2, channel: Number(channelId), lineUserId: `U${'b'.repeat(32)}`, linkedRichMenuId: null, linkedAt: null },
@@ -799,10 +819,10 @@ describe('members controller — audience', () => {
     ]
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 404 }))
-    const context = ctx({ params: { id: channelId } })
+    const context = ctx({ params: { id: channelId }, query: { count: '1' } })
     await controllers.members({ strapi }).audience(context)
 
-    expect((context.body as { memberCount: number }).memberCount).toBe(2)
+    expect((context.body as { memberCount: number | null }).memberCount).toBe(2)
     fetchSpy.mockRestore()
   })
 })

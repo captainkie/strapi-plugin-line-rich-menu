@@ -3,7 +3,7 @@ import { getServices, type Services } from '../container.js'
 import { guard } from '../http-error.js'
 import type { StrapiV4 } from '../strapi.js'
 import { runTick } from '../tick.js'
-import { idParam } from '../validation.js'
+import { audienceQuerySchema, idParam } from '../validation.js'
 
 /**
  * activate และ sync ทำงานเหมือนกันทุกประการ (สเปกบอกตรง ๆ ว่า sync คือ activate ของเมนูที่ active
@@ -128,16 +128,19 @@ export const members = ({ strapi }: { strapi: StrapiV4 }) => {
     audience: guard(async (ctx) => {
       const services = getServices(strapi)
       const id = idParam.parse(ctx.params['id'])
+      const query = audienceQuerySchema.parse(ctx.query)
       const channel = await services.channels.withSecrets().findOne(id)
       // audience: 'all' active เมื่อ default ของ LINE จริง ๆ ตรงกับเมนูนั้น — ต้องถามฝั่ง LINE
       // ไม่ใช่เดาจาก DB (สเปก: "อ่านจาก LINE ไม่ใช่เดา")
       const defaultRichMenuId = await services.clientFor(channel).getDefault()
-      // Task 11 — กล่องยืนยันก่อนกด activate ต้องบอกว่าจะกระทบกี่คน (สเปก "Enabling asks first,
-      // and the confirmation states the member count") ไม่มี endpoint ไหนคืนจำนวนนี้มาก่อนเลย
-      // ยืมแพทเทิร์นเดียวกับที่ lifecycles.ts ใช้ตรวจ uniqueness (filters: {channelId} ไม่แบ่งหน้า)
-      // เพราะที่นี่แค่ "นับ" ไม่ได้ยิง LINE ทีละคนแบบ enrolment ที่ต้อง chunk ด้วย MAX_BULK_USER_IDS
-      const members = await services.members.findMany({ filters: { channelId: id } })
-      ctx.body = { defaultRichMenuId, memberRichMenuId: channel.memberRichMenuId, memberCount: members.length }
+      // Task 11 fix round 1 — เดิม endpoint นี้นับสมาชิกทุกครั้งที่ถูกเรียก (ทุกครั้งที่เปิดหน้า
+      // รายการ ผ่านทั้งการ์ดและสวิตช์ทุกแถว) ทั้งที่ตัวเลขนี้มีประโยชน์แค่ตอนกล่องยืนยัน activate
+      // กำลังจะเปิด — สำหรับ channel ที่มีสมาชิกหลักหมื่นคน นั่นคือ findMany ทั้งตารางโดยเปล่าประโยชน์
+      // ในการเปิดหน้าจอเฉย ๆ ตอนนี้นับเฉพาะตอนถูกขอผ่าน `?count=1` (ดูคอมเมนต์ที่ audienceQuerySchema)
+      const memberCount = query.count === undefined
+        ? null
+        : (await services.members.findMany({ filters: { channelId: id } })).length
+      ctx.body = { defaultRichMenuId, memberRichMenuId: channel.memberRichMenuId, memberCount }
     }),
 
     verify: guard(async (ctx) => {

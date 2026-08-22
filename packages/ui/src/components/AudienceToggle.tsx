@@ -27,6 +27,11 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
   const { ui, http, t } = usePort()
   const [audience, setAudience] = useState<ChannelAudience | null>(null)
   const [confirming, setConfirming] = useState(false)
+  // จำนวนสมาชิกที่ใช้ในกล่องยืนยัน — แยกจาก `audience.memberCount` ตั้งใจ (Task 11 fix round 1):
+  // `load()` ด้านล่างไม่ขอ count เลย (เรียกทุกครั้งที่ mount ผ่านทั้งการ์ดและสวิตช์ทุกแถว การนับ
+  // ทั้งตารางตรงนั้นจะเปล่าประโยชน์เกือบทุกครั้ง) ตัวเลขจริงมาจาก `askActivate` ที่ยิงขอ count
+  // เฉพาะตอนกำลังจะเปิดกล่องยืนยันเท่านั้น — คนละช่วงเวลากับที่ mount ใช้ตัดสิน `active`
+  const [confirmCount, setConfirmCount] = useState<number | null>(null)
   const [sentAt, setSentAt] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -54,6 +59,25 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
       await http.post(ENDPOINTS.menuAudienceDeactivate(menu.id))
       load()
       onChanged?.()
+    } catch {
+      setError(t('audience.actionFailed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * เปิดสวิตช์ (ยังไม่ active) = ขอ count สดก่อนเปิดกล่องยืนยัน ไม่ใช่เปิดกล่องทันทีแล้วค่อยเติม
+   * ตัวเลขทีหลัง — กล่องที่โผล่มาโดยยังไม่รู้จำนวนเสี่ยงโชว์เลขเก่า/ค้างจาก mount ก่อนหน้า ดีเลย์
+   * สั้น ๆ ก่อนกล่องโผล่ยอมรับได้กว่า (ทีมรีวิวเห็นด้วยตรง ๆ ในรอบแก้ก่อนหน้า)
+   */
+  const askActivate = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const fresh = await http.get<ChannelAudience>(ENDPOINTS.channelAudience(menu.channelId, { count: true }))
+      setConfirmCount(fresh.memberCount)
+      setConfirming(true)
     } catch {
       setError(t('audience.actionFailed'))
     } finally {
@@ -90,7 +114,7 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
           // event ตรงเข้า input (fireEvent.change) ข้าม attribute disabled ของเบราว์เซอร์ไปได้
           // ถ้า handler นี้ไม่เช็คเอง ผู้ใช้ก็เช่นกันถ้า primitive วันไหนไม่ได้ป้องกันไว้จริง
           if (!canToggle) return
-          if (next) setConfirming(true)
+          if (next) void askActivate()
           else void deactivate()
         }}
       />
@@ -101,7 +125,10 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
         <span data-testid="audience-result">{t('audience.sent', { time: formatClockTime(sentAt) })}</span>
       )}
 
-      {!confirming || audience === null ? null : (
+      {/* `confirmCount === null` กันไว้ด้วย ไม่ใช่แค่ `confirming` — `askActivate` ตั้ง confirming
+          เป็น true ก็ต่อเมื่อ fetch สำเร็จและมีตัวเลขแล้วเท่านั้น (ดู askActivate) เงื่อนไขนี้จึง
+          ไม่เคยเป็นจริงพร้อมกับ count ว่างในทางปฏิบัติ แต่ยังเช็คไว้กันพัง ไม่ใช่ render 'null' คน */}
+      {!confirming || audience === null || confirmCount === null ? null : (
         <ui.Modal
           open
           onClose={() => setConfirming(false)}
@@ -117,7 +144,7 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
         >
           <ui.Flex direction="column" gap={2}>
             <ui.Alert variant="warning">
-              {t('audience.confirm.body', { count: audience.memberCount })}
+              {t('audience.confirm.body', { count: confirmCount })}
             </ui.Alert>
             <ui.Typography textColor="neutral600">{t('audience.notConfirmable')}</ui.Typography>
           </ui.Flex>

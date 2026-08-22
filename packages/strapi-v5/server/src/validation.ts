@@ -84,3 +84,14 @@ export const listQuerySchema = z.object({
 }).strict()
 
 export const setDefaultBodySchema = z.object({}).strict().default({})
+
+/**
+ * `count` (จำนวนสมาชิกของ channel) คิดจาก `findMany` ทั้งตาราง — ไม่มี `Repo.count()` ให้ใช้
+ * (Task 11 fix round 1: เพิ่ม `Repo.count()` เป็นงานแยกต่างหาก ไม่ใช่ของ task นี้) จึงให้คำนวณ
+ * เฉพาะตอนถูกขอจริงผ่าน query นี้ ไม่ใช่ทุกครั้งที่เรียก `/channels/:id/audience` — endpoint นี้
+ * ถูกเรียกทุกครั้งที่เปิดหน้ารายการ (การ์ด + สวิตช์ทุกแถว) แต่ count มีประโยชน์แค่ตอนกล่องยืนยัน
+ * activate ของ `ui.AudienceToggle` กำลังจะเปิดเท่านั้น
+ */
+export const audienceQuerySchema = z.object({
+  count: z.literal('1').optional(),
+}).strict()
