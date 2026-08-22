@@ -3,6 +3,8 @@ import { errorCodeOf } from './audit.js'
 import type { AuditWriter } from './audit.js'
 import { MenuNotFoundError } from './errors.js'
 import type { ScheduleLock } from './lock.js'
+import { linkMemberChunk } from './members.js'
+import type { LinkMemberChunkDeps, MemberRow } from './members.js'
 import { clearChannelDefault, setMenuAsDefault, swapMenuAlias } from './menu-ops.js'
 import type { LoggerLike } from './scrub.js'
 import type { Repo, RichMenuRow, ScheduleRow } from './types.js'
@@ -23,6 +25,12 @@ export interface SchedulerOps {
   menus: Repo<RichMenuRow>
   audit: AuditWriter
   clientFor(channelId: string): Promise<LineClient>
+  /**
+   * optional เพราะ v4/v5 wire เข้ามาคนละ task (Task 5/6) — ตัว scheduler เองต้องรองรับ 'link-members'
+   * ตั้งแต่ task นี้ แต่ยัง "ไม่มีของจริงให้ใช้" จนกว่า adapter จะต่อสาย ถ้าไม่ระบุแล้วงาน
+   * 'link-members' เข้ามาพอดี ต้องโยน error ทันที ไม่ใช่ข้ามงานไปเงียบ ๆ (ดูเหตุผลที่ run())
+   */
+  members?: Repo<MemberRow>
 }
 
 export interface SchedulerDeps {
@@ -131,6 +139,40 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
         // clear-default เป็น op ระดับ channel แต่ schedule ผูกกับเมนู — ใช้ channel ของเมนูนั้น
         await clearChannelDefault(ops, { channelId: menu.channelId, actorId })
         return
+      case 'link-members': {
+        // ตั้งใจไม่ narrow ผ่าน `deps.ops.members` ตรง ๆ — แยกเป็นตัวแปรท้องถิ่นก่อน เพื่อไม่ให้
+        // TS ต้อง reason เรื่อง narrowing ข้าม `await` ด้านล่าง (property access ผ่าน object คนละที)
+        const membersRepo = deps.ops.members
+        if (membersRepo === undefined) {
+          // แผลเป็นเดิมของไฟล์นี้คือ lock ที่พังเงียบ ๆ แล้วดูเหมือน "ไม่มีงานถึงเวลา" ทุกนาที
+          // (ดูคอมเมนต์ I3 ท้าย tick()) กรณีนี้คือแผลแบบเดียวกันจากอีกทาง — adapter ที่ลืมต่อ
+          // ops.members ต้องเห็น error ตั้งแต่งานแรก ไม่ใช่ tick เงียบ ๆ ไปเรื่อย ๆ โดยไม่มีใครถูกลิงก์
+          throw new Error(
+            'line-rich-menu: schedule op "link-members" requires ops.members — adapter did not wire it in',
+          )
+        }
+
+        const chunkDeps: LinkMemberChunkDeps = { client: ops.client, members: membersRepo, now: deps.now }
+        let cursor = row.cursor
+
+        // วนทุก chunk ภายในติ๊กเดียว แต่เขียน cursor ลงแถว schedule "หลังจบทุกชุด" ไม่ใช่ตอนจบลูป —
+        // ถ้า process ตายกลางทาง (เช่น ชุดที่สิบสองจากยี่สิบ) รอบถัดไปต้องอ่าน cursor ที่ค้างไว้แล้ว
+        // ต่อจากตรงนั้น ถ้าย้ายการเขียนไปไว้หลังลูปจบ crash กลางทางจะทำให้ cursor ไม่ถูกบันทึกเลย
+        // รอบถัดไปจึงเริ่มใหม่ตั้งแต่คนแรก ยิง bulkLink ซ้ำให้คนที่ทำไปแล้วโดยไม่มีที่ไหนบันทึกไว้เลย
+        // ว่าเคยส่งไปแล้ว — ไม่ใช่แค่ช้า แต่เป็นบั๊กที่ตรวจไม่ออกจนกว่าจะมีคนสังเกตว่าโดนส่งซ้ำ
+        for (;;) {
+          const result = await linkMemberChunk(chunkDeps, {
+            richMenuId: row.richMenuId,
+            channelId: menu.channelId,
+            cursor,
+          })
+          if (result.processed === 0) break
+          cursor = result.nextCursor
+          await deps.schedules.update(row.id, { cursor })
+          if (cursor === null) break
+        }
+        return
+      }
     }
   }
 }

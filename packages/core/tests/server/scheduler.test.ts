@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LineServerError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
+import type { MemberRow } from '../../src/server/members.js'
 import { createScheduler } from '../../src/server/scheduler.js'
+import type { TickReport } from '../../src/server/scheduler.js'
 import type { AuditRow, Repo, RichMenuRow, ScheduleRow } from '../../src/server/types.js'
 
 const silent = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -331,5 +333,194 @@ describe('tick กับหลาย channel', () => {
     await scheduler.tick()
 
     expect(clientFor.mock.calls).toEqual([['10'], ['20']])
+  })
+})
+
+/**
+ * 'link-members' ต่างจากอีกสาม op ตรงที่หนึ่งแถว schedule วนหลาย chunk ภายในติ๊กเดียว (Task 2:
+ * `linkMemberChunk` เพจแบบ keyset 500 ต่อชุด) — ฮาร์เนสข้างบน (`harness`/`fakeLine`) ไม่รู้จัก
+ * ทั้ง `ops.members` และ `client.bulkLink` เลย จึงแยกฮาร์เนสเฉพาะของ describe นี้ ไม่แก้ของเดิม
+ * เพื่อไม่ให้กระทบเทสต์ของ op อื่นทั้งไฟล์โดยไม่จำเป็น
+ */
+describe('tick — link-members วนหลาย chunk พร้อม cursor ที่ resume ได้', () => {
+  function membersFor(n: number, channelId = '10'): MemberRow[] {
+    return Array.from({ length: n }, (_, i) => ({
+      id: `m${String(i).padStart(5, '0')}`,
+      channelId,
+      lineUserId: `U${String(i).padStart(32, '0')}`,
+      displayName: null,
+      linkedRichMenuId: null,
+      linkedAt: null,
+    }))
+  }
+
+  // เลียนแบบ keyset paging ของ adapter จริง (`idGreaterThan` คือ `WHERE id > ?` ไม่ใช่ offset) —
+  // ต้องรองรับให้ตรงกับที่ `linkMemberChunk` ยิงจริง ไม่งั้นเทสต์ cursor/resume ข้างล่างจับบั๊กไม่ได้
+  function memberRepoFor(rows: MemberRow[]): Repo<MemberRow> {
+    return {
+      async findMany(params) {
+        const filters = params?.filters ?? {}
+        let result = rows.filter((row) => Object.entries(filters).every(
+          ([field, want]) => (row as unknown as Record<string, unknown>)[field] === want,
+        ))
+        if (params?.idGreaterThan !== undefined) {
+          const cursor = params.idGreaterThan
+          result = result.filter((row) => row.id > cursor)
+        }
+        result = [...result].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        if (params?.limit !== undefined) result = result.slice(0, params.limit)
+        return result
+      },
+      async findOne(id) { return rows.find((row) => row.id === id) ?? null },
+      async create(data) { const row = { id: 'new', ...data } as MemberRow; rows.push(row); return row },
+      async update(id, data) {
+        const index = rows.findIndex((row) => row.id === id)
+        rows[index] = { ...rows[index]!, ...data }
+        return rows[index]!
+      },
+      async delete() {},
+    }
+  }
+
+  /**
+   * `failOnChunk` จำลอง process ที่ตายกลางทาง: `client.bulkLink` โยน error บนการเรียกครั้งที่ N
+   * พอดี — ก่อนหน้านั้นทุกชุดต้องผ่านและเขียน cursor ไปแล้วจริง ๆ (ดู `released` ที่คืนกลับ)
+   */
+  async function tickWith(options: {
+    members: number
+    op: 'link-members'
+    onScheduleUpdate?: (data: Partial<ScheduleRow>) => void
+    startCursor?: string | null
+    failOnChunk?: number
+  }): Promise<{
+    report: TickReport
+    sentChunks: string[][]
+    released: { state: string; error: string | null } | undefined
+  }> {
+    const memberRows = membersFor(options.members)
+    const sentChunks: string[][] = []
+    let bulkLinkCalls = 0
+
+    const line = {
+      ...fakeLine(),
+      bulkLink: vi.fn(async (_richMenuId: string, userIds: readonly string[]) => {
+        bulkLinkCalls += 1
+        if (options.failOnChunk === bulkLinkCalls) throw new LineServerError(503)
+        sentChunks.push([...userIds])
+      }),
+    }
+
+    const scheduleRows: ScheduleRow[] = [
+      scheduleRow({ id: 's1', op: options.op, cursor: options.startCursor ?? null }),
+    ]
+
+    let released: { state: string; error: string | null } | undefined
+    const lock = {
+      claim: vi.fn(async () => true),
+      release: vi.fn(async (_id: string, _owner: string, state: 'done' | 'failed', error: string | null) => {
+        released = { state, error }
+      }),
+    }
+
+    const auditRows: AuditRow[] = []
+    const auditRepo: Repo<AuditRow> = {
+      async findMany() { return auditRows },
+      async findOne() { return null },
+      async create(data) { const row = { id: String(auditRows.length + 1), ...data } as AuditRow; auditRows.push(row); return row },
+      async update() { throw new Error('append-only') },
+      async delete() { throw new Error('append-only') },
+    }
+
+    const schedules: Repo<ScheduleRow> = {
+      async findMany(params) {
+        const filters = params?.filters ?? {}
+        return scheduleRows.filter((row) => Object.entries(filters).every(
+          ([field, want]) => (row as unknown as Record<string, unknown>)[field] === want,
+        ))
+      },
+      async findOne(id) { return scheduleRows.find((row) => row.id === id) ?? null },
+      async create(data) { const row = { id: 'new', ...data } as ScheduleRow; scheduleRows.push(row); return row },
+      async update(id, data) {
+        options.onScheduleUpdate?.(data)
+        const index = scheduleRows.findIndex((row) => row.id === id)
+        scheduleRows[index] = { ...scheduleRows[index]!, ...data }
+        return scheduleRows[index]!
+      },
+      async delete() {},
+    }
+
+    const scheduler = createScheduler({
+      schedules,
+      lock,
+      ops: {
+        menus: listRepo([menuRow({ id: '1', channelId: '10' })]),
+        audit: createAuditWriter({ repo: auditRepo, logger: silent }),
+        clientFor: async () => line as never,
+        members: memberRepoFor(memberRows),
+      },
+      logger: silent,
+      now: () => NOW,
+      owner: 'worker-a',
+    })
+
+    const report = await scheduler.tick()
+    return { report, sentChunks, released }
+  }
+
+  it('งาน link-members เดินครบทุกชุดในหนึ่ง tick', async () => {
+    const { report, sentChunks } = await tickWith({ members: 1001, op: 'link-members' })
+    expect(report).toMatchObject({ due: 1, claimed: 1, done: 1, failed: 0 })
+    expect(sentChunks.map((c) => c.length)).toEqual([500, 500, 1])
+  })
+
+  it('เขียน cursor ลงแถวงานหลังจบแต่ละชุด ไม่ใช่ตอนจบทั้งงาน', async () => {
+    const writes: (string | null)[] = []
+    await tickWith({
+      members: 1001, op: 'link-members',
+      onScheduleUpdate: (d) => writes.push(d.cursor ?? null),
+    })
+    expect(writes.length).toBeGreaterThanOrEqual(2)
+  })
+
+  /** ตายกลางทางแล้วรอบถัดไปต้องต่อ ไม่ใช่เริ่มใหม่ตั้งแต่คนแรก */
+  it('tick รอบถัดไปเริ่มจาก cursor ที่ค้างไว้', async () => {
+    const { sentChunks } = await tickWith({ members: 1001, op: 'link-members', startCursor: 'm00499' })
+    expect(sentChunks[0]![0]).not.toBe(`U${'0'.repeat(32)}`)
+  })
+
+  it('งานล้มกลางทางปล่อย lock เป็น failed พร้อม cursor ที่ทำไปแล้ว', async () => {
+    const { report, released } = await tickWith({ members: 600, op: 'link-members', failOnChunk: 2 })
+    expect(report.failed).toBe(1)
+    expect(released).toMatchObject({ state: 'failed' })
+  })
+
+  it('ไม่มี ops.members แล้วมีงาน link-members เข้ามา → พังทันที ไม่ใช่ข้ามงานไปเงียบ ๆ', async () => {
+    const scheduleRows: ScheduleRow[] = [scheduleRow({ id: 's1', op: 'link-members', cursor: null })]
+    const lock = { claim: vi.fn(async () => true), release: vi.fn(async () => {}) }
+    const auditRows: AuditRow[] = []
+    const auditRepo: Repo<AuditRow> = {
+      async findMany() { return auditRows },
+      async findOne() { return null },
+      async create(data) { const row = { id: '1', ...data } as AuditRow; auditRows.push(row); return row },
+      async update() { throw new Error('append-only') },
+      async delete() { throw new Error('append-only') },
+    }
+    const scheduler = createScheduler({
+      schedules: listRepo(scheduleRows),
+      lock,
+      ops: {
+        menus: listRepo([menuRow({ id: '1', channelId: '10' })]),
+        audit: createAuditWriter({ repo: auditRepo, logger: silent }),
+        clientFor: async () => fakeLine() as never,
+        // members ไม่ถูกระบุโดยตั้งใจ — จำลอง adapter ที่ลืม wire
+      },
+      logger: silent,
+      now: () => NOW,
+      owner: 'worker-a',
+    })
+
+    const report = await scheduler.tick()
+    expect(report).toEqual({ due: 1, claimed: 1, done: 0, failed: 1 })
+    expect(lock.release).toHaveBeenCalledWith('s1', 'worker-a', 'failed', expect.any(String))
   })
 })
