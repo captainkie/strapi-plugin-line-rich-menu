@@ -24,7 +24,7 @@ function fakeMemberRepo(rows: MemberRow[] = []): Repo<MemberRow> {
       const channelId = params?.filters?.['channelId']
       return channelId === undefined ? rows : rows.filter((row) => row.channelId === channelId)
     }),
-    findOne: vi.fn(async () => null),
+    findOne: vi.fn(async (id: string) => rows.find((row) => row.id === id) ?? null),
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -78,6 +78,34 @@ describe('validateMemberWrite', () => {
   it('ไม่เช็คอะไรเลยเมื่อคำขอไม่ได้แตะ lineUserId — beforeUpdate ที่แก้แค่ displayName', async () => {
     const members = fakeMemberRepo()
     await expect(validateMemberWrite(members, { displayName: 'ใหม่' }, null)).resolves.toBeUndefined()
+    expect(members.findMany).not.toHaveBeenCalled()
+  })
+
+  /**
+   * ตัวชี้ขาดของด่านนี้: payload ที่ไม่มี channel เลย (beforeUpdate ที่แก้แค่ lineUserId) ต้อง
+   * ไม่ข้ามการเช็คซ้ำทั้งด่านเงียบ ๆ — อ่าน channel ของแถวเดิมจาก members.findOne(exceptId) มาใช้แทน
+   * เพื่อให้ยังจับของซ้ำได้จริง ไม่ใช่แค่ "ไม่ throw" ที่เกิดจากข้ามการเช็คไปเฉย ๆ
+   */
+  it('payload ไม่มี channel เลย (update ที่แก้แค่ lineUserId) ยังเช็คซ้ำกับ channel ของแถวเดิมได้จริง', async () => {
+    const members = fakeMemberRepo([
+      memberRow('c1', { id: 'm1', lineUserId: `U${'b'.repeat(32)}` }), // คนอื่นถือ uid นี้อยู่แล้วใน c1
+      memberRow('c1', { id: 'm2', lineUserId: UID_A }), // แถวที่กำลังแก้ (m2) — ค่าเดิมไม่เกี่ยว
+    ])
+
+    // m2 พยายามเปลี่ยน lineUserId ไปเป็นของ m1 โดยไม่ส่ง channel มาด้วยเลย — ต้องยังโดนจับว่าซ้ำ
+    await expect(validateMemberWrite(members, { lineUserId: `U${'b'.repeat(32)}` }, 'm2'))
+      .rejects.toThrow(/already/i)
+    expect(members.findOne).toHaveBeenCalledWith('m2')
+
+    // เปลี่ยนไปเป็น uid ที่ไม่ซ้ำใครใน c1 เลย — ต้องผ่าน ไม่ใช่ถูกปฏิเสธเพราะหา channel ไม่เจอ
+    await expect(validateMemberWrite(members, { lineUserId: `U${'c'.repeat(32)}` }, 'm2'))
+      .resolves.toBeUndefined()
+  })
+
+  it('payload ไม่มี channel และไม่มี exceptId (ไม่รู้ว่าแถวไหนเลย) — ปล่อยผ่าน ไม่เดา', async () => {
+    const members = fakeMemberRepo()
+    await expect(validateMemberWrite(members, { lineUserId: UID_A }, null)).resolves.toBeUndefined()
+    expect(members.findOne).not.toHaveBeenCalled()
     expect(members.findMany).not.toHaveBeenCalled()
   })
 })
@@ -168,6 +196,36 @@ describe('linkNewMember', () => {
     expect(linkCalls).toHaveLength(1)
     expect(updateCalls).toEqual([])
     expect(services.audit.write).toHaveBeenCalledWith(expect.objectContaining({ action: 'link-members', result: 'failure' }))
+    expect(services.logger.error).toHaveBeenCalled()
+  })
+
+  /**
+   * channels.findOne โยน ChannelNotFoundError ได้จริง (channel ถูกลบพร้อมกัน, id ค้าง) — แถวสมาชิก
+   * เขียนสำเร็จไปแล้วก่อนฟังก์ชันนี้ถูกเรียก ต้อง**ไม่**ให้ error จุดนี้หลุดกลับเข้า Content Manager
+   * เหมือนกับ error ของ LINE เอง — นี่คือด่านที่พิสูจน์ว่า try ครอบตั้งแต่การอ่าน channel จริง ๆ
+   * ไม่ใช่แค่ครอบคำเรียก LINE
+   */
+  it('channels.findOne ล้ม (เช่น channel ถูกลบไปแล้ว) ไม่ throw กลับ และไม่เขียน linkedAt', async () => {
+    const updateCalls: unknown[] = []
+    const findOne = vi.fn(async () => { throw new Error('channel not found') })
+    const services = fakeServices({
+      channels: { findOne, withSecrets: () => ({ findOne: vi.fn(), findDefault: vi.fn() }) } as never,
+      members: {
+        ...fakeMemberRepo(),
+        update: vi.fn(async (id: string, patch: Partial<MemberRow>) => {
+          updateCalls.push({ id, patch })
+          return memberRow('c1', { id, ...patch })
+        }),
+      },
+    })
+
+    await expect(linkNewMember(services, memberRow('c1'))).resolves.toBeUndefined()
+
+    expect(findOne).toHaveBeenCalledTimes(1)
+    expect(updateCalls).toEqual([])
+    expect(services.audit.write).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'link-members', result: 'failure', richMenuId: null }),
+    )
     expect(services.logger.error).toHaveBeenCalled()
   })
 })

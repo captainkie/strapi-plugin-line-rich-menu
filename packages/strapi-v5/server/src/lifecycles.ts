@@ -37,7 +37,7 @@ function idOf(value: unknown): string | null {
  * (`row.id !== null` เป็นจริงเสมอ) แต่ตั้งชื่อพารามิเตอร์ตามความหมายไว้ให้อ่านง่ายกว่า
  */
 export async function validateMemberWrite(
-  members: Pick<Repo<MemberRow>, 'findMany'>,
+  members: Pick<Repo<MemberRow>, 'findMany' | 'findOne'>,
   data: Record<string, unknown>,
   exceptId: string | null,
 ): Promise<void> {
@@ -52,9 +52,18 @@ export async function validateMemberWrite(
     })
   }
 
-  const channelId = idOf(data['channel'])
-  // ไม่รู้ว่า channel ไหน (เช่น beforeUpdate ที่แก้ lineUserId แต่ไม่แตะ channel เลย) เช็คซ้ำ
-  // ข้าม channel จากตรงนี้ไม่ได้ — ปล่อยผ่านดีกว่าปฏิเสธข้อมูลที่อาจถูกต้อง
+  let channelId = idOf(data['channel'])
+  // beforeUpdate ที่แก้แค่ lineUserId ไม่ส่ง channel มาด้วย — schema ประกาศ channel เป็น
+  // required: true ก็จริง แต่ "ฟอร์มน่าจะส่งมาด้วยเสมอเพราะเป็น required" คือการเดารูป payload
+  // ไม่ใช่สิ่งที่ควรวางกฎ uniqueness ไว้บน อ่าน channel ของแถวเดิมจาก DB ตรง ๆ แทนเมื่อมี exceptId
+  // (คือกำลังแก้ไขแถวที่มีอยู่จริง) ให้เช็คซ้ำวิ่งกับ channel จริงเสมอ ไม่ใช่ข้ามทั้งด่านเงียบ ๆ
+  if (channelId === null && exceptId !== null) {
+    const existing = await members.findOne(exceptId)
+    channelId = existing?.channelId ?? null
+  }
+  // เหลือ null ได้จริงแค่กรณีเดียว: beforeCreate ที่ data ผิดรูปจนไม่มี channel เลย (exceptId เป็น
+  // null เสมอตอน create) หรือ beforeUpdate ที่หา exceptId เองไม่ได้ (ดูคอมเมนต์ที่ registerMemberLifecycles) —
+  // ปล่อยผ่านดีกว่าปฏิเสธข้อมูลที่อาจถูกต้องเพราะเราเองหาตัวเทียบไม่เจอ
   if (channelId === null) return
 
   // ความซ้ำคือ (channel, lineUserId) ไม่ใช่ lineUserId เดี่ยว ๆ — คนเดียวกันมี user id คนละตัว
@@ -74,15 +83,22 @@ export async function validateMemberWrite(
  * ออกไปเลยไม่ว่าจะพังตรงไหน — ล้มแล้ว `linkedAt` ยังเป็น null คือเครื่องหมายบอกตรง ๆ ว่า "ยังไม่เคย
  * บอก LINE สำเร็จ" ไม่ใช่ปมค้าง — แก้ได้ทีหลังด้วยปุ่ม re-sync (งานถัดไปในแผน)
  *
- * อ่าน `memberRichMenuId` ผ่าน `channels.findOne` (ไม่ถอดรหัส token) ก่อนเสมอ — ถ้า channel ยังไม่มี
- * เมนูสำหรับสมาชิกก็ไม่มีอะไรให้ยิง ไม่ต้องแตะ `withSecrets()`/ถอดรหัส token เลยด้วยซ้ำ
+ * กฎคือ "ไม่มีอะไรหลังการเขียนที่สำเร็จแล้วหลุดออกไปได้" ไม่ใช่แค่ "ห่อคำเรียก LINE" —
+ * `channels.findOne` เองก็โยน `ChannelNotFoundError` ได้จริง (channel ถูกลบพร้อมกัน หรือ id ค้าง)
+ * ต้องอยู่ใน try เหมือนกัน ไม่งั้นแถวสมาชิกเขียนสำเร็จไปแล้วแต่ throw กลับเข้า Content Manager
+ * อยู่ดี — พังตรงจุดเดียวกับที่ทั้งฟังก์ชันนี้มีไว้กันไม่ให้พัง
  */
 export async function linkNewMember(services: Services, row: MemberRow): Promise<void> {
-  const summary = await services.channels.findOne(row.channelId)
-  const richMenuId = summary.memberRichMenuId
-  if (richMenuId === null) return
-
+  // richMenuId ต้องอยู่นอก try เพื่อให้ catch อ้างถึงได้ (audit ต้องการค่านี้แม้ล้มตั้งแต่ก่อนรู้ค่าจริง)
+  // แต่การ**อ่าน**มันทั้งหมดต้องอยู่ในนี้ — ไม่ใช่แค่ค่าเริ่มต้น
+  let richMenuId: string | null = null
   try {
+    // ไม่ถอดรหัส token ก่อนรู้ว่าจะใช้จริง — ถ้า channel ยังไม่มีเมนูสำหรับสมาชิกก็ return ตรงนี้เลย
+    // โดยไม่แตะ withSecrets()/LINE เลย
+    const summary = await services.channels.findOne(row.channelId)
+    richMenuId = summary.memberRichMenuId
+    if (richMenuId === null) return
+
     const channel = await services.channels.withSecrets().findOne(row.channelId)
     await services.clientFor(channel).linkToUser(row.lineUserId, richMenuId)
     await services.members.update(row.id, { linkedRichMenuId: richMenuId, linkedAt: new Date().toISOString() })
