@@ -12,6 +12,20 @@ const RadioGroupContext = createContext<
   { name: string; value: string; onChange: (value: string) => void } | null
 >(null)
 
+/** Date (local) → 'YYYY-MM-DD' สำหรับ value ของ `<input type="date">` */
+function toDateInputValue(date: Date): string {
+  const y = String(date.getFullYear()).padStart(4, '0')
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/** ผลตรงข้ามของ toDateInputValue — คำนวณจากตัวเลขดิบ ไม่ผ่าน `new Date(string)` (ดูคอมเมนต์ที่ DatePicker) */
+function fromDateInputValue(value: string): Date {
+  const [y, m, d] = value.split('-').map(Number)
+  return new Date(y ?? 0, (m ?? 1) - 1, d ?? 1)
+}
+
 /**
  * implementation ครบชุดที่ไม่พึ่ง Strapi เลย ใช้สองที่:
  * เทสต์ของแพ็กเกจนี้ทั้งหมด และ playground ที่เปิดดูในเบราว์เซอร์
@@ -66,6 +80,41 @@ const primitives: UIPrimitives = {
     </label>
   ),
   Option: ({ value, children }) => <option value={value}>{children}</option>,
+  // `<input type="date">` เก็บ/คืนค่าเป็น 'YYYY-MM-DD' เสมอไม่ว่า locale ของเบราว์เซอร์จะเป็นอะไร
+  // (ต่างจาก <input type="text"> ที่ format ตาม locale) — แปลงกลับเป็น Date ด้วยตัวเลขดิบ (ไม่ผ่าน
+  // `new Date(string)` ซึ่ง parse เป็น UTC เที่ยงคืน แล้วพอ getFullYear/getMonth/getDate อ่านกลับ
+  // แบบ local จะเพี้ยนวันในโซนเวลาที่ UTC ล้ำหน้า local เช่น timezone ของไทย +7)
+  DatePicker: ({ name, value, onChange, label, error, disabled }) => (
+    <div>
+      <label>
+        {label}
+        <input
+          type="date"
+          name={name}
+          disabled={disabled}
+          value={value === null ? '' : toDateInputValue(value)}
+          onChange={(e) => onChange(e.target.value === '' ? null : fromDateInputValue(e.target.value))}
+        />
+      </label>
+      {error ? <span id={`${name}-error`} role="alert">{error}</span> : null}
+    </div>
+  ),
+  // `<input type="time">` ก็เก็บ/คืนค่าเป็น 'HH:mm' เสมออยู่แล้ว — ไม่ต้องแปลงอะไรเพิ่ม
+  TimePicker: ({ name, value, onChange, label, error, disabled }) => (
+    <div>
+      <label>
+        {label}
+        <input
+          type="time"
+          name={name}
+          disabled={disabled}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </label>
+      {error ? <span id={`${name}-error`} role="alert">{error}</span> : null}
+    </div>
+  ),
   Checkbox: ({ name, checked, onChange, children }) => (
     <label>
       <input type="checkbox" name={name} checked={checked} onChange={(e) => onChange(e.target.checked)} />
@@ -135,6 +184,22 @@ const primitives: UIPrimitives = {
   ),
   Loader: ({ children }) => <div role="progressbar">{children}</div>,
   Tooltip: ({ label, children }) => <span title={label}>{children}</span>,
+  // `title` ต้องเป็น <h1> จริง ไม่ใช่ <div> — เทสต์ของ packages/ui (เช่น editor.test.tsx) ไล่หา
+  // หัวข้อหน้าด้วย getByRole('heading', { level: 1 }) เพื่อยืนยันว่าหน้าไม่ใช่ span ที่แค่ตัวโต
+  // (ดูคอมเมนต์เดียวกันที่ Typography ด้านบน) ถ้า stub วาดเป็น <div> เฉย ๆ เทสต์เหล่านั้นจะหาไม่เจอ
+  // ทั้งที่ adapter จริงทั้งสองตัว (v4 ผ่าน HeaderLayout, v5 ผ่าน Layouts.Header) มี <h1> จริงอยู่แล้ว
+  Page: ({ title, subtitle, actions, children }) => (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1>{title}</h1>
+          {subtitle === undefined ? null : <p>{subtitle}</p>}
+        </div>
+        {actions}
+      </div>
+      <div>{children}</div>
+    </div>
+  ),
 }
 
 /**
@@ -165,6 +230,19 @@ export function createRejectingHttpClient(reason: unknown = new Error('stub_http
   return { get: reject, post: reject, put: reject, del: reject }
 }
 
+/**
+ * ค่าของธีมสว่างของ Strapi ตรง ๆ (ตรวจแล้วตรงกับ `colors.neutral200/150/800/600` ของ
+ * `@strapi/design-system` — ดูคอมเมนต์ที่ `ThemeColors` ใน port.ts) เทสต์กับ playground ของแพ็กเกจนี้
+ * ไม่มีธีมมืดให้สลับ (ไม่ใช่ Strapi จริง) ค่าคงที่ชุดเดียวจึงพอ — adapter จริงสองตัวเป็นคนอ่านค่า
+ * จากธีมของ Strapi เองแล้วสลับตามธีมมืด/สว่างจริง (ดู usePluginPort ของ strapi-v4/v5)
+ */
+const LIGHT_THEME_COLORS = {
+  border: '#dcdce4',
+  surface: '#eaeaef',
+  strongText: '#32324d',
+  mutedText: '#666687',
+}
+
 export function createStubPort(overrides: Partial<UIPort> = {}): UIPort {
   return {
     ui: primitives,
@@ -177,6 +255,7 @@ export function createStubPort(overrides: Partial<UIPort> = {}): UIPort {
     toast: () => {},
     nav: { push: () => {}, Link: ({ to, children }) => <a href={to}>{children}</a> },
     t: defaultT,
+    theme: LIGHT_THEME_COLORS,
     ...overrides,
   }
 }

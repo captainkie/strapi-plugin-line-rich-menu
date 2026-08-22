@@ -1,0 +1,45 @@
+name: Demo image
+
+# Builds ที่นี่ ไม่ใช่บน Render — ดู render.yaml (ไม่มี buildCommand) และ docs/DEMO.md
+# ("Why the image is built in CI") สำหรับตัวเลข RSS ที่วัดจริง
+#
+# examples/v5-app เท่านั้น — v4 ไม่มี public URL ต่อ ดูเหตุผลเต็มใน docs/DEMO.md
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/core/**'
+      - 'packages/ui/**'
+      - 'packages/strapi-v5/**'
+      - 'tools/line-mock/**'
+      - 'examples/v5-app/**'
+      - 'tsconfig.base.json'
+      - '.dockerignore'
+      - '.github/workflows/demo-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: examples/v5-app/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/line-rich-menu-demo:latest
+            ghcr.io/${{ github.repository_owner }}/line-rich-menu-demo:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

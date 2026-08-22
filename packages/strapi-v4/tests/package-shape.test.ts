@@ -13,6 +13,15 @@ const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url),
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
+  description?: string
+  author?: string
+  repository?: { type?: string; url?: string; directory?: string }
+  homepage?: string
+  bugs?: { url?: string }
+  keywords?: string[]
+  publishConfig?: { access?: string }
+  private?: boolean
+  license?: string
 }
 
 describe('รูปทรงของแพ็กเกจที่ Strapi 4 ต้องการ', () => {
@@ -100,5 +109,41 @@ describe('ทุก dependency ที่เหลืออยู่ต้อง�
     const config = readFileSync(new URL('../tsup.config.ts', import.meta.url), 'utf8')
     // สอง config (server, admin) ต้องมีทั้งคู่ — ฝั่งไหนพลาดฝั่งนั้นติดตั้งไม่ได้
     expect(config.match(/noExternal: \[\/\^@fosivo\\\/\/\]/g)).toHaveLength(2)
+  })
+})
+
+/**
+ * เมทาดาทาที่หน้าแพ็กเกจบน npm แสดงและที่ผู้ใช้ใช้ตัดสินใจว่าจะติดตั้งไหม — carry-forward
+ * บันทึกว่าทั้งสี่ฟิลด์ยังไม่มีในแพ็กเกจไหนเลย
+ *
+ * `publishConfig.access` เป็น no-op สำหรับแพ็กเกจที่ไม่มี scope (unscoped เป็น public
+ * โดยปริยาย) — ประกาศไว้เพราะความล้มเหลวที่มันกันคือ "วันที่มีคนย้ายไปใช้ scope" ซึ่งจะทำให้
+ * `npm publish` ล้มด้วย 402 Payment Required ที่อ่านแล้วไม่มีใครเดาถูกว่าต้องแก้ที่ไหน
+ */
+describe('เมทาดาทาที่ต้องมีก่อนปล่อย 1.0.0', () => {
+  it('มี description, author, repository, homepage, bugs และ keywords ครบ', () => {
+    expect(pkg.description).toBeTypeOf('string')
+    expect(pkg.description!.length).toBeGreaterThan(20)
+    expect(pkg.author).toBeTypeOf('string')
+    expect(pkg.repository).toEqual({
+      type: 'git',
+      url: 'git+https://github.com/captainkie/strapi-plugin-line-rich-menu.git',
+      directory: expect.stringMatching(/^packages\/strapi-v[45]$/),
+    })
+    expect(pkg.homepage).toBe('https://github.com/captainkie/strapi-plugin-line-rich-menu#readme')
+    expect(pkg.bugs).toEqual({ url: 'https://github.com/captainkie/strapi-plugin-line-rich-menu/issues' })
+    expect(pkg.keywords).toEqual(expect.arrayContaining(['strapi', 'strapi-plugin', 'line', 'rich-menu']))
+  })
+
+  it('ประกาศ publishConfig.access เป็น public', () => {
+    expect(pkg.publishConfig).toEqual({ access: 'public' })
+  })
+
+  it('ไม่ได้ private — สองตัวนี้คือของที่ปล่อยจริง', () => {
+    expect(pkg.private).not.toBe(true)
+  })
+
+  it('สัญญาอนุญาตเป็น AGPL-3.0-only ตรงกับที่ LICENSE ในแพ็กเกจเป็น', () => {
+    expect(pkg.license).toBe('AGPL-3.0-only')
   })
 })

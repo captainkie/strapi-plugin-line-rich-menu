@@ -13,10 +13,10 @@ import { defineConfig } from 'vitest/config'
 // and watching it exit non-zero, then restoring 90 and watching it pass. See task-14-15-report.md.
 export default defineConfig({
   test: {
-    projects: ['packages/*/vitest.config.ts', 'tools/*/vitest.config.ts'],
+    projects: ['packages/*/vitest.config.ts', 'tools/*/vitest.config.ts', 'docs/vitest.config.ts'],
     coverage: {
       provider: 'v8',
-      include: ['packages/core/src/**', 'packages/ui/src/**'],
+      include: ['packages/core/src/**', 'packages/ui/src/**', 'packages/strapi-v5/server/src/**'],
       // Thresholds are per-glob, not one set for both packages. A single set cannot serve
       // them: React counts every inline handler prop as a function, so `ui` sits near 71%
       // functions while `core` is at 98% — one shared number either lets `core` sag by
@@ -41,6 +41,20 @@ export default defineConfig({
         // ซึ่งเป็นที่เดียวที่ Vitest บังคับใช้จริง — บันทึกไว้ใน carry-forward แล้ว
         'packages/core/src/**': { lines: 90, branches: 90, functions: 90, statements: 90 },
         'packages/ui/src/**': { lines: 90, branches: 90, functions: 70, statements: 90 },
+        // Task 20 item 10 (strapi-v5 L7) — packages/strapi-v5 had no floor at all: `coverage.include`
+        // above never named it, so it inherited zero enforcement no matter how thin any file inside
+        // got. That is exactly the failure this file's own comment describes for the other two
+        // packages ("a gate that looks configured while blocking nothing") one level up — the test
+        // *wiring* was fine (`projects` already picks up strapi-v5's vitest.config.ts, `pnpm
+        // check:deps` covers both adapters) but nothing in *this* file ever named its source tree.
+        // Measured today (`packages/strapi-v5/server/src/**` isolated — see this commit's message
+        // for how): 86.11% lines/statements, 92.37% branches, 90.47% functions. Set a few points
+        // under each, same convention as core/ui above — blocks a regression, doesn't demand new
+        // tests to go green today. `src/controllers/menus.ts` and `channels.ts` are the visibly
+        // weak files (many coded-error branches only exercised by the e2e suite in examples/v5-app,
+        // not by unit tests) — this floor is what stops that from getting weaker unnoticed, which is
+        // the exact gap M4 (item 7, this same task) found in `menu-write.ts`.
+        'packages/strapi-v5/server/src/**': { lines: 85, branches: 90, functions: 88, statements: 85 },
       },
     },
   },

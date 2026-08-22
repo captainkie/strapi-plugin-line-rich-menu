@@ -1,10 +1,11 @@
 import { createContext, isValidElement, useContext, useState, type ReactNode } from 'react'
 import {
-  Alert as DsAlert, Box, Button as DsButton, Checkbox as DsCheckbox, Divider as DsDivider,
-  Flex as DsFlex, IconButton as DsIconButton, Loader as DsLoader, ModalBody, ModalFooter,
-  ModalHeader, ModalLayout, Option as DsOption, Radio as DsRadio, RadioGroup as DsRadioGroup,
-  Select as DsSelect, Textarea as DsTextarea, TextInput as DsTextInput, ToggleInput,
-  Tooltip as DsTooltip, Typography as DsTypography,
+  Alert as DsAlert, Box, Button as DsButton, Checkbox as DsCheckbox, ContentLayout,
+  DatePicker as DsDatePicker, Divider as DsDivider,
+  Flex as DsFlex, HeaderLayout, IconButton as DsIconButton, Loader as DsLoader, Main, ModalBody,
+  ModalFooter, ModalHeader, ModalLayout, Option as DsOption, Radio as DsRadio,
+  RadioGroup as DsRadioGroup, Select as DsSelect, Textarea as DsTextarea, TextInput as DsTextInput,
+  TimePicker as DsTimePicker, ToggleInput, Tooltip as DsTooltip, Typography as DsTypography,
 } from '@strapi/design-system'
 import { usePort, type UIPrimitives } from '@fosivo/line-rich-menu-ui'
 
@@ -121,6 +122,39 @@ export const primitives: UIPrimitives = {
   ),
 
   Option: ({ value, children }) => <DsOption value={value}>{children}</DsOption>,
+
+  /**
+   * สเปกงานนี้ #4 — ยืมปฏิทินของ DS v1 แทนวาดเอง `DatePickerField` ห่อ Field (label/error) ให้
+   * ครบเองอยู่แล้ว (เหมือน `DsTextInput`) จึงไม่ต้องห่อ `Box`/`Field` เพิ่ม — ต่างจาก `TextInput`
+   * ข้างบนตรงที่ port เก็บค่าเป็น `Date | null` (ไม่ใช่ `| undefined` แบบที่ DS ใช้เอง) แปลงตรงนี้
+   * ทั้งขาเข้า (`value ?? undefined`) และขาออก (`date ?? null`)
+   */
+  DatePicker: ({ name, value, onChange, label, error, disabled }) => (
+    <DsDatePicker
+      id={name}
+      name={name}
+      label={label}
+      aria-label={label === undefined ? name : undefined}
+      selectedDate={value ?? undefined}
+      onChange={(date) => onChange(date ?? null)}
+      error={error}
+      disabled={disabled}
+    />
+  ),
+
+  /** คู่กับ `DatePicker` ข้างบนเสมอ — `value` เป็นสตริง 'HH:mm' อยู่แล้วทั้งฝั่ง port และฝั่ง DS v1 */
+  TimePicker: ({ name, value, onChange, label, error, disabled }) => (
+    <DsTimePicker
+      id={name}
+      name={name}
+      label={label}
+      aria-label={label === undefined ? name : undefined}
+      value={value === '' ? undefined : value}
+      onChange={(next) => onChange(next ?? '')}
+      error={error}
+      disabled={disabled}
+    />
+  ),
 
   Checkbox: ({ name, checked, onChange, children }) => (
     <DsCheckbox name={name} value={checked} onValueChange={onChange}>{children}</DsCheckbox>
@@ -240,4 +274,19 @@ export const primitives: UIPrimitives = {
   Loader: ({ children }) => <DsLoader small>{children}</DsLoader>,
 
   Tooltip: ({ label, children }) => <DsTooltip label={label}>{asElement(children)}</DsTooltip>,
+
+  /**
+   * รูปแบบมาตรฐานของหน้าแอดมิน v4 เอง (`<Main><HeaderLayout .../><ContentLayout>…</ContentLayout>
+   * </Main>`) — `Main` วาด `<main>` ที่ focus ได้ตอนเปลี่ยนหน้า (สเปกการเข้าถึงของ Strapi เอง),
+   * `HeaderLayout` วาด `<h1>` จริงพร้อม padding/พื้นหลังของหัวหน้าและ `primaryAction`, และ
+   * `ContentLayout` ให้ padding ซ้าย-ขวาของเนื้อหา ทั้งสามตัวไม่มี type มาให้ (ดูเหตุผลที่หัว
+   * design-system-v1.d.ts) — พร็อพด้านล่างอ่านมาจาก dist/**\/*.mjs ของ DS 1.19.0 ตรง ๆ เหมือน
+   * ทุกตัวอื่นในไฟล์นี้ ไม่ใช่เดาจาก v2
+   */
+  Page: ({ title, subtitle, actions, children }) => (
+    <Main>
+      <HeaderLayout title={title} subtitle={subtitle} primaryAction={actions} />
+      <ContentLayout>{children}</ContentLayout>
+    </Main>
+  ),
 }

@@ -12,8 +12,14 @@ export interface AdminContext {
 }
 
 /**
- * สเปก §11.7 — UI แปล `code` เป็นข้อความตามภาษา ชั้นนี้จึงส่งแค่ `code` ขึ้นไป
- * ไม่ส่ง `message` เด็ดขาด เพราะ message ของ LINE เคยมีเคสที่สะท้อน payload กลับมาพร้อม header
+ * สเปก §11.7 — UI แปล `code` เป็นข้อความตามภาษา `code` (และ `path` ของแต่ละ issue) จึงเป็นสิ่งที่
+ * ฟอร์มต้องพึ่งจริง ๆ
+ *
+ * Task 20 item 10 (strapi-v5 L5 — comment เดียวกันในไฟล์คู่ขนานนี้แก้ไปด้วย) — คอมเมนต์เดิมตรงนี้
+ * บอกว่า "ไม่ส่ง message เด็ดขาด" ซึ่ง**ไม่ตรงกับโค้ดจริง**: `issuesOf()` ด้านล่างใส่ `issue.message`
+ * ของ zod ไว้ในทุก issue และ `error.issues` ของ core's `ValidationError` ถูกส่งต่อดิบ ๆ — ไม่มี
+ * live leak จริง (ดูเหตุผลเต็มในไฟล์ http-error.ts ของ strapi-v5) แต่กฎจริงคือ **"message เป็น
+ * ข้อความอังกฤษสำหรับนักพัฒนา ต้องไม่มี credential ปนอยู่"** ไม่ใช่ "ไม่ส่ง message เลย"
  */
 const STATUS_BY_CODE: Record<string, number> = {
   validation_failed: 400,

@@ -1,0 +1,57 @@
+name: Release
+
+# ยิงจาก tag เท่านั้น ไม่ใช่จากทุก push เข้า main — การปล่อยเป็นการตัดสินใจของคน
+# `pnpm version-packages` เขียนเวอร์ชัน แล้วคนเป็นคน tag และ push ตามลำดับใน docs/RELEASING.md
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # ทั้งหมดที่ทำให้ `--provenance` ทำงาน — ไม่มีบรรทัดนี้ npm จะปฏิเสธ attestation
+  # ด้วยข้อความที่ไม่ได้ชี้กลับมาที่ permission เลย
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      # ด่านชุดเดียวกับ CI — ปล่อยของที่ยังไม่ผ่านด่านคือการค้นพบปัญหาหลังจากที่ถอนคืนไม่ได้แล้ว
+      # (npm unpublish ทำได้แค่ 72 ชั่วโมงแรกและทิ้งเวอร์ชันนั้นไว้เป็นหลุมถาวร)
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm check:deps
+      - run: pnpm verify
+
+      # README ของแพ็กเกจคือสิ่งที่ npm แสดง ไม่ใช่ของ repo — คัดลอกตอนนี้ ไม่ commit ไว้
+      # (ยืนยันแล้วว่าถ้าข้ามขั้นนี้ tarball ที่ pack ออกมาจะไม่มี README.md เลย
+      # ดู docs/tests/release.test.ts ที่ตรวจกับ tarball จริง ไม่ใช่แค่ข้อความของไฟล์นี้)
+      - name: คัดลอก README เข้าแพ็กเกจที่จะปล่อย
+        run: |
+          cp README.md packages/strapi-v4/README.md
+          cp README.md packages/strapi-v5/README.md
+
+      - name: changeset publish
+        run: pnpm exec changeset publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # provenance ต้องการ repo แบบ public — บน private repo npm ปฏิเสธ attestation
+          # และ job นี้จะล้มที่ขั้นนี้ ซึ่งเป็นพฤติกรรมที่ถูก ไม่ใช่สิ่งที่ควรปิดด้วยการเอาบรรทัดนี้ออก
+          NPM_CONFIG_PROVENANCE: 'true'

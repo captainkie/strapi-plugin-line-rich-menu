@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ENDPOINTS, type RichMenuSummary } from '../api.js'
 import { usePort } from '../port.js'
+import { LineMark } from '../components/LineMark.js'
 
 export function RichMenuList({ channelId }: { channelId: string | null }) {
   const { ui, http, nav, t } = usePort()
@@ -23,7 +24,17 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
   if (channelId === null) return <ui.Typography>{t('list.pickChannel')}</ui.Typography>
   if (error !== null) return <ui.Alert variant="danger">{error}</ui.Alert>
   if (menus === null) return <ui.Loader>{t('common.loading')}</ui.Loader>
-  if (menus.length === 0) return <ui.Typography>{t('list.empty')}</ui.Typography>
+  // จุดที่ "ยังไม่มี rich menu สักอัน" คือจุดที่เครื่องหมาย LINE ของเราเองช่วยได้จริง (สเปกงานนี้ #2)
+  // — บอกทันทีว่าจอนี้เกี่ยวกับ LINE โดยไม่ต้องพึ่งข้อความอย่างเดียว ไอคอนเป็นของตกแต่งอยู่แล้ว
+  // (aria-hidden ในตัว) ข้อความ list.empty ยังเป็นสิ่งที่ screen reader ได้ยินตามปกติ
+  if (menus.length === 0) {
+    return (
+      <ui.Flex direction="column" gap={2} alignItems="center">
+        <LineMark size={40} />
+        <ui.Typography>{t('list.empty')}</ui.Typography>
+      </ui.Flex>
+    )
+  }
 
   return (
     <ui.Flex direction="column" gap={2}>

@@ -1,0 +1,11 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2022"],
+    "paths": {
+      "@fosivo/line-rich-menu-core": ["../../core/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

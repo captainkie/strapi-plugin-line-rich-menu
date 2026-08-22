@@ -6,6 +6,19 @@ import type { RichMenuPayload } from './types.js'
 export const ALLOWED_URI_SCHEMES = ['https:', 'http:', 'tel:', 'line:'] as const
 
 /**
+ * Task 20 item 9 (ui-core M2) — ค่าที่ LINE แสดงจริงเมื่อแถบแชทอยู่โหมด default (ไม่ใช่ custom)
+ * ต้อง**ไม่ขึ้นกับภาษาของ admin ที่กด save** เมนูเดียวกันไม่ควรได้แถบแชทคนละคำขึ้นกับว่าใครกด
+ * publish — เดิมค่านี้อยู่ที่ `packages/core/src/server/payload.ts` (`resolveChatBarText` ใช้จริง
+ * ตอน publish) ซึ่งเป็นไฟล์ฝั่งเซิร์ฟเวอร์ที่ `browser.ts` ไม่ export (import `validateRichMenu`/
+ * `canvasFor` ที่ลาก `sharp` เข้ามาด้วย) พรีวิวฝั่ง UI (`Preview.tsx`) กับการตรวจก่อน publish
+ * (`RichMenuEditor.tsx`) จึงไม่มีทางอ้างค่าเดียวกับที่ publish จริงใช้ได้เลย ต้องพึ่งคำแปล
+ * `chatBar.defaultLabel` (ของแอดมิน แปลได้ ไม่ตรงกับสิ่งที่ LINE จะแสดง) แทน — ย้ายค่านี้มาไว้ใน
+ * schema.ts (browser-safe อยู่แล้ว) แล้วให้ payload.ts import กลับไปใช้ แทนที่จะประกาศคนละที่
+ * สองค่าที่ประกาศแยกกันจะไม่ตรงกันในวันใดวันหนึ่งเสมอ — รูปแบบเดียวกับ VALIDATION_CODE_DEF ด้านล่าง
+ */
+export const DEFAULT_CHAT_BAR_TEXT = 'Menu'
+
+/**
  * รหัส validation ที่ schema นี้กำหนดเอง (ต่างจาก code มาตรฐานของ zod เช่น too_small, too_big,
  * unrecognized_keys ที่ใช้ค่าของ zod เองได้เลย ไม่ต้องประกาศซ้ำที่นี่ — ดูคอมเมนต์ของ
  * `toValidationIssue` ด้านล่าง)
@@ -21,6 +34,12 @@ const VALIDATION_CODE_DEF = {
   uriSchemeNotAllowed: 'uri_scheme_not_allowed',
   canvasSizeNotAllowed: 'canvas_size_not_allowed',
   areaOutOfBounds: 'area_out_of_bounds',
+  // Task 20 item 10 (ui-core L1) — DISPLAY_PERIOD_ORDER_CODE (ประกาศไว้แยกต่างหากด้านล่างเดิม)
+  // ย้ายเข้ามาที่นี่แล้ว: มันเคยอยู่นอก VALIDATION_CODE_DEF ทั้งที่คอมเมนต์ของ object นี้บอกตรง ๆ ว่า
+  // "เป็นที่เดียวที่พิมพ์สตริงพวกนี้" — ผลคือ VALIDATION_CODES (ด้านล่าง) มีแค่ 3 ตัวทั้งที่ไฟล์นี้
+  // ประกาศ code จริง 4 ตัว และ i18n.test.ts (packages/ui) ที่ import VALIDATION_CODES ไปตรวจว่า
+  // คำแปลครบทุก code ไม่เคยเห็น code ตัวที่สี่นี้เลย — guard เขียวได้โดยไม่ได้ตรวจ code ล่าสุด
+  displayPeriodOrderNotAfterStart: 'display_period_end_not_after_start',
 } as const
 
 export const VALIDATION_CODES: readonly string[] = Object.freeze(Object.values(VALIDATION_CODE_DEF))
@@ -54,6 +73,56 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('location'), label: z.string().min(1).max(20) }).strict(),
   z.object({ type: z.literal('richmenuswitch'), label, richMenuAliasId: z.string().min(1).max(32).regex(/^[a-z0-9_-]+$/), data: z.string().min(1).max(300) }).strict(),
   z.object({ type: z.literal('clipboard'), label, clipboardText: z.string().min(1).max(1000) }).strict(),
+])
+
+/**
+ * เวอร์ชันผ่อนปรนของ `actionSchema` สำหรับ**บันทึกร่าง**เท่านั้น — ยอมรับ action ที่กรอกไม่ครบ
+ * (เช่น `text: ''` ของ message, `uri: ''` ของ uri) เพราะปุ่ม "Save draft" ในฟอร์มสัญญาไว้ตรง ๆ ว่า
+ * บันทึกงานที่ยังไม่เสร็จได้ (`packages/ui/src/action-form.ts` — "draft ข้ามการ validate โดยเจตนา
+ * และไม่เคยหลุดออกจากฐานข้อมูลไปหา LINE") การเขียนลง DB จึงไม่ต้องรู้รูปทรงที่ LINE ต้องการ
+ *
+ * ยังคง `.strict()` และ `type`/enum/ความยาวสูงสุดไว้ทุกตัว — กันฟิลด์แปลกปลอมและกันสตริงยาวเกินจริง
+ * เหมือน `actionSchema` เป๊ะ ต่างกันแค่ไม่บังคับ "ต้องมีเนื้อหา" (`min(1)`) เพราะเป็นกฎของ
+ * "พร้อม publish" ไม่ใช่กฎของ "เก็บลง DB ได้"
+ *
+ * ข้อยกเว้นที่ตั้งใจไม่ผ่อน: **รูปแบบ**ของฟิลด์ที่มีความหมายด้านความปลอดภัยหรือใช้เป็น identifier
+ * (allowlist scheme ของ `uri`/`altUri.desktop`, regex ของ `richMenuAliasId`) — "กรอกไม่ครบ" ต้อง
+ * แปลว่า**ว่าง**เท่านั้น ไม่ใช่ "ค่าอะไรก็ได้" ไม่งั้นร่าง (ที่ไม่เคยหลุดออกจากฐานข้อมูลไปหา LINE
+ * ก็จริง แต่ก็ยังเป็นข้อมูลที่ระบบอื่นในแอดมินอาจอ่านย้อนได้) จะรับ `javascript:`/`data:`/`file:`
+ * เข้าไปเก็บในฐานข้อมูลได้ตั้งแต่ขอบของ route ทั้งที่ `actionSchema` เข้มเดิมกันเรื่องนี้ไว้ตรง ๆ
+ * (ดูเทสต์ "ปฏิเสธ uri scheme ที่อันตราย" ในทั้งสอง adapter) รูปแบบ `z.union([z.literal(''), ...])`
+ * ด้านล่างคือ "ว่างได้ หรือถ้าไม่ว่างต้องถูกรูปแบบเป๊ะเหมือน actionSchema" ไม่ใช่ผ่อนรูปแบบเลย
+ *
+ * `richMenuPayloadSchema` ด้านล่าง (เรียกผ่าน `validateRichMenu` ตอน publish จริง — ดู
+ * `packages/core/src/server/payload.ts:buildPayload`) ยังคงใช้ `actionSchema` ตัวเข้มเดิม
+ * ไม่เปลี่ยน เป็นด่านเดียวที่บังคับ "ครบตามที่ LINE ต้องการ" — สองชั้นนี้ต้องต่างกันโดยเจตนา
+ */
+const looseString = (max: number) => z.string().max(max)
+const emptyOr = <T extends z.ZodTypeAny>(schema: T) => z.union([z.literal(''), schema])
+
+export const draftActionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('postback'), label, data: looseString(300), displayText: z.string().max(300).optional() }).strict(),
+  z.object({ type: z.literal('message'), label, text: looseString(300) }).strict(),
+  z.object({
+    type: z.literal('uri'), label, uri: emptyOr(uriString),
+    altUri: z.object({ desktop: emptyOr(uriString) }).strict().optional(),
+  }).strict(),
+  z.object({
+    type: z.literal('datetimepicker'), label, data: looseString(300),
+    mode: z.enum(['date', 'time', 'datetime']),
+    initial: z.string().optional(), max: z.string().optional(), min: z.string().optional(),
+  }).strict(),
+  z.object({ type: z.literal('camera'), label: looseString(20) }).strict(),
+  z.object({ type: z.literal('cameraRoll'), label: looseString(20) }).strict(),
+  z.object({ type: z.literal('location'), label: looseString(20) }).strict(),
+  z.object({
+    type: z.literal('richmenuswitch'), label,
+    // regex เดิมใช้ `+` (อย่างน้อยหนึ่งตัว) ซึ่งปฏิเสธ '' เสมอ — ร่างที่ยังไม่เลือกเมนูปลายทาง
+    // ต้องเขียน '' ได้ จึงยอมทั้งค่าว่างหรือ slug ที่ถูกรูปแบบเท่านั้น ไม่ใช่ผ่อน regex ให้รับขยะ
+    richMenuAliasId: emptyOr(z.string().max(32).regex(/^[a-z0-9_-]+$/)),
+    data: looseString(300),
+  }).strict(),
+  z.object({ type: z.literal('clipboard'), label, clipboardText: looseString(1000) }).strict(),
 ])
 
 export const boundsSchema = z.object({
@@ -119,6 +188,39 @@ export function validateRichMenu(input: unknown): RichMenuPayload {
     )
   }
   return result.data as RichMenuPayload
+}
+
+/**
+ * รหัสที่ทั้งสอง adapter แนบไว้ใน `params.code` ตอน superRefine ของ `menuInputSchema` ปฏิเสธ
+ * ช่วงเวลาแสดงผลที่กลับหัว — เอกสารตัวเองว่าทำไม issue นี้เป็นของเรา ไม่ใช่ค่า 'custom' ดิบของ zod
+ * (ดูคอมเมนต์ที่ `toValidationIssue` ด้านบน) แม้ `http-error.ts` ของทั้งสอง adapter จะยังไม่ได้
+ * อ่าน `params` ตอนแปลง ZodError เป็น HTTP response ก็ตาม (ต่างจาก `toValidationIssue` ในไฟล์นี้)
+ *
+ * อ้างกลับไปที่ `VALIDATION_CODE_DEF` แทนพิมพ์ literal ซ้ำ (Task 20 item 10, ui-core L1) — สอง
+ * ค่าที่ประกาศแยกกันจะไม่ตรงกันในวันใดวันหนึ่งเสมอ และนั่นคือช่องโหว่เดิมของบรรทัดนี้พอดี
+ */
+export const DISPLAY_PERIOD_ORDER_CODE = VALIDATION_CODE_DEF.displayPeriodOrderNotAfterStart
+
+/**
+ * กฎเดียวที่ทั้งฟอร์มฝั่ง UI และ request schema ของทั้งสอง adapter ต้องเห็นตรงกัน: `endAt` ต้องอยู่
+ * "หลัง" `startAt` เสมอ ไม่ใช่แค่ "ไม่ก่อน" — อยู่ในไฟล์เดียวกับ validation อื่นของเมนูแทนที่จะให้
+ * แต่ละที่เขียนกฎเอง ซึ่งเป็นรูปแบบความผิดพลาดที่โปรเจกต์นี้เคยเจอมาแล้วครั้งหนึ่ง (rule ที่มีอยู่
+ * แค่ชั้น UI คือ rule ที่อะไรก็ตามที่ไม่ใช่ฟอร์มของเราเดินข้ามไปได้เฉย ๆ)
+ *
+ * หมายเหตุ: ช่วงเวลาแสดงผลนี้**ไม่ใช่แนวคิดของ LINE เอง** — มันไม่ได้อยู่ใน `RichMenuPayload`
+ * ที่ส่งให้ LINE เลยสักฟิลด์ (ดู `richMenuPayloadSchema` ด้านบน) แต่เป็นฟีเจอร์ของแอปนี้เอง ทำผ่าน
+ * แถวตาราง schedule ที่ยิง set-default/clear-default ตามเวลา (ดู menu-write.ts ของทั้งสอง adapter)
+ * จึงไม่มีเอกสาร API ของ LINE ให้ยึดว่า `endAt === startAt` ควรเป็นอะไร — **ที่นี่ถือว่าไม่ผ่าน**
+ * (เป็นการตัดสินใจของเจ้าของโปรดักต์ตรง ๆ ไม่ใช่ค่าที่ LINE กำหนด): ช่วงเวลาที่ยาวเป็นศูนย์ไม่แสดง
+ * เมนูให้ใครเห็นเลย ไม่ต่างจากไม่ตั้งช่วงเวลาที่ถูกต้องอะไรเลย
+ *
+ * คืน `true` (ผ่าน) ทันทีเมื่อฝั่งใดฝั่งหนึ่งว่าง (`null` ของ adapter หรือ `''` ของฟอร์ม — ยอมรับทั้ง
+ * สองแบบเพื่อให้ทั้งสองจุดเรียกไม่ต้องแปลงค่าก่อนเรียก) — "ยังไม่ระบุ" ไม่ใช่ช่วงเวลาที่ต้องเรียงลำดับ
+ * ตั้งแค่ฝั่งใดฝั่งหนึ่งไว้ก็เป็นค่าที่ถูกต้องอยู่แล้ว (schedule ฝั่งนั้นยิงเดี่ยว ๆ ได้ตามปกติ)
+ */
+export function isDisplayPeriodValid(startAt: string | null, endAt: string | null): boolean {
+  if (startAt === null || startAt === '' || endAt === null || endAt === '') return true
+  return new Date(endAt).getTime() > new Date(startAt).getTime()
 }
 
 /**

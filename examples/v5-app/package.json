@@ -1,0 +1,32 @@
+{
+  "name": "v5-app",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "develop": "strapi develop",
+    "start": "strapi start",
+    "build": "strapi build",
+    "seed": "node scripts/seed.js",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@strapi/plugin-users-permissions": "5.52.1",
+    "@strapi/provider-upload-cloudinary": "5.52.1",
+    "@strapi/strapi": "5.52.1",
+    "better-sqlite3": "11.3.0",
+    "pg": "8.12.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
+    "strapi-plugin-line-rich-menu": "file:.pack/strapi-plugin-line-rich-menu.tgz",
+    "strapi-provider-upload-absolute-url": "file:./providers/upload-absolute-url",
+    "styled-components": "^6.1.13"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "sharp": "0.35.3"
+  },
+  "engines": {
+    "node": ">=20.15.0"
+  }
+}

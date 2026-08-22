@@ -1,15 +1,24 @@
 import js from '@eslint/js'
+import reactHooks from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  // docs/ เก็บสเปก แผน และโค้ดอ้างอิงจากโปรเจกต์อื่น — ไม่ใช่ซอร์สของแพ็กเกจนี้
-  // examples/v4-app/{build,.strapi,.tmp,.pack} เป็นผลผลิตของ `strapi build` และ `npm pack`
-  // ไม่ใช่ซอร์ส — ถ้าไม่กันออก `pnpm lint` จะไปไล่บันเดิลของ admin ทั้งก้อน (หมื่นกว่า error)
+  // docs/superpowers/ เก็บสเปกและแผน ไม่ใช่ซอร์ส — ส่วน docs/tests/ กับ docs/vitest.config.ts
+  // เป็นโค้ดจริงที่ต้องถูก lint เหมือนทุกไฟล์ในรีโป การ ignore ทั้ง docs/** จะยกเว้นมันไปด้วย
+  // docs/files/ ไม่ได้ถูก track เลย (.gitignore) — ต้นทางอ้างอิงจากโปรเจกต์ลูกค้าที่ห้ามขึ้น repo
+  // สาธารณะ มีอยู่บนเครื่อง dev บางเครื่องเท่านั้น ต้องกันออกไม่งั้น `pnpm lint` จะพังบนเครื่องที่มีมัน
+  // แต่ผ่านบน CI เงียบ ๆ เพราะไฟล์ล็อกไม่เคยเห็นมันเลย ซึ่งเป็นด่านที่เขียว/แดงไม่ตรงกันโดยไม่มีใครรู้ตัว
+  // examples/*/{build,.strapi,.tmp,.pack,types} ทั้งหมดนี้เป็นผลผลิตของ `strapi build` (หรือ
+  // `strapi develop`) กับ `npm pack` ไม่ใช่ซอร์ส — ถ้าไม่กันออก `pnpm lint` จะไปไล่บันเดิลของ admin
+  // ทั้งก้อน (หมื่นกว่า error) หรือไล่ types/generated/*.d.ts ที่ Strapi เขียนเองตอน build ซึ่งเป็น
+  // ด่านเขียว/แดงไม่ตรงกันแบบเดียวกับ docs/files/ ข้างบน: เครื่องที่เพิ่ง build แล้วมีไฟล์นี้ค้างอยู่
+  // จะเจอ `pnpm lint` พังด้วย error ที่ตัวเองไม่ได้ก่อ ส่วน CI ที่ไม่เคย build ก่อน lint จะผ่านเงียบ ๆ
   {
     ignores: [
-      '**/dist/**', '**/coverage/**', '**/.stryker-tmp/**', 'docs/**',
-      'examples/v4-app/build/**', 'examples/v4-app/.strapi/**',
-      'examples/v4-app/.tmp/**', 'examples/v4-app/.pack/**',
+      '**/dist/**', '**/coverage/**', '**/.stryker-tmp/**', 'docs/superpowers/**', 'docs/screenshots/**',
+      'docs/files/**',
+      'examples/*/build/**', 'examples/*/.strapi/**',
+      'examples/*/.tmp/**', 'examples/*/.pack/**', 'examples/*/types/**',
     ],
   },
   js.configs.recommended,
@@ -42,9 +51,17 @@ export default tseslint.config(
     },
   },
   {
-    // examples/v4-app เป็นแอป Strapi 4 ของลูกค้า ไม่ใช่แพ็กเกจในเวิร์กสเปซ — config กับ script
-    // ของมันเป็น CommonJS ตามที่ Strapi 4 กำหนด ไม่ใช่ทางเลือกด้านสไตล์ที่จะแก้ให้ตรงกันได้
-    files: ['examples/v4-app/**/*.js'],
+    // สคริปต์ที่รันด้วย Node ตรง ๆ ไม่ได้ผ่าน bundler — เหตุผลเดียวกับบล็อกของ strapi-v4
+    files: ['packages/strapi-v5/scripts/**/*.mjs'],
+    languageOptions: {
+      sourceType: 'module',
+      globals: { process: 'readonly', console: 'readonly', URL: 'readonly', Buffer: 'readonly' },
+    },
+  },
+  {
+    // examples/* เป็นแอป Strapi ของลูกค้า ไม่ใช่แพ็กเกจในเวิร์กสเปซ — config กับ script
+    // ของมันเป็น CommonJS ตามที่ Strapi กำหนด (ทั้ง 4 และ 5) ไม่ใช่ทางเลือกด้านสไตล์
+    files: ['examples/*/**/*.js'],
     languageOptions: {
       sourceType: 'commonjs',
       globals: {
@@ -59,7 +76,7 @@ export default tseslint.config(
   {
     // `__dirname` อยู่ในนี้เพราะ playwright.config.ts ต้องใช้มันแทน `import.meta.url` —
     // Playwright แปลง config เป็น CJS และ `import.meta` ทำให้ Node สลับไปโหลดเป็น ESM แล้วล้ม
-    files: ['examples/v4-app/**/*.ts'],
+    files: ['examples/*/**/*.ts'],
     languageOptions: {
       globals: { process: 'readonly', Buffer: 'readonly', console: 'readonly', __dirname: 'readonly' },
     },
@@ -81,6 +98,18 @@ export default tseslint.config(
           { name: '@fosivo/line-rich-menu-core', message: 'ใช้ /browser เท่านั้น — "." ลาก sharp เข้าบันเดิล' },
         ],
       }],
+    },
+  },
+  {
+    // ยามที่ carry-forward ของ Plan 02 บันทึกว่าขาดอยู่: `RichMenuList` ใส่ `[channelId, http, t]`
+    // ไว้ใน dependency array ส่วน `ChannelSettings` ใช้ `useEffect(reload, [])` ที่ปิดทับ http/t
+    // สองสำนวนสำหรับเรื่องเดียวกันในไฟล์ที่อยู่ติดกัน — และเป็นความผิดพลาดที่ทำให้หน้าจอกะพริบ
+    // เป็นค่าว่างทุก render ถ้าเกิดกับ port ที่ adapter ประกอบ (ดูคอมเมนต์เหนือ HttpClient ใน port.ts)
+    files: ['packages/ui/**/*.{ts,tsx}', 'packages/strapi-v4/src/admin/**/*.{ts,tsx}', 'packages/strapi-v5/admin/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'error',
     },
   },
 )

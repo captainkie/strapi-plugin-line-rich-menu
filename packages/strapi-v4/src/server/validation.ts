@@ -1,10 +1,16 @@
 import { z } from 'zod'
-import { actionSchema, boundsSchema } from '@fosivo/line-rich-menu-core'
+import { boundsSchema, DISPLAY_PERIOD_ORDER_CODE, draftActionSchema, isDisplayPeriodValid } from '@fosivo/line-rich-menu-core'
 
 /**
- * `actionSchema` / `boundsSchema` ยืมมาจาก core ไม่ประกาศซ้ำ — สองที่ที่ประกาศกฎเดียวกัน
+ * `draftActionSchema` / `boundsSchema` ยืมมาจาก core ไม่ประกาศซ้ำ — สองที่ที่ประกาศกฎเดียวกัน
  * จะไม่ตรงกันในวันใดวันหนึ่งเสมอ แล้ว action ที่ผ่านด่าน route จะไปตายตอน publish แทน
  * ซึ่งเป็นตอนที่ผู้ใช้เสียเวลาไปแล้วและ LINE อาจถูกแตะไปแล้ว
+ *
+ * ใช้ `draftActionSchema` (ผ่อนปรน) แทน `actionSchema` (เข้ม) ที่ระดับ route — endpoint นี้คือ
+ * create/update ซึ่งเป็น "บันทึกร่าง" เสมอไม่ว่าผู้ใช้กดปุ่มไหน ("เผยแพร่" เป็นคำขอแยกต่างหากไป
+ * `POST /menus/:id/publish` ดู `menus.ts:publish`) รูปทรงที่ LINE ต้องการครบถูกบังคับที่ชั้น publish
+ * เท่านั้น ผ่าน `buildPayload`/`validateRichMenu` ใน `packages/core/src/server/payload.ts` ซึ่งยังใช้
+ * `actionSchema` ตัวเข้มเดิม — สองด่านนี้ต่างกันโดยเจตนา ดูคอมเมนต์เต็มที่ `draftActionSchema`
  */
 export const idParam = z.string().regex(/^\d+$/, 'id must be numeric')
 
@@ -33,7 +39,10 @@ export const menuInputSchema = z.object({
   chatBarMode: z.enum(['default', 'custom']),
   selected: z.boolean(),
   templateKey: z.string().max(64).nullable(),
-  areas: z.array(z.object({ bounds: boundsSchema, action: actionSchema }).strict()).min(1).max(20),
+  // min(0) ไม่ใช่ min(1) — ร่างที่ยังไม่ได้เลือก template เลยก็ต้องบันทึกได้ (bounds/areas ว่างเปล่า
+  // เป็นสถานะจริงของ `emptyDraft()` ใน RichMenuEditor.tsx) ผังต้องมีอย่างน้อยหนึ่งช่องก็ต่อเมื่อจะ
+  // publish เท่านั้น ซึ่งบังคับที่ `buildPayload` (`MenuNotReadyError('no_areas')`) ไม่ใช่ที่นี่
+  areas: z.array(z.object({ bounds: boundsSchema, action: draftActionSchema }).strict()).min(0).max(20),
   imageFileId: z.number().int().positive().nullable(),
   areaImages: z.array(z.object({ index: z.number().int().min(0).max(19), fileId: z.number().int().positive() }).strict()),
   // ตัวเดียวกับที่ LINE ยอมรับใน richMenuAliasId — ตรึงไว้ที่นี่ด้วยเพราะ alias เป็น slug
@@ -41,7 +50,18 @@ export const menuInputSchema = z.object({
   aliasId: z.string().regex(/^[a-z0-9_-]+$/).max(32).nullable(),
   startAt: isoDate.nullable(),
   endAt: isoDate.nullable(),
-}).strict()
+}).strict().superRefine((value, ctx) => {
+  // สเปกงานนี้ #4 — บังคับที่ขอบของ route ด้วย ไม่ใช่แค่ในฟอร์ม: RBAC กันคนนอกได้ แต่ไม่ได้การันตี
+  // ว่าผู้เรียกคือฟอร์มของเรา (ดูคอมเมนต์เต็มที่ isDisplayPeriodValid ใน packages/core)
+  if (!isDisplayPeriodValid(value.startAt, value.endAt)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endAt'],
+      message: 'endAt must be strictly after startAt',
+      params: { code: DISPLAY_PERIOD_ORDER_CODE },
+    })
+  }
+})
 
 export type MenuInput = z.infer<typeof menuInputSchema>
 

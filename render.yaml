@@ -1,0 +1,88 @@
+# Render reads this file to create/update the demo service. The image is already built by
+# .github/workflows/demo-image.yml — there is no `buildCommand` here on purpose. See
+# docs/DEMO.md ("Why the image is built in CI") for the measured reason Render's own free
+# instance never runs `strapi build` itself.
+#
+# One service only (see docs/DEMO.md): the LINE mock that the
+# demo talks to runs as a second process *inside* this same container
+# (examples/v5-app/docker-entrypoint.sh), not as a second Render service — two free services
+# sleep independently, so a visitor waking Strapi would hit a still-cold mock and see a
+# timeout that looks like the plugin is broken. LINE_API_BASE_URL / LINE_API_DATA_BASE_URL
+# below point at 127.0.0.1, the same container, not at a dashboard-filled value.
+services:
+  - type: web
+    name: line-rich-menu-demo
+    runtime: image
+    plan: free
+    # Closest region to the maintainers. Note that Render's free instance-hours are pooled per
+    # *workspace*, not per service — if you deploy this into a workspace that already runs
+    # something, they share one 750-hour allowance. See docs/DEMO.md.
+    region: singapore
+    image:
+      url: ghcr.io/captainkie/line-rich-menu-demo:latest
+    # NOT an uptime pinger, and does not conflict with the no-pinger rule below: Render's own
+    # docs describe this as (1) the readiness gate a new deploy must pass before traffic
+    # switches to it, and (2) a check against an *already-running* instance to detect a hung
+    # process — not a standing poll issued regardless of instance state. Confirmed empirically,
+    # not just by reading docs: a free-tier Render service with a health check configured,
+    # deployed once and then left alone for a month, still shows no quota suspension — had the
+    # health check counted as keep-alive traffic it would have run ~730 hours in that first
+    # month alone and been suspended for exceeding the 750-hour allowance. It was not. If this
+    # line is ever found to keep the instance perpetually awake, verify against Render support
+    # before assuming a different cause — do not delete it reflexively, since without it a hung
+    # instance keeps receiving traffic. Full reasoning in docs/DEMO.md, next to the no-pinger
+    # section.
+    healthCheckPath: /admin
+    envVars:
+      # ทุกตัวที่ sync: false ต้องกรอกในหน้า dashboard ครั้งเดียว — ห้ามมีค่าจริงในไฟล์นี้
+      - key: APP_KEYS
+        sync: false
+      - key: ADMIN_JWT_SECRET
+        generateValue: true
+      - key: API_TOKEN_SALT
+        generateValue: true
+      - key: TRANSFER_TOKEN_SALT
+        generateValue: true
+      # Separate from ADMIN_JWT_SECRET above — this is users-permissions' own secret
+      # (config/plugins.js). Outside NODE_ENV=development its bootstrap throws hard without
+      # one; the image has no .env file to silently generate it into. Found by booting the
+      # built image locally, see task-15-report.md.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: LINE_RM_ENCRYPTION_KEY
+        generateValue: true
+      # Neon — free and does not pause permanently the way Supabase/Aiven's free tiers do; it
+      # scale-to-zeros after 5 minutes idle and wakes on the next query instead.
+      # config/database.js reads DATABASE_URL as a single connection string when present —
+      # see docs/tests/demo.test.ts for the test that proves it, and .github/workflows/ci.yml
+      # for the DATABASE_HOST/PORT/... path this does not touch (that one still applies when
+      # DATABASE_URL is absent).
+      - key: DATABASE_CLIENT
+        value: postgres
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL
+        value: 'true'
+      # Cloudinary — required, not optional: Render free's disk is ephemeral, so anything
+      # saved to public/uploads vanishes on the next deploy or cold start. config/plugins.js
+      # switches to the Cloudinary provider automatically whenever CLOUDINARY_NAME is set.
+      - key: CLOUDINARY_NAME
+        sync: false
+      - key: CLOUDINARY_KEY
+        sync: false
+      - key: CLOUDINARY_SECRET
+        sync: false
+      # tools/line-mock running in-container, bound to 127.0.0.1 — not LINE's real API, and
+      # not a second Render service. See docker-entrypoint.sh and docs/DEMO.md.
+      - key: LINE_API_BASE_URL
+        value: http://127.0.0.1:4011
+      - key: LINE_API_DATA_BASE_URL
+        value: http://127.0.0.1:4011
+      # Off, deliberately — the scheduler is a real, tested feature (see the acceptance suite's
+      # scheduler test, 35/35 green) but a bad fit for an unattended public demo on a
+      # sleep-cycling free instance: a cron set for a specific minute will not fire if the
+      # container happens to be asleep then, which reads as "the plugin's scheduler is broken"
+      # to anyone testing it — the same failure shape the in-container LINE mock already avoids for the
+      # mock. Reasoning in full in docs/DEMO.md, next to the no-pinger section.
+      - key: LINE_RM_SCHEDULER
+        value: 'false'

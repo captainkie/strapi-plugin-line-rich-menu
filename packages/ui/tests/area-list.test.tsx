@@ -22,6 +22,20 @@ function setup(overrides: Partial<React.ComponentProps<typeof AreaList>> = {}) {
 }
 
 describe('AreaList', () => {
+  // สเปกงานนี้ #5 — เดิม hardcode #dcdce4 ตรง ๆ ต้องแดงถ้ามีใครใส่ hex กลับเข้าไป
+  it('เส้นขอบการ์ดของแต่ละช่องมาจาก theme ของ port ไม่ใช่ hex ที่ hardcode ไว้', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (k) => k, theme: { border: '#4a4a6a', surface: '', strongText: '', mutedText: '' } })}>
+        <AreaList
+          areas={areas} activeIndex={null} view="list"
+          onViewChange={() => {}} onSelect={() => {}} onChange={() => {}} aliasOptions={[]}
+        />
+      </PortProvider>,
+    )
+    expect(screen.getByTestId('area-header-0').closest('section')?.style.border)
+      .toContain('rgb(74, 74, 106)') // #4a4a6a
+  })
+
   it('มีหัวข้อหนึ่งอันต่อหนึ่งช่อง ติดป้าย A B C', () => {
     setup()
     for (const letter of ['A', 'B', 'C']) {
@@ -61,5 +75,85 @@ describe('AreaList', () => {
   it('ไม่มี error ก็ไม่มีเครื่องหมายอะไร', () => {
     setup()
     expect(screen.queryByTestId('area-error-0')).not.toBeInTheDocument()
+  })
+})
+
+describe('ปุ่มเพิ่ม/ลบช่อง', () => {
+  it('ปุ่มลบอยู่นอก <button> ของ accordion — ปุ่มซ้อนปุ่มเป็น HTML ที่ใช้ไม่ได้', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (k) => k })}>
+        <AreaList
+          areas={[emptyActionForm(), emptyActionForm()]}
+          activeIndex={null}
+          view="list"
+          onViewChange={() => {}}
+          onSelect={() => {}}
+          onChange={() => {}}
+          onAdd={() => {}}
+          onRemove={() => {}}
+          aliasOptions={[]}
+        />
+      </PortProvider>,
+    )
+    const remove = screen.getByTestId('area-remove-0')
+    expect(remove.closest('[data-testid="area-header-0"]')).toBeNull()
+  })
+
+  /**
+   * ปุ่มเพิ่มถูก disable ที่ 20 ช่องอยู่แล้ว (เพดานของ LINE เอง — สเปก §2.2) แต่ไม่มีคำอธิบายว่า
+   * ทำไมกดไม่ได้ — ผู้ใช้เห็นปุ่มเทาแล้วเดาเอาเองว่าเกิดอะไรขึ้น ข้อความนี้ตอบคำถามนั้นตรง ๆ
+   */
+  it('ครบ 20 ช่องแล้วมีข้อความบอกเพดานโผล่ข้างปุ่มเพิ่ม', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (k) => k })}>
+        <AreaList
+          areas={Array.from({ length: 20 }, () => emptyActionForm())}
+          activeIndex={null}
+          view="list"
+          onViewChange={() => {}}
+          onSelect={() => {}}
+          onChange={() => {}}
+          onAdd={() => {}}
+          aliasOptions={[]}
+        />
+      </PortProvider>,
+    )
+    expect(screen.getByText('editor.layout.limit')).toBeInTheDocument()
+  })
+
+  it('ยังไม่ครบ 20 ช่อง ไม่มีข้อความเพดานโผล่มา', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (k) => k })}>
+        <AreaList
+          areas={Array.from({ length: 19 }, () => emptyActionForm())}
+          activeIndex={null}
+          view="list"
+          onViewChange={() => {}}
+          onSelect={() => {}}
+          onChange={() => {}}
+          onAdd={() => {}}
+          aliasOptions={[]}
+        />
+      </PortProvider>,
+    )
+    expect(screen.queryByText('editor.layout.limit')).toBeNull()
+  })
+
+  it('ไม่ส่ง onAdd/onRemove มาก็ไม่มีปุ่มไหนโผล่', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (k) => k })}>
+        <AreaList
+          areas={[emptyActionForm()]}
+          activeIndex={null}
+          view="list"
+          onViewChange={() => {}}
+          onSelect={() => {}}
+          onChange={() => {}}
+          aliasOptions={[]}
+        />
+      </PortProvider>,
+    )
+    expect(screen.queryByTestId('area-add')).toBeNull()
+    expect(screen.queryByTestId('area-remove-0')).toBeNull()
   })
 })

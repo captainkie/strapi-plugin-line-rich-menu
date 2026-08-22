@@ -2,7 +2,12 @@
 .omc/
 
 # ต้นทางจากโปรเจกต์ลูกค้า — ใช้อ้างอิงระหว่าง port เท่านั้น ห้ามขึ้น repo สาธารณะ
+# LINE's own assets, kept locally for design work and never committed: this repository
+# publishes under AGPL to public npm, and committing them would mean granting a licence
+# over someone else's work that we do not hold. The Design guide modal links to LINE's
+# hosted copy instead.
 docs/files/
+docs/assets/files/
 
 # deps & build
 node_modules/
@@ -14,6 +19,10 @@ coverage/
 .stryker-tmp/
 reports/
 *.tsbuildinfo
+
+# คัดลอกจาก README.md ของ root ตอน build (docs/RELEASING.md ขั้นตอน "Before tagging") —
+# generated จากไฟล์อื่นเสมอ commit ทั้งสามฉบับแปลว่ามีสามที่ให้ลืมแก้
+packages/*/README.md
 
 # env & secrets
 .env
@@ -33,3 +42,12 @@ reports/
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# ผลผลิตของ examples/* — `strapi build`, `npm pack` และ log ของ scripts/e2e.sh
+examples/*/.tmp*
+examples/*/build
+examples/*/.strapi
+examples/*/.pack
+# แคชของตัวตรวจเวอร์ชันใน Strapi CLI — มีแต่ timestamp ที่เปลี่ยนทุกครั้งที่บูต
+# ไม่ใช่ผลของการตั้งค่าอะไร การ track มันแปลว่า `pnpm e2e:*` ทิ้ง diff ไว้ทุกรอบ
+examples/*/.strapi-updater.json

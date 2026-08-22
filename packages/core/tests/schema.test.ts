@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { ValidationError, type ValidationIssue } from '../src/errors.js'
-import { validateRichMenu, VALIDATION_CODES } from '../src/schema.js'
+import {
+  actionSchema, draftActionSchema, DISPLAY_PERIOD_ORDER_CODE, isDisplayPeriodValid, validateRichMenu,
+  VALIDATION_CODES,
+} from '../src/schema.js'
 
 /** เรียก validateRichMenu แล้วคืน issues ที่ได้ — ล้มเทสต์ถ้ามันดันผ่าน */
 function issuesOf(input: unknown): readonly ValidationIssue[] {
@@ -155,10 +158,16 @@ describe('validateRichMenu', () => {
   // code ออกจาก VALIDATION_CODE_DEF โดยที่ params: { code: ... } ยังอ้างถึงอยู่ ที่นี่จะพังก่อน
   // ให้เห็นตอนคอมไพล์อยู่แล้ว (ตัวแปรอ้างไม่ถึง) แต่ถ้าใครลบ entry ที่ไม่มี refinement ไหนอ้างถึง
   // เทสต์นี้จับ drift ของ "รายการ" ตรง ๆ แทนที่จะพึ่ง type error เพียงอย่างเดียว
-  it('VALIDATION_CODES มี code ที่ schema นี้ตั้งเองครบทั้ง 3 ตัว ไม่มากไม่น้อยกว่านี้', () => {
-    expect([...VALIDATION_CODES].sort()).toEqual(
-      ['area_out_of_bounds', 'canvas_size_not_allowed', 'uri_scheme_not_allowed'],
-    )
+  /**
+   * Task 20 item 10 (ui-core L1) — `display_period_end_not_after_start` ย้ายเข้ามาอยู่ใน
+   * VALIDATION_CODE_DEF แล้ว (เดิมอยู่นอกออบเจกต์นี้ ทำให้ i18n.test.ts ของ packages/ui ไม่เคยเห็น
+   * มันเลย) จำนวนจึงเป็น 4 ไม่ใช่ 3 อีกต่อไป
+   */
+  it('VALIDATION_CODES มี code ที่ schema นี้ตั้งเองครบทั้ง 4 ตัว ไม่มากไม่น้อยกว่านี้', () => {
+    expect([...VALIDATION_CODES].sort()).toEqual([
+      'area_out_of_bounds', 'canvas_size_not_allowed',
+      'display_period_end_not_after_start', 'uri_scheme_not_allowed',
+    ])
   })
 
   it('ทุก code ใน VALIDATION_CODES โผล่จริงเป็น issue.code เมื่อ payload ผิดแบบที่ code นั้นตรวจ', () => {
@@ -177,7 +186,13 @@ describe('validateRichMenu', () => {
     })
     expect(boundsIssues.map((i) => i.code)).toContain('area_out_of_bounds')
 
+    // display_period_end_not_after_start ตั้งใจไม่รวมในลูปนี้ — มันไม่ใช่ code ที่
+    // `richMenuPayloadSchema`/`validateRichMenu` ของไฟล์นี้ตรวจเลย (ช่วงเวลาแสดงผลไม่ใช่ฟิลด์ของ
+    // RichMenuPayload ที่ส่งให้ LINE — ดูคอมเมนต์เต็มที่ isDisplayPeriodValid ด้านล่าง) แต่ถูก
+    // emit จาก `menuInputSchema.superRefine` ของแต่ละ adapter (v4/v5 validation.ts) แทน — คนละ
+    // schema กับที่เทสต์นี้ทดสอบ การเช็ค "ครบทุก code" (test ก่อนหน้า) ยังคุมว่า i18n ครบอยู่
     for (const code of VALIDATION_CODES) {
+      if (code === DISPLAY_PERIOD_ORDER_CODE) continue
       const allEmitted = [...uriIssues, ...sizeIssues, ...boundsIssues].map((i) => i.code)
       expect(allEmitted, `${code} ไม่เคยถูกโค้ดจริง emit เลยสักครั้ง`).toContain(code)
     }
@@ -262,7 +277,97 @@ describe('validateRichMenu', () => {
   })
 })
 
+/**
+ * Task 20 item 1 (ui-core H2) — "Save draft" ต้องบันทึกงานที่ยังไม่เสร็จได้จริง `draftActionSchema`
+ * คือด่านเดียวที่ยอมให้ action ไม่ครบ ส่วน `actionSchema` (ตัวที่ `richMenuPayloadSchema` ใช้ตอน
+ * publish จริง) ต้องยังเข้มเหมือนเดิมทุกประการ — คู่เทสต์นี้พิสูจน์ว่าสอง schema "ต่างกันจริง"
+ * ไม่ใช่แค่คนละชื่อที่พฤติกรรมเหมือนกันโดยบังเอิญ (ทำลาย guard ก่อนเชื่อ — ดู working agreement)
+ */
+describe('draftActionSchema', () => {
+  it('ยอมรับ message.text ว่าง — actionSchema ตัวเข้มต้องปฏิเสธ payload เดียวกัน', () => {
+    const draft = { type: 'message' as const, text: '' }
+    expect(() => draftActionSchema.parse(draft)).not.toThrow()
+    expect(() => actionSchema.parse(draft)).toThrow()
+  })
+
+  it('ยอมรับ uri.uri ว่าง (ไม่ผ่าน new URL() แน่นอน) — actionSchema ต้องปฏิเสธ', () => {
+    const draft = { type: 'uri' as const, uri: '' }
+    expect(() => draftActionSchema.parse(draft)).not.toThrow()
+    expect(() => actionSchema.parse(draft)).toThrow()
+  })
+
+  /**
+   * ด่านนี้ต้อง**ไม่**ผ่อนตาม min(1) — "กรอกไม่ครบ" แปลว่าว่างเท่านั้น ไม่ใช่ "ค่าอะไรก็ได้"
+   * ไม่งั้นร่างจะรับ scheme อันตรายเข้าไปเก็บในฐานข้อมูลได้ตั้งแต่ขอบของ route (ดูคอมเมนต์เต็มที่
+   * `draftActionSchema`) เทสต์คู่กับ "ปฏิเสธ uri scheme ที่อันตราย ตั้งแต่ขอบของ route" ในทั้งสอง
+   * adapter ที่ยืนยันว่า menuInputSchema (ซึ่งใช้ draftActionSchema) ยังปฏิเสธเหมือนกัน
+   */
+  it('ปฏิเสธ uri ที่ไม่ว่างแต่ใช้ scheme อันตราย — ผ่อนแค่ "ว่างได้" ไม่ใช่ผ่อนรูปแบบ', () => {
+    for (const uri of ['javascript:alert(1)', 'data:text/html,x', 'file:///etc/passwd']) {
+      expect(() => draftActionSchema.parse({ type: 'uri', uri }), uri).toThrow()
+    }
+  })
+
+  it('ยอมรับ postback.data / datetimepicker.data / clipboard.clipboardText ว่าง', () => {
+    expect(() => draftActionSchema.parse({ type: 'postback', data: '' })).not.toThrow()
+    expect(() => draftActionSchema.parse({ type: 'datetimepicker', data: '', mode: 'date' })).not.toThrow()
+    expect(() => draftActionSchema.parse({ type: 'clipboard', clipboardText: '' })).not.toThrow()
+  })
+
+  it('ยอมรับ camera/cameraRoll/location ที่ label ว่าง — actionSchema ต้องปฏิเสธ (LINE บังคับ label เสมอ)', () => {
+    for (const type of ['camera', 'cameraRoll', 'location'] as const) {
+      const draft = { type, label: '' }
+      expect(() => draftActionSchema.parse(draft), type).not.toThrow()
+      expect(() => actionSchema.parse(draft), type).toThrow()
+    }
+  })
+
+  it('ยอมรับ richmenuswitch.richMenuAliasId ว่าง แต่ยังปฏิเสธ slug รูปแบบผิด (ไม่ใช่แค่ผ่อนให้รับขยะ)', () => {
+    expect(() => draftActionSchema.parse({ type: 'richmenuswitch', richMenuAliasId: '', data: '' })).not.toThrow()
+    expect(() => draftActionSchema.parse({ type: 'richmenuswitch', richMenuAliasId: 'Not Valid!', data: '' })).toThrow()
+  })
+
+  it('ยังคง .strict() — ฟิลด์แปลกปลอมถูกปฏิเสธเหมือน actionSchema', () => {
+    expect(() => draftActionSchema.parse({ type: 'message', text: '', evil: 1 })).toThrow()
+  })
+
+  it('ยังคงเพดานความยาวสูงสุดไว้เหมือน actionSchema — ผ่อนแค่ "ต้องมีเนื้อหา" ไม่ใช่ผ่อนทุกอย่าง', () => {
+    expect(() => draftActionSchema.parse({ type: 'message', text: 'x'.repeat(301) })).toThrow()
+  })
+})
+
 import fc from 'fast-check'
+
+// สเปกงานนี้ #4 — ไม่มีการตรวจลำดับ startAt/endAt อยู่ที่ไหนเลยก่อนหน้านี้ (ไม่ใช่แค่ในฟอร์ม
+// ไม่ใช่แค่ใน packages/core ไม่ใช่ใน schema ของ adapter ไหนเลย) เมนูที่ endAt มาก่อน startAt
+// บันทึกผ่านได้เงียบ ๆ แล้วไม่แสดงให้ใครเห็นเลย
+describe('isDisplayPeriodValid', () => {
+  it('ปฏิเสธเมื่อ endAt มาก่อน startAt', () => {
+    expect(isDisplayPeriodValid('2026-09-30T00:00:00.000Z', '2026-09-01T00:00:00.000Z')).toBe(false)
+  })
+
+  // การตัดสินใจของเจ้าของโปรดักต์ (ไม่ใช่ค่าที่ LINE เอกสารไว้ — ดูคอมเมนต์ที่ schema.ts):
+  // endAt === startAt ถือว่าไม่ผ่าน เพราะเป็นช่วงเวลายาวเป็นศูนย์ ไม่แสดงเมนูให้ใครเลย
+  it('ปฏิเสธเมื่อ endAt เท่ากับ startAt เป๊ะ', () => {
+    expect(isDisplayPeriodValid('2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')).toBe(false)
+  })
+
+  it('ผ่านเมื่อ endAt อยู่หลัง startAt', () => {
+    expect(isDisplayPeriodValid('2026-09-01T00:00:00.000Z', '2026-09-30T00:00:00.000Z')).toBe(true)
+  })
+
+  it('ผ่านเมื่อฝั่งใดฝั่งหนึ่ง (หรือทั้งคู่) เป็น null — ยังไม่ระบุไม่ใช่ช่วงเวลาที่ต้องเรียงลำดับ', () => {
+    expect(isDisplayPeriodValid(null, '2026-09-30T00:00:00.000Z')).toBe(true)
+    expect(isDisplayPeriodValid('2026-09-01T00:00:00.000Z', null)).toBe(true)
+    expect(isDisplayPeriodValid(null, null)).toBe(true)
+  })
+
+  // ฟอร์มฝั่ง UI เก็บค่าที่ยังไม่ตั้งเป็น '' (ไม่ใช่ null) — ต้องรับได้เหมือนกันโดยไม่ต้องแปลงก่อนเรียก
+  it('ผ่านเมื่อฝั่งใดฝั่งหนึ่งเป็นสตริงว่าง เหมือนกับ null', () => {
+    expect(isDisplayPeriodValid('', '2026-09-30T00:00:00.000Z')).toBe(true)
+    expect(isDisplayPeriodValid('2026-09-01T00:00:00.000Z', '')).toBe(true)
+  })
+})
 
 describe('property: bounds ที่ล้นกรอบต้องถูกปฏิเสธเสมอ', () => {
   it('ไม่ว่าจะสุ่มยังไง ถ้า x+width เกิน 2500 ต้องไม่ผ่าน', () => {

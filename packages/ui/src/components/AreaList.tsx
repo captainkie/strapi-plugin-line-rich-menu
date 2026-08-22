@@ -14,6 +14,9 @@ export interface AreaListProps {
   onChange(index: number, next: ActionFormState): void
   aliasOptions: readonly string[]
   errors?: Readonly<Record<number, string>>
+  /** ส่งมาเฉพาะตอนที่โหมดปรับผังเองเปิดอยู่ — ไม่ส่ง = ไม่มีปุ่มเพิ่ม/ลบเลยสักปุ่ม */
+  onAdd?(): void
+  onRemove?(index: number): void
 }
 
 /**
@@ -23,9 +26,9 @@ export interface AreaListProps {
  * สองเวอร์ชันที่อาจ implement accordion ต่างกัน (เช่น Modal/Collapse ของ DS v1 vs v2)
  */
 export function AreaList({
-  areas, activeIndex, view, onViewChange, onSelect, onChange, aliasOptions, errors,
+  areas, activeIndex, view, onViewChange, onSelect, onChange, aliasOptions, errors, onAdd, onRemove,
 }: AreaListProps) {
-  const { ui, t } = usePort()
+  const { ui, t, theme } = usePort()
 
   return (
     <ui.Flex direction="column" gap={2}>
@@ -38,6 +41,22 @@ export function AreaList({
           <ui.IconButton label={t('editor.view.expanded')} onClick={() => onViewChange('expanded')} testId="view-expanded">
             ⛶
           </ui.IconButton>
+          {onAdd === undefined ? null : (
+            <ui.Button
+              variant="secondary"
+              testId="area-add"
+              // เพดาน 20 ช่องเป็นข้อจำกัดของ LINE เอง (สเปก §2.2) ไม่ใช่ตัวเลขที่เราเลือก
+              disabled={areas.length >= 20}
+              onClick={onAdd}
+            >
+              {t('editor.layout.add')}
+            </ui.Button>
+          )}
+          {/* ปุ่มเพิ่มถูก disable ไว้เฉย ๆ ที่ 20 ช่องบอกอะไรผู้ใช้ไม่ได้เลยว่าทำไมกดไม่ได้ —
+              ข้อความนี้ตอบคำถามนั้นตรง ๆ แทนที่จะปล่อยให้เดาว่าเป็นบั๊กหรือของจริง */}
+          {onAdd !== undefined && areas.length >= 20 ? (
+            <ui.Typography variant="pi" textColor="neutral600">{t('editor.layout.limit')}</ui.Typography>
+          ) : null}
         </ui.Flex>
       </ui.Flex>
 
@@ -45,22 +64,39 @@ export function AreaList({
         const error = errors?.[index]
         const open = view === 'expanded' || activeIndex === index
         return (
-          <section key={index} style={{ border: '1px solid #dcdce4', borderRadius: 4 }}>
-            <button
-              type="button"
-              data-testid={`area-header-${index}`}
-              aria-expanded={open}
-              onClick={() => onSelect(index)}
-              style={{
-                width: '100%', display: 'flex', justifyContent: 'space-between',
-                padding: '.6rem .8rem', background: 'none', border: 'none', cursor: 'pointer',
-              }}
-            >
-              <span>{areaLabel(index)}</span>
-              {error === undefined ? null : (
-                <span data-testid={`area-error-${index}`} style={{ color: INVALID_COLOR }}>{error}</span>
+          // เส้นขอบการ์ดแต่ละช่องเป็น chrome ของ Strapi ล้วน ๆ (ไม่ใช่ของ LINE) ต้องตามธีมมืด/สว่าง
+          // จริง — เดิม hardcode #dcdce4 (ตรงกับ colors.neutral200 ของธีมสว่างเป๊ะ) ซึ่งเป็นเส้นขอบซีด
+          // แทบมองไม่เห็นบนพื้นเข้ม (สเปกงานนี้ #5)
+          <section key={index} style={{ border: `1px solid ${theme.border}`, borderRadius: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <button
+                type="button"
+                data-testid={`area-header-${index}`}
+                aria-expanded={open}
+                onClick={() => onSelect(index)}
+                style={{
+                  width: '100%', display: 'flex', justifyContent: 'space-between',
+                  padding: '.6rem .8rem', background: 'none', border: 'none', cursor: 'pointer',
+                }}
+              >
+                <span>{areaLabel(index)}</span>
+                {error === undefined ? null : (
+                  <span data-testid={`area-error-${index}`} style={{ color: INVALID_COLOR }}>{error}</span>
+                )}
+              </button>
+              {onRemove === undefined ? null : (
+                <ui.IconButton
+                  label={t('editor.layout.remove')}
+                  testId={`area-remove-${index}`}
+                  // เหลือศูนย์ช่องแล้ว payload จะถูก LINE ปฏิเสธด้วย "1–20 ช่อง" โดยที่ผู้ใช้
+                  // ไม่มีทางรู้ว่าตัวเองทำอะไรผิด กันไว้ที่นี่ตั้งแต่ต้น
+                  disabled={areas.length <= 1}
+                  onClick={() => onRemove(index)}
+                >
+                  ✕
+                </ui.IconButton>
               )}
-            </button>
+            </div>
             {open ? (
               <div data-testid={`area-body-${index}`} style={{ padding: '.8rem' }}>
                 <ActionForm

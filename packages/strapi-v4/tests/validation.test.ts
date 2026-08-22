@@ -45,14 +45,62 @@ describe('menuInputSchema', () => {
     }
   })
 
-  it('จำกัดจำนวนช่องที่ 1–20 และ chatBarText ที่ 14 ตัว', () => {
-    expect(() => menuInputSchema.parse({ ...validMenu, areas: [] })).toThrow(ZodError)
+  it('จำกัดจำนวนช่องที่สูงสุด 20 และ chatBarText ที่ 14 ตัว', () => {
+    expect(() => menuInputSchema.parse({
+      ...validMenu, areas: Array.from({ length: 21 }, () => validMenu.areas[0]),
+    })).toThrow(ZodError)
     expect(() => menuInputSchema.parse({ ...validMenu, chatBarText: 'x'.repeat(15) })).toThrow(ZodError)
+  })
+
+  /**
+   * Task 20 item 1 (ui-core H2) — "Save draft" ต้องบันทึกงานที่ยังไม่เสร็จได้จริง เดิม `areas`
+   * บังคับ `min(1)` และ `action` ต้องครบทุกฟิลด์ ทำให้ create/update ปฏิเสธร่างที่ยังไม่ได้เลือก
+   * template หรือกรอก action ไม่ครบ — ปุ่มที่สอง (Save draft) จึงใช้บันทึกงานค้างไม่ได้เลยสักครั้ง
+   * ต้อง**ทำลาย guard นี้ก่อนเชื่อ**: ก่อนแก้ ทั้งสอง case ด้านล่างโยน ZodError ทั้งคู่
+   */
+  it('ยอมรับ areas ว่างเปล่า — ร่างที่ยังไม่ได้เลือก template ต้องบันทึกได้', () => {
+    expect(() => menuInputSchema.parse({ ...validMenu, areas: [] })).not.toThrow()
+  })
+
+  it('ยอมรับ action ที่กรอกไม่ครบ (text ว่าง) ในร่าง — ปุ่ม Save draft ต้องใช้ได้จริง', () => {
+    const incomplete = [{ bounds: validMenu.areas[0]!.bounds, action: { type: 'message', text: '' } }]
+    expect(() => menuInputSchema.parse({ ...validMenu, areas: incomplete })).not.toThrow()
   })
 
   it('aliasId ต้องเป็น slug ที่ LINE ยอมรับ', () => {
     expect(() => menuInputSchema.parse({ ...validMenu, aliasId: 'Tab A!' })).toThrow(ZodError)
     expect(menuInputSchema.parse({ ...validMenu, aliasId: null }).aliasId).toBeNull()
+  })
+
+  // สเปกงานนี้ #4 — เกตนี้ต้องอยู่ที่ขอบของ route ด้วย ไม่ใช่แค่ในฟอร์ม เพราะ RBAC กันคนนอกได้
+  // แต่ไม่ได้การันตีว่าผู้เรียกคือฟอร์มของเรา (คำขอที่ข้ามฟอร์มมาตรง ๆ ต้องโดนปฏิเสธเหมือนกัน)
+  describe('ช่วงเวลาแสดงผล (startAt/endAt)', () => {
+    it('ปฏิเสธเมื่อ endAt มาก่อน startAt', () => {
+      expect(() => menuInputSchema.parse({
+        ...validMenu, startAt: '2026-09-30T00:00:00.000Z', endAt: '2026-09-01T00:00:00.000Z',
+      })).toThrow(ZodError)
+    })
+
+    it('ปฏิเสธเมื่อ endAt เท่ากับ startAt เป๊ะ — ช่วงเวลายาวเป็นศูนย์ไม่แสดงเมนูให้ใครเลย', () => {
+      expect(() => menuInputSchema.parse({
+        ...validMenu, startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-01T00:00:00.000Z',
+      })).toThrow(ZodError)
+    })
+
+    it('ยอมรับเมื่อ endAt อยู่หลัง startAt', () => {
+      expect(() => menuInputSchema.parse({
+        ...validMenu, startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-30T00:00:00.000Z',
+      })).not.toThrow()
+    })
+
+    it('ยอมรับเมื่อฝั่งใดฝั่งหนึ่งเป็น null — ยังไม่ระบุไม่ใช่ช่วงเวลาที่ต้องเรียงลำดับ', () => {
+      expect(() => menuInputSchema.parse({
+        ...validMenu, startAt: null, endAt: '2026-09-30T00:00:00.000Z',
+      })).not.toThrow()
+      expect(() => menuInputSchema.parse({
+        ...validMenu, startAt: '2026-09-01T00:00:00.000Z', endAt: null,
+      })).not.toThrow()
+    })
   })
 })
 

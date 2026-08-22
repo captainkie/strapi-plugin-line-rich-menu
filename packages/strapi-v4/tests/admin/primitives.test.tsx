@@ -101,6 +101,44 @@ describe('TextInput', () => {
   })
 })
 
+describe('DatePicker / TimePicker', () => {
+  // สเปกงานนี้ #4 — ยืมปฏิทินของ DS v1 (DatePickerField ห่อ Field ให้เองครบ) แทนวาดเอง
+  it('DatePicker วาด label ออกมาให้อ่านได้', () => {
+    const html = draw(
+      <primitives.DatePicker name="startDate" value={new Date(2026, 7, 20)} onChange={() => {}} label="วันที่เริ่ม" />,
+    )
+    expect(html).toContain('วันที่เริ่ม')
+  })
+
+  it('DatePicker ไม่มี label ก็ไม่พังทั้งหน้า — ใช้ name เป็นชื่อสำรอง เหมือน TextInput', () => {
+    const html = draw(<primitives.DatePicker name="startDate" value={null} onChange={() => {}} />)
+    expect(html).toContain('aria-label="startDate"')
+  })
+
+  it('DatePicker วาด error ที่ส่งมาให้อ่านได้ ไม่ใช่ถูกกลืน', () => {
+    const html = draw(
+      <primitives.DatePicker name="startDate" value={null} onChange={() => {}} label="วันที่เริ่ม" error="ผิดพลาด" />,
+    )
+    expect(html).toContain('ผิดพลาด')
+  })
+
+  // ค่าที่แสดงจริงของ TimePicker (`textValue`) มาจาก `useLayoutEffect` ภายใน DS v1 ซึ่งไม่ทำงานบน
+  // renderToStaticMarkup (ดูคอมเมนต์ `SILENCED` ที่หัวไฟล์) — เทสต์นี้จึงเช็คได้แค่ label กับว่า
+  // `name` ไปถึง <input> จริง ไม่ใช่ค่าที่แสดงบนจอ (ต้องพิสูจน์ทางอื่นถ้าจะเช็คค่าแสดงจริง)
+  it('TimePicker วาด label และส่ง name ไปถึง <input> จริง', () => {
+    const html = draw(
+      <primitives.TimePicker name="startTime" value="09:05" onChange={() => {}} label="เวลาเริ่ม" />,
+    )
+    expect(html).toContain('เวลาเริ่ม')
+    expect(html).toContain('name="startTime"')
+  })
+
+  it('TimePicker ไม่มี label ก็ไม่พังทั้งหน้า — ใช้ name เป็นชื่อสำรอง', () => {
+    const html = draw(<primitives.TimePicker name="startTime" value="" onChange={() => {}} />)
+    expect(html).toContain('aria-label="startTime"')
+  })
+})
+
 describe('RadioGroup + Radio', () => {
   const group = (
     <primitives.RadioGroup name="mode" value="custom" onChange={() => {}} label="ป้ายแถบเมนู">
@@ -153,6 +191,30 @@ describe('Button / IconButton', () => {
     expect(html).toContain('☰')
     expect(html).toContain('data-testid="view-list"')
     expect(html).toContain('รายการ')
+  })
+})
+
+describe('Page', () => {
+  // ยามคู่กับเทสต์ "จับคู่ครบทุกตัว" ข้างบน — completeness เช็คแค่ว่า key มีอยู่และเป็นฟังก์ชัน
+  // ไม่เคยเรียกมันจริง `Page` ที่ลืมวาง `children` ไว้ (เช่น implement แล้วส่ง children ต่อผิดจุด)
+  // จะยังผ่าน completeness ได้สบาย ๆ ทั้งที่หน้าจอทุกหน้าที่ห่อด้วย Page จะว่างเปล่า
+  it('วาด title เป็น heading จริงและวาด children ให้ครบ ไม่ใช่กลืนทิ้ง', () => {
+    const html = draw(
+      <primitives.Page title="หัวข้อหน้า">
+        <span>เนื้อหาหน้า</span>
+      </primitives.Page>,
+    )
+    expect(html).toMatch(/<h1[^>]*>หัวข้อหน้า<\/h1>/)
+    expect(html).toContain('เนื้อหาหน้า')
+  })
+
+  it('วาด actions ที่ส่งมาด้วย ไม่ใช่แค่ title กับ children', () => {
+    const html = draw(
+      <primitives.Page title="หัวข้อ" actions={<button type="button">save</button>}>
+        เนื้อหา
+      </primitives.Page>,
+    )
+    expect(html).toContain('>save<')
   })
 })
 

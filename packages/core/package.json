@@ -1,6 +1,7 @@
 {
   "name": "@fosivo/line-rich-menu-core",
   "version": "0.0.0",
+  "private": true,
   "type": "module",
   "engines": {
     "node": ">=20.15.0"

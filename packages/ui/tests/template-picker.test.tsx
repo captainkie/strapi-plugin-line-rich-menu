@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { TEMPLATES } from '@fosivo/line-rich-menu-core/browser'
 import { PortProvider } from '../src/port.js'
 import { createStubPort } from '../src/stub-port.js'
 import { TemplatePicker } from '../src/components/TemplatePicker.js'
@@ -10,7 +11,7 @@ function setup(overrides: Partial<React.ComponentProps<typeof TemplatePicker>> =
   render(
     <PortProvider value={createStubPort({ t: (key) => key })}>
       <TemplatePicker
-        currentKey={null} hasConfiguredActions={false} hasImage={false}
+        currentKey={null} currentSize={null} hasConfiguredActions={false} hasImage={false}
         onApply={onApply} onClose={onClose} {...overrides}
       />
     </PortProvider>,
@@ -19,6 +20,21 @@ function setup(overrides: Partial<React.ComponentProps<typeof TemplatePicker>> =
 }
 
 describe('TemplatePicker', () => {
+  // สเปกงานนี้ #5 — จำนวนช่องใต้ thumbnail เดิม hardcode #32324d ตรง ๆ ต้องแดงถ้ามีใครใส่กลับ
+  it('สีตัวอักษรจำนวนช่องมาจาก theme ของ port ไม่ใช่ hex ที่ hardcode ไว้', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (key) => key, theme: { border: '', surface: '', strongText: '#ffffff', mutedText: '' } })}>
+        <TemplatePicker
+          currentKey={null} currentSize={null} hasConfiguredActions={false} hasImage={false}
+          onApply={vi.fn()} onClose={vi.fn()}
+        />
+      </PortProvider>,
+    )
+    const counts = screen.getAllByText('template.picker.areaCount.one')
+    expect(counts.length).toBeGreaterThan(0)
+    expect(counts[0]!.style.color).toBe('rgb(255, 255, 255)')
+  })
+
   it('แสดง Large 7 แบบ และ Compact 5 แบบ', () => {
     setup()
     expect(screen.getAllByTestId(/^template-option-RICH_MENU_TEMPLATE_2/)).toHaveLength(7)
@@ -53,7 +69,7 @@ describe('TemplatePicker', () => {
     render(
       <PortProvider value={createStubPort({ t })}>
         <TemplatePicker
-          currentKey={null} hasConfiguredActions={false} hasImage={false}
+          currentKey={null} currentSize={null} hasConfiguredActions={false} hasImage={false}
           onApply={vi.fn()} onClose={vi.fn()}
         />
       </PortProvider>,
@@ -69,7 +85,7 @@ describe('TemplatePicker', () => {
     render(
       <PortProvider value={createStubPort({ t })}>
         <TemplatePicker
-          currentKey={null} hasConfiguredActions={false} hasImage={false}
+          currentKey={null} currentSize={null} hasConfiguredActions={false} hasImage={false}
           onApply={vi.fn()} onClose={vi.fn()}
         />
       </PortProvider>,
@@ -82,6 +98,19 @@ describe('TemplatePicker', () => {
     setup({ currentKey: 'RICH_MENU_TEMPLATE_203' })
     expect(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_203'))
       .toHaveAttribute('aria-pressed', 'true')
+  })
+
+  // สเปกงานนี้ #1 — LINE OA Manager ไฮไลต์แบบที่เลือกด้วยกรอบ+พื้นหลังเขียว ไม่ใช่สี indigo ของ
+  // Strapi ที่แบบทุกแบบเคยใช้เหมือนกันหมดไม่ว่าจะเลือกอยู่หรือไม่
+  it('แบบที่เลือกไว้มีกรอบและพื้นหลังเขียว LINE แบบที่ไม่ได้เลือกไม่มี', () => {
+    setup({ currentKey: 'RICH_MENU_TEMPLATE_203' })
+    const selected = screen.getByTestId('template-option-RICH_MENU_TEMPLATE_203')
+    expect(selected.style.border).toBe('2px solid rgb(6, 199, 85)') // LINE_GREEN
+    expect(selected.style.background).toBe('rgba(6, 199, 85, 0.08)') // LINE_SELECTED_TINT
+
+    const unselected = screen.getByTestId('template-option-RICH_MENU_TEMPLATE_205')
+    expect(unselected.style.border).not.toContain('rgb(6, 199, 85)')
+    expect(unselected.style.background).toBe('none')
   })
 
   it('เลือกแล้วกด apply ส่ง key กลับไป', () => {
@@ -125,7 +154,10 @@ describe('TemplatePicker', () => {
   // A1 — สเปก §5.6.3: เปลี่ยนขนาดผืนผ้าใบ (large ↔ compact) ทำให้รูปเดิมไม่พอดีอีกต่อไป
   // ต้องถามยืนยันเหมือนตอนมี action ที่จะเสีย แม้ไม่มี action ให้เสียเลยก็ตาม
   it('ถามยืนยันก่อน เมื่อมีรูปอยู่แล้วและ template ใหม่เปลี่ยนขนาดผืนผ้าใบ', () => {
-    const { onApply } = setup({ hasImage: true, currentKey: 'RICH_MENU_TEMPLATE_201' })
+    const { onApply } = setup({
+      hasImage: true, currentKey: 'RICH_MENU_TEMPLATE_201',
+      currentSize: TEMPLATES['RICH_MENU_TEMPLATE_201']!.size,
+    })
     fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_101'))
     fireEvent.click(screen.getByTestId('template-apply'))
     expect(onApply).not.toHaveBeenCalled()
@@ -136,20 +168,65 @@ describe('TemplatePicker', () => {
   })
 
   it('ไม่ถามเมื่อมีรูปอยู่แล้ว แต่ template ใหม่ขนาดผืนผ้าใบเท่าเดิม', () => {
-    const { onApply } = setup({ hasImage: true, currentKey: 'RICH_MENU_TEMPLATE_201' })
+    const { onApply } = setup({
+      hasImage: true, currentKey: 'RICH_MENU_TEMPLATE_201',
+      currentSize: TEMPLATES['RICH_MENU_TEMPLATE_201']!.size,
+    })
     fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_205'))
     fireEvent.click(screen.getByTestId('template-apply'))
     expect(onApply).toHaveBeenCalledWith('RICH_MENU_TEMPLATE_205')
+  })
+
+  /**
+   * Task 20 item 8 (ui-core M1) repro ตรงจากรีวิว — โหมดปรับผังเองเคลียร์ `templateKey` เป็น
+   * `null` ทันทีที่ผู้ใช้ขยับช่องแรก (ดูคอมเมนต์เต็มที่ prop `currentSize` ใน TemplatePicker.tsx)
+   * แต่ขนาดผืนผ้าใบจริงยังอยู่ — `currentKey: null` ที่นี่จำลองสถานะนั้นตรง ๆ ก่อนแก้ ผลลัพธ์คือ
+   * currentSize ถูก derive จาก currentKey (null) เสมอ ทำให้เคสนี้เตือน/ทิ้งรูปผิด ๆ ทั้งที่ขนาด
+   * ผืนผ้าใบไม่ได้เปลี่ยนจริง
+   */
+  it('โหมดปรับผังเอง (currentKey เป็น null แต่ currentSize ยังมีค่า) เลือก template ขนาดเดิม ไม่ถามและไม่ทิ้งรูป', () => {
+    const { onApply } = setup({
+      hasImage: true, currentKey: null, currentSize: TEMPLATES['RICH_MENU_TEMPLATE_201']!.size,
+    })
+    // RICH_MENU_TEMPLATE_205 เป็น large เหมือน 201 เป๊ะ (ขนาดเดิม) — ต้องไม่ถามยืนยัน
+    fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_205'))
+    fireEvent.click(screen.getByTestId('template-apply'))
+    expect(onApply).toHaveBeenCalledWith('RICH_MENU_TEMPLATE_205')
+  })
+
+  it('โหมดปรับผังเอง (currentKey เป็น null) เลือก template ขนาดต่างออกไป ยังต้องถามยืนยันเหมือนเดิม', () => {
+    const { onApply } = setup({
+      hasImage: true, currentKey: null, currentSize: TEMPLATES['RICH_MENU_TEMPLATE_201']!.size,
+    })
+    // RICH_MENU_TEMPLATE_101 เป็น compact — ขนาดต่างจาก large ของ currentSize จริง ๆ
+    fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_101'))
+    fireEvent.click(screen.getByTestId('template-apply'))
+    expect(onApply).not.toHaveBeenCalled()
+    expect(screen.getByTestId('discard-image-warning')).toBeInTheDocument()
   })
 
   it('ทุกข้อความที่ผู้ใช้เห็นผ่าน port.t ไม่มี hardcode', () => {
     const t = vi.fn((key: string) => `T:${key}`)
     render(
       <PortProvider value={createStubPort({ t })}>
-        <TemplatePicker currentKey={null} hasConfiguredActions={false} hasImage={false}
+        <TemplatePicker currentKey={null} currentSize={null} hasConfiguredActions={false} hasImage={false}
           onApply={vi.fn()} onClose={vi.fn()} />
       </PortProvider>,
     )
     expect(t).toHaveBeenCalledWith('template.picker.title')
+  })
+
+  /**
+   * `<span data-testid>` ที่อยู่ **ข้างใน** `ui.Button` คือรูปแบบต้องห้ามที่ตั้งอยู่ข้าง ๆ
+   * รูปแบบที่ถูกต้อง (`testId` บนตัว Button เอง) — วันนี้ไม่มีอะไรผิดเพราะไม่มีเทสต์ไหน
+   * `toBeDisabled()` กับสองปุ่มนั้น แต่นั่นคือวิธีที่รูปแบบผิดแพร่กระจาย
+   */
+  it('testid ทุกตัวอยู่บนปุ่มที่กดได้จริง ไม่ใช่บน span ข้างใน', () => {
+    setup({ hasConfiguredActions: true, currentKey: 'RICH_MENU_TEMPLATE_201' })
+    fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_205'))
+    fireEvent.click(screen.getByTestId('template-apply'))
+    for (const id of ['template-confirm', 'template-cancel-confirm']) {
+      expect(screen.getByTestId(id).tagName, id).toBe('BUTTON')
+    }
   })
 })

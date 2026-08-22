@@ -1,0 +1,16 @@
+node_modules/
+build/
+.strapi/
+# `strapi develop` generates these on every boot (types/generated/*.d.ts) — not present before
+# because examples/v5-app was only ever booted with `strapi start` (e2e.sh), which doesn't
+# generate them. Caught while verifying `pnpm --filter ./examples/v5-app develop` still boots
+# after Task 15's config changes — see task-15-report.md.
+types/
+.tmp/
+.cache/
+test-results/
+playwright-report/
+public/uploads/*
+!public/uploads/.gitkeep
+.tmp-*.log
+.pack/

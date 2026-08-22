@@ -39,6 +39,22 @@ describe('CanvasEditor', () => {
     expect(screen.getAllByText('833×843').length).toBeGreaterThan(0)
   })
 
+  // สเปกงานนี้ #5 — ไม่ส่ง `theme` มา ต้องได้ค่าธีมสว่างของ Strapi เป๊ะเหมือนเดิมทุกประการ
+  // (จุดเรียกเดิม/เทสต์ที่ render ตรง ๆ โดยไม่มี PortProvider ต้องไม่เปลี่ยนพฤติกรรม)
+  it('ไม่ส่ง theme มา ใช้ค่าธีมสว่างดีฟอลต์ — พื้นหลังและตัวอักษรเหมือนเดิมก่อนมีสเปกงานนี้', () => {
+    setup()
+    expect(screen.getByTestId('rich-menu-canvas').style.backgroundColor).toBe('rgb(234, 234, 239)') // #eaeaef
+    expect(screen.getAllByText('833×843')[0]!.style.color).toBe('rgb(102, 102, 135)') // #666687
+  })
+
+  // ส่ง `theme` มา ต้องเห็นผลจริงในพื้นหลัง placeholder และตัวอักษรของป้าย/ขนาด — พิสูจน์ว่าพร็อพ
+  // เดินทางเข้ามาถึงจริง ไม่ใช่แค่ประกาศไว้เฉย ๆ (ดูที่ Preview ส่งต่อจาก usePort().theme)
+  it('ส่ง theme มา พื้นหลังและตัวอักษรตามค่านั้นจริง — ไม่ใช่ค่าดีฟอลต์ที่ hardcode ไว้', () => {
+    setup({ theme: { surface: '#111111', strongText: '#eeeeee', mutedText: '#cccccc' } })
+    expect(screen.getByTestId('rich-menu-canvas').style.backgroundColor).toBe('rgb(17, 17, 17)')
+    expect(screen.getAllByText('833×843')[0]!.style.color).toBe('rgb(204, 204, 204)')
+  })
+
   it('ซ่อนกรอบและตัวเลขเมื่อปิด outline', () => {
     setup({ showOutlines: false })
     expect(screen.queryByText('833×843')).not.toBeInTheDocument()
@@ -110,6 +126,29 @@ describe('CanvasEditor', () => {
     expect(activeZ).toBeGreaterThan(inactiveZ)
   })
 
+  // สเปกงานนี้ #1 — พื้นที่แก้ผังนี้ฝังอยู่ในกรอบโทรศัพท์ของ Preview เสมอ (จุดเดียวที่เรียก
+  // CanvasEditor ในแพ็กเกจนี้) จึงต้องใช้เขียว LINE ไม่ใช่สี indigo ของ Strapi — ต้องแดงถ้ามีใคร
+  // เปลี่ยนกลับไปใช้ OUTLINE_COLOR/ACTIVE_FILL ของ Strapi
+  it('กรอบช่อง (ไม่มี error) เป็นเขียว LINE ไม่ใช่สี indigo ของ Strapi', () => {
+    setup()
+    expect(screen.getAllByRole('button')[0]!.style.border).toBe('2px solid rgb(6, 199, 85)') // LINE_GREEN
+  })
+
+  it('ช่องที่มี error ยังเป็นสีแดงเดิม ไม่ใช่เขียว', () => {
+    setup({ errors: { 0: 'ผิด' } })
+    expect(screen.getAllByRole('button')[0]!.style.border).toBe('2px solid rgb(208, 43, 32)') // INVALID_COLOR
+  })
+
+  it('พื้นหลังช่องที่ active เป็นเขียว LINE โปร่งแสง ไม่ใช่ indigo', () => {
+    setup({ activeIndex: 0 })
+    expect(screen.getAllByRole('button')[0]!.style.background).toBe('rgba(6, 199, 85, 0.18)') // LINE_ACTIVE_FILL
+  })
+
+  it('มือจับปรับขนาดเป็นเขียว LINE ไม่ใช่ indigo', () => {
+    setup({ onBoundsChange: vi.fn() })
+    expect(screen.getByTestId('resize-handle-0').style.background).toBe('rgb(6, 199, 85)') // LINE_GREEN
+  })
+
   it('แสดงรูปพื้นหลังเมื่อมี', () => {
     setup({ imageUrl: 'https://cdn.test/menu.png' })
     const canvas = screen.getByTestId('rich-menu-canvas')
@@ -125,5 +164,29 @@ describe('CanvasEditor', () => {
     // ทั้งชุดนี้ไม่เคยครอบ PortProvider เลย ถ้า CanvasEditor แอบเรียก usePort จะพังทุกเคส
     setup()
     expect(screen.getByTestId('rich-menu-canvas')).toBeInTheDocument()
+  })
+
+  /**
+   * ค่านี้มาจากเซิร์ฟเวอร์วันนี้ จึงเป็นการป้องกันเชิงลึก ไม่ใช่รูรั่วที่เปิดอยู่ — แต่ `")` ตัวเดียว
+   * ในชื่อไฟล์ก็หลุดออกจาก token `url()` ได้แล้ว และ upload provider ที่ผู้ใช้เลือกเองเป็นคน
+   * ตัดสินว่า url หน้าตาเป็นยังไง ไม่ใช่เรา
+   */
+  it('imageUrl ถูก escape ก่อนใส่ใน url() — `")` ไม่หลุดออกจาก token', () => {
+    render(
+      <CanvasEditor
+        size={{ width: 2500, height: 1686 }}
+        bounds={[{ x: 0, y: 0, width: 100, height: 100 }]}
+        showOutlines={false}
+        activeIndex={null}
+        onSelect={() => {}}
+        imageUrl={'/uploads/a").evil("b.jpg'}
+      />,
+    )
+    const background = screen.getByTestId('rich-menu-canvas').style.backgroundImage
+    // quote ในค่าถูกแปลงเป็น %22 แล้ว เหลือ `"` แค่คู่เปิด-ปิดของ token เท่านั้น
+    expect(background).toContain('%22')
+    expect(background.match(/"/g)).toHaveLength(2)
+    // และยังเหลือ url( ชุดเดียว ไม่ใช่สองชุดที่เกิดจากการหลุดออกจาก token
+    expect(background.match(/url\(/g)).toHaveLength(1)
   })
 })

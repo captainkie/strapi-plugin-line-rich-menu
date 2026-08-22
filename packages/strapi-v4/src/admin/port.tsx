@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useTheme } from '@strapi/design-system'
 import { useFetchClient, useNotification } from '@strapi/helper-plugin'
 import { Link, useHistory } from 'react-router-dom'
 import { useIntl } from 'react-intl'
@@ -23,6 +24,9 @@ export function usePluginPort(): UIPort {
   const toggleNotification = useNotification()
   const history = useHistory()
   const { formatMessage } = useIntl()
+  // ธีมปัจจุบันของ Strapi (สว่าง/มืดตามที่ผู้ใช้ตั้งไว้) — `ThemeProvider` ครอบทั้งแอดมินไว้อยู่แล้ว
+  // เสมอในแอปจริง ค่านี้จึงสลับตามธีมจริงโดยอัตโนมัติ ไม่ใช่ค่าคงที่ (สเปกงานนี้ #5)
+  const { colors } = useTheme()
 
   return useMemo<UIPort>(() => ({
     ui: primitives,
@@ -35,5 +39,13 @@ export function usePluginPort(): UIPort {
     }),
     nav: makeNav(history, Link),
     t: makeT(formatMessage as Parameters<typeof makeT>[0]),
-  }), [fetchClient, toggleNotification, history, formatMessage])
+    // ดูคอมเมนต์ที่ `ThemeColors` ใน port.ts ของ packages/ui — สี่ตัวนี้คือทั้งหมดที่ CanvasEditor/
+    // AreaList/TemplatePicker ต้องใช้นอกเหนือจาก Typography
+    theme: {
+      border: colors.neutral200,
+      surface: colors.neutral150,
+      strongText: colors.neutral800,
+      mutedText: colors.neutral600,
+    },
+  }), [fetchClient, toggleNotification, history, formatMessage, colors])
 }
