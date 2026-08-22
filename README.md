@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://line-rich-menu.fosivo.com/admin"><img alt="Live demo" src="https://img.shields.io/badge/Live%20demo-line--rich--menu.fosivo.com-06C755"></a>
   <a href="https://github.com/captainkie/strapi-plugin-line-rich-menu/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/captainkie/strapi-plugin-line-rich-menu/actions/workflows/ci.yml/badge.svg"></a>
   <a href="./LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache%202.0-blue.svg"></a>
   <img alt="Strapi" src="https://img.shields.io/badge/Strapi-4%20%7C%205-4945ff">
@@ -23,6 +24,23 @@
 </p>
 
 ---
+
+## Try it without installing anything
+
+**<https://line-rich-menu.fosivo.com/admin>** — a real Strapi 5 with the plugin installed.
+
+```
+demo@fosivo.com
+DemoRichMenu2026!
+```
+
+Publishing there talks to a copy of `tools/line-mock` running inside the same container, not to
+LINE, so nothing you do reaches a real Official Account — press every button.
+
+Two things to know before you judge it. The first request after a quiet spell takes about a
+minute: it runs on a free instance that sleeps, and the cold start is the hosting, not the
+plugin. And uploaded images live on an ephemeral disk, so they disappear whenever the demo
+redeploys — the menus stay, the artwork does not.
 
 ## Which package do I install?
 
