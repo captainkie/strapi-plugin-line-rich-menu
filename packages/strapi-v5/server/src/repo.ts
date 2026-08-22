@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type {
   AuditRow, ChannelRow, ImageStore, ListParams, Repo, RichMenuRow, ScheduleRow,
 } from '@fosivo/line-rich-menu-core'
+import { MenuNotReadyError } from '@fosivo/line-rich-menu-core'
 import { UID } from './content-types/index.js'
 import type { DocumentParams, StrapiV5 } from './strapi.js'
 
@@ -269,13 +270,21 @@ export function createImageStore(strapi: StrapiV5): ImageStore {
 
   return {
     async read(fileId) {
+      // Task 20 item 6 (strapi-v5 M3) — ทั้งสองจุดเคยโยน `Error` เปล่า ๆ ไม่มี `code` ทั้งที่
+      // สถานการณ์นี้เกิดขึ้นได้ปกติ (ไฟล์ที่เมนูอ้างถึงถูกลบจาก Media Library ไปแล้ว ไม่ใช่ของแปลก)
+      // `toHttpError` (ดูคอมเมนต์ที่นั่น) จับ error ที่ไม่มี code ไม่ได้เลย จึงตอบ 500 `internal_error`
+      // ทั้งที่ไม่ใช่เซิร์ฟเวอร์พัง — `read` อยู่บนเส้นทาง**เขียน**ด้วย (ผ่าน `saveMenu` →
+      // `prepareImage`) ไม่ใช่แค่ตอน publish ใช้ `MenuNotReadyError('no_image')` ซึ่งมี `code:
+      // 'menu_not_ready'` (แม็ปเป็น 409 อยู่แล้วใน STATUS_BY_CODE) — เดินตามแพทเทิร์นเดียวกับที่
+      // `areaImages` entry ที่ index เกิน `areas.length` โยนไว้แล้ว (`no_areas`, packages/core/src/
+      // server/images.ts:57-58) ไม่ใช่ประดิษฐ์ code ใหม่สำหรับสถานการณ์เดียวกันในเชิงผู้ใช้
       const file = await uploadService().findOne(fileId)
       const url = file?.url
-      if (url === undefined) throw new Error(`upload file ${fileId} has no url`)
+      if (url === undefined) throw new MenuNotReadyError('no_image')
 
       if (url.startsWith('http://') || url.startsWith('https://')) {
         const response = await fetch(url)
-        if (!response.ok) throw new Error(`failed to read upload file ${fileId}: ${response.status}`)
+        if (!response.ok) throw new MenuNotReadyError('no_image')
         return Buffer.from(await response.arrayBuffer())
       }
       return readFile(join(strapi.dirs.static.public, url))

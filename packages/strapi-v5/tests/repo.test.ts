@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { MenuNotReadyError } from '@fosivo/line-rich-menu-core'
 import { UID } from '../server/src/content-types/index.js'
 import {
   createAuditRepo, createChannelRepo, createImageStore, createMenuRepo, createScheduleRepo,
@@ -733,19 +734,27 @@ describe('ImageStore', () => {
     }
   })
 
-  it('ไฟล์ที่ไม่มี url ต้องโยน ไม่ใช่คืนบัฟเฟอร์ว่าง', async () => {
+  /**
+   * Task 20 item 6 (strapi-v5 M3) — เดิมสองเทสต์นี้ตรวจแค่ข้อความ error ดิบ (`Error` เปล่า ไม่มี
+   * `code`) ซึ่งเป็นสาเหตุที่ `toHttpError` จับไม่ได้แล้วตอบ 500 `internal_error` เสมอ ทั้งที่ไฟล์
+   * ที่ถูกลบจาก Media Library เป็นสถานการณ์ปกติที่กู้คืนได้ ไม่ใช่เซิร์ฟเวอร์พัง ตอนนี้ตรวจว่าเป็น
+   * `MenuNotReadyError('no_image')` ที่มี `code: 'menu_not_ready'` ซึ่ง `STATUS_BY_CODE` แม็ปเป็น 409
+   * — เดินตามแพทเทิร์นเดียวกับที่ `areaImages` index เกิน `areas.length` ใช้อยู่แล้ว (`no_areas`)
+   */
+  it('ไฟล์ที่ไม่มี url ต้องโยน MenuNotReadyError(no_image) ไม่ใช่ Error เปล่าไม่มี code', async () => {
     const strapi = {
       plugin: () => ({ service: () => ({ findOne: async () => null }) }),
     } as unknown as StrapiV5
-    await expect(createImageStore(strapi).read(9)).rejects.toThrow('upload file 9 has no url')
+    await expect(createImageStore(strapi).read(9)).rejects.toThrow(MenuNotReadyError)
+    await expect(createImageStore(strapi).read(9)).rejects.toMatchObject({ code: 'menu_not_ready', reason: 'no_image' })
   })
 
-  it('provider ที่ตอบไม่ 2xx ต้องโยนพร้อมสถานะ ไม่ใช่ปล่อยบัฟเฟอร์เสียไปให้ sharp', async () => {
+  it('provider ที่ตอบไม่ 2xx ต้องโยน MenuNotReadyError(no_image) ไม่ใช่ปล่อยบัฟเฟอร์เสียไปให้ sharp', async () => {
     const strapi = {
       plugin: () => ({ service: () => ({ findOne: async () => ({ url: 'https://cdn.example.com/menu.jpg' }) }) }),
     } as unknown as StrapiV5
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 503 }))
-    await expect(createImageStore(strapi).read(9)).rejects.toThrow('failed to read upload file 9: 503')
+    await expect(createImageStore(strapi).read(9)).rejects.toMatchObject({ code: 'menu_not_ready', reason: 'no_image' })
     fetchSpy.mockRestore()
   })
 })
