@@ -32,6 +32,7 @@ const EXPECTED_EXPORTS = [
   'splitDisplayAt',
   'combineDisplayAt',
   'formatDisplayPeriod',
+  'formatClockTime',
 
   // styles.ts
   'injectStylesOnce',
@@ -45,8 +46,10 @@ const EXPECTED_EXPORTS = [
   // components/*
   'ActionForm',
   'AreaList',
+  'AudienceToggle',
   'CanvasEditor',
   'ChatBarSettings',
+  'CurrentMenuCard',
   'ImageField',
   'LineMark',
   'MainSettings',

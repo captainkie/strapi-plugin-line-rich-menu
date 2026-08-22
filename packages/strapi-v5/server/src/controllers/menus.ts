@@ -38,6 +38,11 @@ async function toSummary(services: Services, row: RichMenuRow) {
     size: row.size,
     areas: row.areas,
     imageUrl,
+    // Task 11 — คอลัมน์ Audience ของหน้ารายการอ่าน `audience` ตรง ๆ ส่วน `lineRichMenuId` คือกุญแจ
+    // ที่ `CurrentMenuCard` ใช้ resolve `defaultRichMenuId`/`memberRichMenuId` (ทั้งคู่เป็น id ฝั่ง
+    // LINE) กลับเป็นชื่อเมนูจากรายการที่โหลดมาแล้ว โดยไม่ต้องยิง `GET /menus/:id` เพิ่มทีละ id
+    audience: row.audience,
+    lineRichMenuId: row.lineRichMenuId,
     ...period,
   }
 }

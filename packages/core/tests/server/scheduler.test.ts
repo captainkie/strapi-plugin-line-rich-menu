@@ -24,7 +24,7 @@ function menuRow(overrides: Partial<RichMenuRow> = {}): RichMenuRow {
     imageFileId: null, areaImages: [],
     normalizedFileId: 900, normalizedMime: 'image/jpeg', normalizedSize: { width: 2500, height: 1686 },
     aliasId: 'tab-a', status: 'published', lineRichMenuId: 'richmenu-a',
-    publishedAt: null, lastError: null, updatedAt: '2026-08-20T00:00:00.000Z',
+    publishedAt: null, lastError: null, updatedAt: '2026-08-20T00:00:00.000Z', audience: 'all',
     ...overrides,
   }
 }

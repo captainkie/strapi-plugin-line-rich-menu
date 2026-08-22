@@ -12,6 +12,7 @@ const menus = [
     id: '1', title: 'เมนูหลัก', status: 'published' as const, channelId: 'c1', aliasId: 'main',
     updatedAt: '2026-08-20', size: 'large' as const, imageUrl: '/uploads/main.png',
     startAt: '2026-08-22T00:00:00.000Z', endAt: '2026-08-31T23:59:00.000Z',
+    audience: 'all' as const, lineRichMenuId: 'line-rm-1',
     areas: [
       { bounds: { x: 0, y: 0, width: 1250, height: 843 }, action: { type: 'message' as const, text: 'สวัสดี' } },
       { bounds: { x: 1250, y: 0, width: 1250, height: 843 }, action: { type: 'uri' as const, uri: 'https://example.com' } },
@@ -20,7 +21,8 @@ const menus = [
   {
     id: '2', title: 'ร่าง', status: 'draft' as const, channelId: 'c1', aliasId: null,
     updatedAt: '2026-08-19', size: 'compact' as const, imageUrl: null,
-    startAt: null, endAt: null, areas: [],
+    startAt: null, endAt: null, audience: 'members' as const, lineRichMenuId: null,
+    areas: [],
   },
 ]
 
@@ -61,6 +63,13 @@ describe('RichMenuList', () => {
     expect(headers).toContain('list.column.action')
     expect(headers).toContain('editor.displayPeriod')
     expect(headers).toContain('list.column.status')
+  })
+
+  // Task 11 — สเปก "List table gains an Audience column"
+  it('ตารางมีคอลัมน์ audience', async () => {
+    setup()
+    await waitFor(() => expect(screen.getByTestId('menu-table')).toBeInTheDocument())
+    expect(screen.getAllByRole('columnheader').map((e) => e.textContent)).toContain('list.column.audience')
   })
 
   it('คอลัมน์รูปวาดภาพย่อจากผังจริงของเมนู และใช้รูปที่อัปโหลดไว้เป็นพื้นหลัง', async () => {

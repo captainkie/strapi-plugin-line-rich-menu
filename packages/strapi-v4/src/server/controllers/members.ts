@@ -132,7 +132,12 @@ export const members = ({ strapi }: { strapi: StrapiV4 }) => {
       // audience: 'all' active เมื่อ default ของ LINE จริง ๆ ตรงกับเมนูนั้น — ต้องถามฝั่ง LINE
       // ไม่ใช่เดาจาก DB (สเปก: "อ่านจาก LINE ไม่ใช่เดา")
       const defaultRichMenuId = await services.clientFor(channel).getDefault()
-      ctx.body = { defaultRichMenuId, memberRichMenuId: channel.memberRichMenuId }
+      // Task 11 — กล่องยืนยันก่อนกด activate ต้องบอกว่าจะกระทบกี่คน (สเปก "Enabling asks first,
+      // and the confirmation states the member count") ไม่มี endpoint ไหนคืนจำนวนนี้มาก่อนเลย
+      // ยืมแพทเทิร์นเดียวกับที่ lifecycles.ts ใช้ตรวจ uniqueness (filters: {channelId} ไม่แบ่งหน้า)
+      // เพราะที่นี่แค่ "นับ" ไม่ได้ยิง LINE ทีละคนแบบ enrolment ที่ต้อง chunk ด้วย MAX_BULK_USER_IDS
+      const members = await services.members.findMany({ filters: { channelId: id } })
+      ctx.body = { defaultRichMenuId, memberRichMenuId: channel.memberRichMenuId, memberCount: members.length }
     }),
 
     verify: guard(async (ctx) => {

@@ -149,10 +149,17 @@ const primitives: UIPrimitives = {
       </label>
     )
   },
-  Toggle: ({ name, checked, onChange, label }) => (
+  Toggle: ({ name, checked, onChange, label, disabled }) => (
     <label>
       {label}
-      <input type="checkbox" role="switch" name={name} checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input
+        type="checkbox"
+        role="switch"
+        name={name}
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
     </label>
   ),
   Modal: ({ open, onClose, title, footer, children }) =>

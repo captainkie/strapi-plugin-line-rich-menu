@@ -109,6 +109,13 @@ export interface RichMenuRow {
   lineRichMenuId: string | null
   publishedAt: string | null
   lastError: string | null
+  /**
+   * 'members' คือเมนูที่คนใน line-member เห็น ส่วน 'all' คือค่าเริ่มต้นเดิมที่ทุกคนเห็นเหมือนกัน —
+   * คอลัมน์นี้มีอยู่ในสคีมาของทั้งสอง adapter มาตั้งแต่ Task 5/6 แต่ไม่เคยถูกผูกเข้า `RichMenuRow`
+   * เลย (Task 11 พบว่า `toRow` ทั้งคู่ข้ามฟิลด์นี้ไป) — เพิ่มตอนนี้เพราะคอลัมน์ Audience ของหน้า
+   * รายการ (`RichMenuSummary.audience`) อ่านค่านี้ตรง ๆ ไม่มีทางอื่นให้ค่ามันไหลไปถึง UI ได้เลย
+   */
+  audience: 'all' | 'members'
   /** Strapi เขียนให้เอง — `RichMenuSummary` ใน packages/ui/src/api.ts ต้องการฟิลด์นี้ */
   updatedAt: string
 }

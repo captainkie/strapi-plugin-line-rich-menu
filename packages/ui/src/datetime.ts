@@ -67,3 +67,14 @@ export function formatDisplayPeriod(startAt: string | null, endAt: string | null
   if (start === null && end === null) return null
   return `${start ?? ''} - ${end ?? ''}`.trim()
 }
+
+/**
+ * `'HH:mm'` ของเวลาที่ activate/deactivate ส่งคำสั่งสำเร็จ — `AudienceToggle` ใช้ประกอบข้อความ
+ * `audience.sent` (สเปก "What we cannot know, and how the UI says so": "ส่งคำสั่งแล้วเมื่อ HH:mm")
+ * ใช้ local time (getHours/getMinutes) เหมือนตัวช่วยอื่นทุกตัวในไฟล์นี้ — ผู้ใช้อ่านเวลาบนจอ
+ * เป็นเวลาท้องถิ่นของตัวเอง ไม่ใช่ UTC
+ */
+export function formatClockTime(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}

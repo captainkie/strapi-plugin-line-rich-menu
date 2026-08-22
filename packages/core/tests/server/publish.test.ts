@@ -23,7 +23,7 @@ function menuRow(overrides: Partial<RichMenuRow> = {}): RichMenuRow {
     normalizedFileId: 900, normalizedMime: 'image/jpeg',
     normalizedSize: { width: 2500, height: 1686 },
     aliasId: null, status: 'draft', lineRichMenuId: null, publishedAt: null, lastError: null,
-    updatedAt: '2026-08-20T00:00:00.000Z',
+    updatedAt: '2026-08-20T00:00:00.000Z', audience: 'all',
     ...overrides,
   }
 }

@@ -200,13 +200,16 @@ export const primitives: UIPrimitives = {
   },
 
   // ป้าย on/off เป็นข้อความที่ผู้ใช้เห็น จึงต้องผ่าน `t` เหมือนทุกข้อความในสเปก §12
-  Toggle: ({ name, checked, onChange, label }) => {
+  // `disabled` เพิ่มโดย Task 11 — ToggleInput ของ DS v1 รองรับพร็อพนี้จริงที่ runtime
+  // (ตรวจจาก source ของแพ็กเกจแล้ว ไม่ใช่แค่เดา) ส่งต่อตรง ๆ
+  Toggle: ({ name, checked, onChange, label, disabled }) => {
     const { t } = usePort()
     return (
       <ToggleInput
         name={name}
         label={label}
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
         onLabel={t('common.on')}
         offLabel={t('common.off')}

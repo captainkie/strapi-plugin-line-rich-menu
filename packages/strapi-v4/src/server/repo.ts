@@ -136,6 +136,9 @@ export function createMenuRepo(strapi: StrapiV4): Repo<RichMenuRow> {
         // `publishedAt` ในชั้น service คือคอลัมน์ `linePublishedAt` — ชื่อเดิมถูก Strapi จองไว้
         publishedAt: orNull<string>(entity['linePublishedAt']),
         lastError: orNull<string>(entity['lastError']),
+        // required + default 'all' ในสคีมา (content-types/rich-menu.ts) — ไม่ต้อง orNull เหมือน
+        // ฟิลด์ enum บังคับตัวอื่น (status, size, chatBarMode) ที่ cast ตรง ๆ ข้างบน
+        audience: entity['audience'] as RichMenuRow['audience'],
         // Strapi เขียน updatedAt ให้เอง — `toData` จึงไม่มีทางเขียนกลับ และไม่ควรมี
         updatedAt: (entity['updatedAt'] as string | undefined) ?? '',
       }

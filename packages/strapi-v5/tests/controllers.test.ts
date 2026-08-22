@@ -930,7 +930,7 @@ describe('members controller — audience', () => {
     const ctx = makeCtx({ params: { id: channelId } })
     await controllers.members({ strapi }).audience(ctx)
 
-    expect(ctx.body).toEqual({ defaultRichMenuId: 'line-rm-9', memberRichMenuId: 'line-rm-1' })
+    expect(ctx.body).toEqual({ defaultRichMenuId: 'line-rm-9', memberRichMenuId: 'line-rm-1', memberCount: 0 })
     fetchSpy.mockRestore()
   })
 
@@ -944,7 +944,29 @@ describe('members controller — audience', () => {
     const ctx = makeCtx({ params: { id: channelId } })
     await controllers.members({ strapi }).audience(ctx)
 
-    expect(ctx.body).toEqual({ defaultRichMenuId: null, memberRichMenuId: null })
+    expect(ctx.body).toEqual({ defaultRichMenuId: null, memberRichMenuId: null, memberCount: 0 })
+    fetchSpy.mockRestore()
+  })
+
+  // Task 11 — กล่องยืนยันก่อนกด activate ต้องบอกจำนวนสมาชิกที่จะโดน นับจากแถว line-member
+  // จริงของ channel นี้ ไม่ใช่ค่าคงที่หรือความยาวของอะไรอื่น
+  it('นับจำนวนสมาชิกของ channel นี้จริง ไม่ใช่ของ channel อื่น', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '22')
+    const otherChannelId = await seedAudienceChannel(strapi, '23')
+    rows[UID.member] = [
+      { documentId: 'mem1', channel: { documentId: channelId }, lineUserId: `U${'a'.repeat(32)}`, linkedRichMenuId: null, linkedAt: null },
+      { documentId: 'mem2', channel: { documentId: channelId }, lineUserId: `U${'b'.repeat(32)}`, linkedRichMenuId: null, linkedAt: null },
+      { documentId: 'mem3', channel: { documentId: otherChannelId }, lineUserId: `U${'c'.repeat(32)}`, linkedRichMenuId: null, linkedAt: null },
+    ]
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('{}', { status: 404 }))
+    const ctx = makeCtx({ params: { id: channelId } })
+    await controllers.members({ strapi }).audience(ctx)
+
+    expect((ctx.body as { memberCount: number }).memberCount).toBe(2)
     fetchSpy.mockRestore()
   })
 })

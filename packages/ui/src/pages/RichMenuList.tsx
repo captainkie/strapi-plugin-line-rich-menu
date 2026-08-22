@@ -4,23 +4,31 @@ import { actionSummary } from '../action-form.js'
 import { ENDPOINTS, type RichMenuSummary } from '../api.js'
 import { formatDisplayPeriod } from '../datetime.js'
 import { usePort } from '../port.js'
+import { AudienceToggle } from '../components/AudienceToggle.js'
+import { CurrentMenuCard } from '../components/CurrentMenuCard.js'
 import { LineMark } from '../components/LineMark.js'
 import { MenuPreviewModal } from '../components/MenuPreviewModal.js'
 import { MenuThumbnail } from '../components/MenuThumbnail.js'
 
 /**
- * สัดส่วนคอลัมน์ตามหน้า Rich menus ของ LINE OA Manager — รูป, ชื่อ, action, ช่วงเวลา, สถานะ, ปุ่ม
+ * สัดส่วนคอลัมน์ตามหน้า Rich menus ของ LINE OA Manager — รูป, ชื่อ, action, ช่วงเวลา, สถานะ,
+ * กลุ่มเป้าหมาย (Task 11), ปุ่ม
  *
  * `grid-template-columns` ตัวเดียวใช้ทั้งแถวหัวตารางและทุกแถวข้อมูล ค่าที่ประกาศไว้ที่เดียวจึงเป็น
  * เหตุผลว่าทำไมหัวตารางกับข้อมูลตรงคอลัมน์กันเสมอ ไม่ใช่เพราะบังเอิญพิมพ์เลขเท่ากันสองที่
  */
-const COLUMNS = '120px minmax(10rem, 1.4fr) minmax(12rem, 2fr) minmax(11rem, 1.2fr) 7rem auto'
+const COLUMNS = '120px minmax(10rem, 1.4fr) minmax(12rem, 2fr) minmax(11rem, 1.2fr) 7rem 11rem auto'
 
 export function RichMenuList({ channelId }: { channelId: string | null }) {
   const { ui, http, nav, t, theme } = usePort()
   const [menus, setMenus] = useState<RichMenuSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previewing, setPreviewing] = useState<string | null>(null)
+  // เปลี่ยนทุกครั้งที่ AudienceToggle แถวไหนแถวหนึ่งกด activate/deactivate สำเร็จ — บังคับให้
+  // การ์ดกับสวิตช์ *ทุกแถว* remount แล้วยิง `GET /channels/:id/audience` ใหม่ จำเป็นเพราะเปิด
+  // เมนู B ให้เป็นเมนูสมาชิกจะปิดเมนู A ที่เคยเป็นอยู่ไปด้วยในตัว (channel.memberRichMenuId
+  // ชี้ได้ทีละอัน) — แถวของ A ไม่มีทางรู้ว่าตัวเองถูกปิดไปแล้วถ้าไม่ถูกสั่งให้โหลดสถานะใหม่
+  const [audienceRefreshToken, setAudienceRefreshToken] = useState(0)
 
   useEffect(() => {
     if (channelId === null) return
@@ -55,6 +63,11 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
 
   return (
     <>
+      {/* `key` เปลี่ยนค่า = remount ทั้งก้อน — ทาง React ที่บังคับให้ effect ภายในยิงใหม่โดยไม่ต้อง
+          เพิ่ม prop ใหม่เข้า `CurrentMenuCard` ซึ่งสัญญาไว้แค่ `{ channelId }` (ดูคอมเมนต์ที่
+          `audienceRefreshToken` ด้านบน) */}
+      <CurrentMenuCard key={`current-menu-${audienceRefreshToken}`} channelId={channelId} />
+
       {/* `role="table"` ไม่ใช่ `<table>` จริง: port ไม่มี primitive ของตาราง และการวาด `<table>`
           ดิบที่นี่จะได้ตารางที่ไม่มีสไตล์ของ design system เวอร์ชันไหนเลย ส่วน role ทำให้ screen
           reader ยังอ่านมันเป็นตารางพร้อมหัวคอลัมน์ ซึ่งเป็นสิ่งที่ผู้ใช้ต้องการจริง ๆ จาก `<table>` */}
@@ -72,6 +85,7 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
           <div role="columnheader">{t('list.column.action')}</div>
           <div role="columnheader">{t('editor.displayPeriod')}</div>
           <div role="columnheader">{t('list.column.status')}</div>
+          <div role="columnheader">{t('list.column.audience')}</div>
           {/* คอลัมน์ปุ่มไม่มีหัวข้อที่จะพูดถึง — ช่องว่างที่ประกาศไว้ตรง ๆ ดีกว่าปล่อยให้หัวตาราง
               มีคอลัมน์น้อยกว่าแถวข้อมูลหนึ่งคอลัมน์ ซึ่ง screen reader จะอ่านว่าตารางพัง */}
           <div role="columnheader" aria-label={t('list.column.actions')} />
@@ -134,6 +148,18 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
               <span data-testid={`status-${menu.id}`} style={{ color: theme.strongText }}>
                 {t(`status.${menu.status}`)}
               </span>
+            </div>
+
+            <div role="cell" style={{ ...cell, flexDirection: 'column', alignItems: 'flex-start' }}>
+              <span style={{ color: theme.strongText, fontSize: '.85rem' }}>{t(`audience.${menu.audience}`)}</span>
+              {/* `key` เปลี่ยนตาม audienceRefreshToken เหมือน CurrentMenuCard ข้างบน — แถวอื่นที่
+                  เพิ่งถูกปิดไปโดยอ้อม (activate ของแถวนี้ล้าง memberRichMenuId ของแถวอื่นทิ้ง)
+                  ต้อง remount แล้วยิง audience ใหม่ ไม่งั้นสวิตช์ของแถวนั้นค้างโชว์ "เปิดอยู่" ผิด ๆ */}
+              <AudienceToggle
+                key={`${menu.id}-${audienceRefreshToken}`}
+                menu={menu}
+                onChanged={() => setAudienceRefreshToken((n) => n + 1)}
+              />
             </div>
 
             <div role="cell" style={{ ...cell, justifyContent: 'flex-end' }}>
