@@ -113,9 +113,11 @@ describe('rich-menu-schedule', () => {
     expect(attributes['lastError']).toMatchObject({ type: 'text' })
   })
 
-  it('op ตรงกับ ScheduleOp รวม link-members', () => {
+  it('op ตรงกับ ScheduleOp รวม link-members และ unlink-members', () => {
     expect(attributes['op']).toMatchObject({
-      type: 'enumeration', enum: ['set-default', 'clear-default', 'swap-alias', 'link-members'], required: true,
+      type: 'enumeration',
+      enum: ['set-default', 'clear-default', 'swap-alias', 'link-members', 'unlink-members'],
+      required: true,
     })
   })
 
@@ -142,19 +144,34 @@ describe('line-member', () => {
 describe('rich-menu-audit', () => {
   const attributes = contentTypes['rich-menu-audit'].schema.attributes
 
-  it('เก็บผู้กระทำและของที่ถูกกระทำเป็นตัวเลข ไม่ใช่ relation — ประวัติต้องอยู่รอดหลังของถูกลบ', () => {
+  it('เก็บผู้กระทำและ channel เป็นตัวเลข ไม่ใช่ relation — ประวัติต้องอยู่รอดหลังของถูกลบ', () => {
     expect(attributes['actorId']).toMatchObject({ type: 'integer' })
     expect(attributes['channelId']).toMatchObject({ type: 'integer', required: true })
-    expect(attributes['richMenuId']).toMatchObject({ type: 'integer' })
     for (const key of Object.keys(attributes)) {
       expect((attributes[key] as { type: string }).type).not.toBe('relation')
     }
   })
 
-  it('action ครอบทั้งหกอย่างตามสเปก §11.5', () => {
+  // Task 10 — richMenuId เดิมเป็น integer เพราะตอนนั้นมีความหมายเดียว (id แถวเมนูของเราเอง)
+  // แต่ตอนนี้งานระดับสมาชิก (link-members/unlink-members) เก็บ id ฝั่ง LINE ซึ่งเป็นสตริง
+  // (ดูคอมเมนต์เต็มที่ AuditRow.richMenuId ใน core/server/types.ts) คอลัมน์ integer เดิมบังคับ
+  // `Number('line-rm-1')` ที่ repo.ts ได้ NaN แล้วโดน Strapi ปฏิเสธแถวเงียบ ๆ — อีกสาเหตุหนึ่ง
+  // (นอกจาก enum ที่ขาดหาย) ที่ทำให้ audit ของงานสมาชิกไม่เคยถูกบันทึกเลยตั้งแต่ Task 8
+  it('richMenuId เป็น string ไม่ใช่ integer — ต้องรองรับทั้ง id แถวเมนูของเราและ id ฝั่ง LINE', () => {
+    expect(attributes['richMenuId']).toMatchObject({ type: 'string' })
+  })
+
+  // Task 10 — enum เดิมมีแค่หกค่าตามสเปก §11.5 ขาดสองค่าของงานสมาชิก (link-members/unlink-members)
+  // ที่ Task 8 เพิ่มเข้า schedule op แล้วแต่ลืมเติมที่นี่ ทำให้ audit ของงานสมาชิกทุกแถวถูก Strapi
+  // ปฏิเสธแล้วหายไปเงียบ ๆ ผ่าน persistQuietly (ดู audit.ts) — เทสต์นี้ต้องครอบ AuditAction ของ
+  // core ทั้งแปดค่า ไม่ใช่แค่หกค่าเดิม ไม่งั้น regression แบบเดียวกันจะไม่ถูกจับอีก
+  it('action ครอบทั้งแปดอย่างของ AuditAction รวมสองงานสมาชิก', () => {
     expect(attributes['action']).toMatchObject({
       type: 'enumeration',
-      enum: ['publish', 'set-default', 'clear-default', 'swap-alias', 'delete', 'channel-update'],
+      enum: [
+        'publish', 'set-default', 'clear-default', 'swap-alias', 'delete', 'channel-update',
+        'link-members', 'unlink-members',
+      ],
       required: true,
     })
   })

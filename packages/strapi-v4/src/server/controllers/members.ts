@@ -1,0 +1,151 @@
+import { publishedMenuOrThrow, type RichMenuRow } from '@fosivo/line-rich-menu-core'
+import { getServices, type Services } from '../container.js'
+import { guard } from '../http-error.js'
+import type { StrapiV4 } from '../strapi.js'
+import { runTick } from '../tick.js'
+import { idParam } from '../validation.js'
+
+/**
+ * activate และ sync ทำงานเหมือนกันทุกประการ (สเปกบอกตรง ๆ ว่า sync คือ activate ของเมนูที่ active
+ * อยู่แล้ว) — ต่างกันแค่ปุ่มที่ผู้ใช้กด ไม่ใช่พฤติกรรม แยกฟังก์ชันไว้ที่นี่ตัวเดียวแล้วให้ทั้งสอง key
+ * ของ controller ชี้มาที่มันแทนการ copy กัน (คู่ขนานกับ strapi-v5)
+ *
+ * ไม่ห่อสอง write (channel + schedule) ด้วย transaction แบบฝั่ง v5 — `StrapiV4` (strapi.ts) ไม่ได้
+ * ประกาศ `db.transaction` ไว้เลย เพราะไม่มีจุดไหนอื่นในอะแดปเตอร์นี้ต้องใช้ (`saveMenu` ใน
+ * menu-write.ts เขียนหลายแถวติดกันแบบเดียวกันโดยไม่ transact เหมือนกัน) เพิ่ม primitive ใหม่เข้า
+ * สัญญาของทั้งอะแดปเตอร์เพื่อ edge case เดียวนี้ไม่คุ้ม — ถ้า schedule เขียนไม่ผ่านหลัง channel
+ * เขียนผ่านแล้ว กดปุ่ม activate ซ้ำจะเห็น pointer ที่ตั้งไว้แล้วและลองสร้างแถว schedule ใหม่อีกครั้ง
+ * ไม่ใช่สภาพที่กู้คืนไม่ได้
+ *
+ * เหตุผลที่ resume จากแถว 'link-members' ที่ failed แทนสร้างแถวใหม่ (cursor: null เสมอ):
+ * scheduler บันทึก cursor ทุกจบ chunk เพื่อให้งานที่ตายกลางทางไปต่อได้ crash จริง ๆ (process ตาย)
+ * กู้เองได้อยู่แล้วผ่าน lock ที่หมดอายุ (แถวค้างเป็น 'running' แล้วถูกเก็บใหม่) แต่ exception
+ * ระหว่างวิ่ง (เช่น LINE ตอบ 503 ที่ chunk ที่ 15 จาก 20) ปล่อยแถวเป็น 'failed' ซึ่ง scheduler
+ * ไม่หยิบซ้ำอีกเลย — ถ้ากดปุ่มซ้ำแล้วสร้างแถวใหม่ cursor: null จะส่ง 14 chunk แรกที่สำเร็จไปแล้วซ้ำ
+ * ทั้งหมด cursor ที่ค้างอยู่ในแถวเดิมบอกตำแหน่งที่หยุดไว้แม่นอยู่แล้ว ใช้มันแทนการทิ้งไป
+ */
+async function enqueueLinkMembers(services: Services, menu: RichMenuRow): Promise<void> {
+  await services.channels.update(menu.channelId, { memberRichMenuId: menu.lineRichMenuId })
+
+  const rows = await services.schedules.findMany({
+    filters: { richMenuId: menu.id, op: 'link-members' },
+  })
+  const runAt = new Date().toISOString()
+
+  // งานที่ยังไม่จบ (pending รอคิว หรือ running ที่ worker ถืออยู่) นับว่ามีคนทำอยู่แล้ว — สร้าง
+  // แถวใหม่ทับคือได้สองงานของเมนูเดียวกันวิ่งพร้อมกัน แถวใหม่ cursor: null จะไล่ผูกตั้งแต่คนแรก
+  // ซ้อนกับแถวเดิมที่ทำไปได้ครึ่งทางแล้ว (`writeDisplayPeriod` ใน menu-write.ts กันซ้ำแบบเดียวกัน)
+  if (rows.some((row) => row.state === 'pending' || row.state === 'running')) return
+
+  // ปลุกแถวที่ล้มไว้ **ทุกแถว** ไม่ใช่แถวแรกที่เจอ — scheduler ไม่เคยหยิบ 'failed' ซ้ำเอง แถวที่
+  // ถูกข้ามจึงค้างตายถาวรพร้อม cursor ของมัน การปลุกทั้งหมดยังทำให้ผลลัพธ์ไม่ขึ้นกับลำดับที่ repo
+  // คืนแถวมาด้วย (ไม่ต้องพึ่ง sort ที่ adapter อาจแม็ปคนละแบบ) แต่ละแถวไปต่อจาก cursor ของตัวเอง
+  // ช่วงที่ซ้อนกันแค่ส่ง bulkLink ซ้ำ ซึ่ง LINE รับได้ ไม่ใช่การผูกผิดคน
+  const failed = rows.filter((row) => row.state === 'failed')
+  if (failed.length > 0) {
+    for (const row of failed) {
+      // ไม่แตะ cursor — นั่นคือประเด็นทั้งหมดของการ reuse แถวนี้แทนสร้างใหม่ (ดูคอมเมนต์ข้างบน)
+      await services.schedules.update(row.id, { state: 'pending', runAt, lastError: null })
+    }
+    return
+  }
+
+  await services.schedules.create({
+    richMenuId: menu.id, runAt, op: 'link-members', state: 'pending',
+    lockedBy: null, lockedAt: null, lastError: null, cursor: null,
+  })
+}
+
+/**
+ * ตั้งงานปลดสมาชิกทุกคนที่ยังถือเมนูนี้อยู่ ให้ scheduler ทำ ไม่ใช่ทำในคำขอนี้
+ *
+ * ระบบนี้ออกแบบมาสำหรับสมาชิกเกินหมื่นคน — วนปลดในคำขอ HTTP คือยิง LINE ยี่สิบกว่าครั้งบวก
+ * อัปเดตแถวเป็นหมื่นในคำขอเดียว proxy timeout หรือ restart กลางทางทิ้งคนจำนวนที่ไม่มีใครรู้ไว้กับ
+ * เมนูที่ผู้ดูแลกดปิดไปแล้ว พร้อมกับทำให้คำขอที่จะทำงานให้จบหายไปด้วย เหตุผลเดียวกับที่ enrolment
+ * อยู่ใน scheduler ตั้งแต่ต้น
+ *
+ * ไม่ reuse แถวงานเดิมแบบ `enqueueLinkMembers` เพราะไม่มี cursor ให้รักษา — งาน unlink เริ่มจาก
+ * ศูนย์ได้เสมอโดยไม่ส่งซ้ำให้ใคร ชุดงานของมันคือ "คนที่ยังถืออยู่" ซึ่งหดเองทุกคนที่ปลดสำเร็จ
+ * (ดู `unlinkMemberChunk` ใน core)
+ */
+async function enqueueUnlinkMembers(services: Services, menu: RichMenuRow): Promise<void> {
+  await services.schedules.create({
+    richMenuId: menu.id, runAt: new Date().toISOString(), op: 'unlink-members', state: 'pending',
+    lockedBy: null, lockedAt: null, lastError: null, cursor: null,
+  })
+}
+
+export const members = ({ strapi }: { strapi: StrapiV4 }) => {
+  const activateOrSync = guard(async (ctx) => {
+    const services = getServices(strapi)
+    const id = idParam.parse(ctx.params['id'])
+    // เมนูที่ยังไม่เคย publish ไม่มี lineRichMenuId ให้ผูกสมาชิกด้วย — โยน MenuNotReadyError
+    // ('not_published') แบบเดียวกับที่ publish path ใช้อยู่แล้ว แม็ปเป็น 409 menu_not_ready
+    const menu = await publishedMenuOrThrow(services.menus, id)
+    await enqueueLinkMembers(services, menu)
+    // เรียก tick ในคำขอนี้เลย ไม่ใช่ให้ผู้ใช้รอ cron รอบถัดไป (สูงสุด 1 นาที) — งานที่พึ่ง
+    // ต้องกดปุ่มแล้วเห็นผลทันที ไม่ใช่ตารางเวลาที่ตั้งไว้ล่วงหน้า
+    await runTick(strapi, services)
+    ctx.status = 204
+    ctx.body = null
+  })
+
+  return {
+    activate: activateOrSync,
+    sync: activateOrSync,
+
+    deactivate: guard(async (ctx) => {
+      const services = getServices(strapi)
+      const id = idParam.parse(ctx.params['id'])
+      const menu = await services.menus.findOne(id)
+      if (menu === null) { ctx.status = 404; ctx.body = { error: { code: 'menu_not_found' } }; return }
+
+      // เมนูที่ไม่เคยขึ้น LINE เป็นเมนูสมาชิกของ channel ไหนไม่ได้ (activate ผ่าน
+      // publishedMenuOrThrow เสมอ) และไม่มีใครถืออยู่ได้ — ไม่มีทั้ง pointer ให้ล้างและงานให้ตั้ง
+      const lineRichMenuId = menu.lineRichMenuId
+      if (lineRichMenuId !== null) {
+        // ล้าง pointer เฉพาะตอนที่ channel ยังชี้มาที่เมนูนี้จริง ๆ — ปิดเมนูเก่า A ขณะที่ B เป็น
+        // เมนูสมาชิกที่ใช้อยู่ ต้องไม่ล้าง pointer ของ B ทิ้ง ไม่งั้น audience อ่านว่าปิดทั้งที่ยังเปิด
+        // สมาชิกใหม่หยุดถูกผูกกับ B (lifecycles อ่าน pointer ตัวนี้) และงานปลดของ A ก็ไม่แมตช์ใคร
+        // เลยเพราะไม่มีใครถือ A อยู่ — จบที่ B ไม่ถูกรื้อและไม่ถูกใช้ ทั้งที่ไม่มีใครสั่งให้ปิด B
+        const channel = await services.channels.findOne(menu.channelId)
+        if (channel.memberRichMenuId === lineRichMenuId) {
+          await services.channels.update(menu.channelId, { memberRichMenuId: null })
+        }
+
+        // ตั้งงานเสมอ ไม่ผูกกับเงื่อนไขข้างบน — กดปิดซ้ำหลังรอบก่อนล้มต้องตั้งงานใหม่ได้ ทั้งที่
+        // pointer ถูกล้างไปตั้งแต่รอบแรกแล้ว ถ้าผูกไว้ด้วยกันจะไม่มีทางปลดคนที่ค้างผ่านหน้าจอได้อีก
+        await enqueueUnlinkMembers(services, menu)
+        // เรียก tick ในคำขอนี้เลยเหมือน activate — งานที่ล้มถูกบันทึกไว้ในแถวงานและ audit
+        // (scheduler กลืน error ของงานแต่ละแถวไว้เอง) ปุ่มปิดจึงไม่เคยล้มเพราะ LINE ล่ม
+        await runTick(strapi, services)
+      }
+
+      ctx.status = 204
+      ctx.body = null
+    }),
+
+    audience: guard(async (ctx) => {
+      const services = getServices(strapi)
+      const id = idParam.parse(ctx.params['id'])
+      const channel = await services.channels.withSecrets().findOne(id)
+      // audience: 'all' active เมื่อ default ของ LINE จริง ๆ ตรงกับเมนูนั้น — ต้องถามฝั่ง LINE
+      // ไม่ใช่เดาจาก DB (สเปก: "อ่านจาก LINE ไม่ใช่เดา")
+      const defaultRichMenuId = await services.clientFor(channel).getDefault()
+      ctx.body = { defaultRichMenuId, memberRichMenuId: channel.memberRichMenuId }
+    }),
+
+    verify: guard(async (ctx) => {
+      const services = getServices(strapi)
+      const id = idParam.parse(ctx.params['id'])
+      const member = await services.members.findOne(id)
+      if (member === null) { ctx.status = 404; ctx.body = { error: { code: 'member_not_found' } }; return }
+
+      const channel = await services.channels.withSecrets().findOne(member.channelId)
+      // เรียก LINE ครั้งเดียว — เมนูที่ user คนนี้ถืออยู่จริง ณ ตอนนี้ ไม่ผ่านค่าที่แคชไว้ใน
+      // DB (linkedRichMenuId อาจไม่ตรงของจริงถ้า user unfollow/follow บอทใหม่นอกระบบนี้)
+      const richMenuId = await services.clientFor(channel).getUserRichMenu(member.lineUserId)
+      ctx.body = { richMenuId }
+    }),
+  }
+}

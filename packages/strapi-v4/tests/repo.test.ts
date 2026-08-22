@@ -233,7 +233,7 @@ describe('createScheduleRepo', () => {
 })
 
 describe('createAuditRepo', () => {
-  it('เขียนตัวเลขลงคอลัมน์ตัวเลข ไม่ใช่สตริง', async () => {
+  it('เขียนตัวเลขลงคอลัมน์ actorId/channelId ไม่ใช่สตริง', async () => {
     const { strapi, calls } = fakeStrapi({ create: { id: 1 } })
     await createAuditRepo(strapi).create({
       actorId: '3', action: 'publish', richMenuId: '7', channelId: '10',
@@ -241,7 +241,7 @@ describe('createAuditRepo', () => {
     })
     expect(calls[0]!.args[0]).toEqual({
       data: {
-        actorId: 3, action: 'publish', richMenuId: 7, channelId: 10,
+        actorId: 3, action: 'publish', richMenuId: '7', channelId: 10,
         before: null, after: null, result: 'success', errorCode: null,
       },
     })
@@ -254,6 +254,21 @@ describe('createAuditRepo', () => {
       before: null, after: null, result: 'success', errorCode: null,
     })
     expect(calls[0]!.args[0]).toMatchObject({ data: { actorId: null, richMenuId: null } })
+  })
+
+  /**
+   * Task 10 — repro ตรงของบั๊กที่เจอผ่านเทสต์รอบเต็มของ members controller: richMenuId ของงาน
+   * ระดับสมาชิก (link-members/unlink-members) คือ id ฝั่ง LINE ซึ่งเป็นสตริงที่ไม่ใช่ตัวเลข ก่อนแก้
+   * `numberOrNull` ที่นี่บังคับผ่าน `Number('line-rm-1')` ได้ `NaN` ซึ่ง Strapi จริงปฏิเสธคอลัมน์
+   * integer แล้ว `persistQuietly` กลืน error ทิ้งไปเงียบ ๆ — แถวถูกเขียนแต่ไม่มีใครเห็นว่ามันหาย
+   */
+  it('richMenuId ที่เป็น id ฝั่ง LINE (ไม่ใช่ตัวเลข) เขียนผ่านตรง ๆ ไม่กลายเป็น NaN', async () => {
+    const { strapi, calls } = fakeStrapi({ create: { id: 1 } })
+    await createAuditRepo(strapi).create({
+      actorId: null, action: 'unlink-members', richMenuId: 'line-rm-1', channelId: '10',
+      before: null, after: { unlinked: 2 }, result: 'success', errorCode: null,
+    })
+    expect(calls[0]!.args[0]).toMatchObject({ data: { richMenuId: 'line-rm-1' } })
   })
 })
 

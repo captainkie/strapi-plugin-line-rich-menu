@@ -260,7 +260,13 @@ export function createAuditRepo(strapi: StrapiV4): Repo<AuditRow> {
     toData: (patch) => ({
       actorId: numberOrNull(patch.actorId),
       action: patch.action,
-      richMenuId: numberOrNull(patch.richMenuId),
+      // ไม่ผ่าน numberOrNull เหมือน actorId/channelId — ความหมายของ richMenuId แยกเป็นสองแบบ
+      // ตาม action (ดูคอมเมนต์เต็มที่ AuditRow.richMenuId ใน core/server/types.ts): งานระดับเมนู
+      // เก็บ id แถวเมนูของเราเอง (ตัวเลขเสมอ) แต่งานระดับสมาชิก (link-members/unlink-members)
+      // เก็บ id ฝั่ง LINE ซึ่งเป็นสตริงที่ไม่ใช่ตัวเลข — `Number('line-rm-1')` คือ `NaN` ซึ่ง Task 10
+      // เจอผ่านเทสต์รอบเต็มของ deactivate: คอลัมน์ integer เดิมพังเงียบกับ NaN แถวเดียวกับที่
+      // enum ที่ขาดหายเคยทำ ต้องแก้คู่กัน (ดู rich-menu-audit.ts ที่เปลี่ยนคอลัมน์เป็น string แล้ว)
+      richMenuId: patch.richMenuId ?? null,
       channelId: numberOrNull(patch.channelId),
       before: patch.before ?? null,
       after: patch.after ?? null,
