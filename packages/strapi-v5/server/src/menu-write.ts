@@ -92,48 +92,62 @@ export async function saveMenu(
   // ให้เอง ไม่ต้องเพิ่ม code ใหม่ — ผลลัพธ์ (channel record) ไม่ถูกใช้ต่อ เช็คแค่ว่ามีอยู่จริง
   await services.channels.findOne(input.channelId)
 
-  await assertAliasFree(services, input, existing?.id ?? null)
+  // Task 20 item 5 (strapi-v5 M1) — ก่อนแก้ `menus.create` ถูก commit ทันที (แต่ละ `documents()`
+  // call ของ Strapi ผูก transaction ของตัวเองแยกกัน) แล้ว `prepareImage` ที่ตามมาถึง throw ได้จาก
+  // สาเหตุที่ไม่เกี่ยวกับแถวที่เพิ่งสร้างเลย (เช่นไฟล์ที่อ้างถูกลบไปจาก Media Library) ผลคือแถวร่าง
+  // กำพร้าค้างอยู่จริงในฐานข้อมูล ผู้ใช้กด Save อีกครั้งเพื่อลองใหม่ → `assertAliasFree` เจอแถว
+  // กำพร้านั้นเข้าแล้วปฏิเสธด้วย `alias_id_taken` — ข้อความที่บรรยาย "ปัญหา" ที่ผู้ใช้ไม่เคยทำ
+  // (ยังไม่เคย save สำเร็จเลยสักครั้ง) ห่อทั้งก้อนตั้งแต่ตรวจ alias จนถึงเขียนช่วงเวลาแสดงผลไว้ใน
+  // `services.transaction` เดียว — ถ้าขั้นไหนพังกลางทาง แถวที่สร้าง/แก้ไปแล้วในธุรกรรมเดียวกัน
+  // (menus.create/update, menus.update ของ normalize, schedules.create/delete) ถูก rollback ทั้งชุด
+  // ไม่ใช่ commit ทีละคำสั่งแล้วค่อยพังทีหลัง — `documents()`/`db.query()` ทุกตัวที่เรียกระหว่างนี้
+  // เข้าร่วม transaction เดียวกันเองผ่าน `AsyncLocalStorage` (ดูคอมเมนต์ที่ `Services.transaction`
+  // ใน container.ts) ไม่ต้องส่ง `trx` ไล่ผ่านทุกเลเยอร์ `channels.findOne` ข้างบนเป็น**อ่าน**อย่างเดียว
+  // จึงอยู่นอก transaction ได้ ไม่มีอะไรให้ rollback
+  return services.transaction(async () => {
+    await assertAliasFree(services, input, existing?.id ?? null)
 
-  const patch: Partial<RichMenuRow> = {
-    name: input.name,
-    channelId: input.channelId,
-    size: input.size,
-    chatBarText: input.chatBarText,
-    chatBarMode: input.chatBarMode,
-    selected: input.selected,
-    templateKey: input.templateKey,
-    areas: input.areas,
-    imageFileId: input.imageFileId,
-    areaImages: input.areaImages,
-    aliasId: input.aliasId,
-  }
-
-  const saved = existing === null
-    ? await services.menus.create({ ...patch, status: 'draft' })
-    : await services.menus.update(existing.id, patch)
-
-  // normalize เกิดตรงนี้ ไม่ใช่ตอน publish (design notes ข้อ 3) และเกิดเฉพาะตอนที่สิ่งที่
-  // ทำให้ผลของมันเปลี่ยนจริง ๆ เปลี่ยน — แก้ข้อความปุ่มไม่ควรทำให้ต้องบีบรูปใหม่ห้าวินาที
-  const changed = existing === null
-    || existing.normalizedFileId === null
-    || imageFingerprint(sourceOf(existing)) !== imageFingerprint(sourceOf(saved))
-
-  let result = saved
-  if (changed) {
-    if (saved.imageFileId !== null || saved.areaImages.length > 0) {
-      const prepared = await prepareImage({ store: services.store }, sourceOf(saved), saved.id)
-      result = await services.menus.update(saved.id, prepared)
-    } else {
-      // (I5) ผู้ใช้เพิ่งลบรูปทิ้ง (`changed` เป็น true เพราะ fingerprint รวม imageFileId ด้วย) แต่ไม่มี
-      // แหล่งรูปเหลือให้ normalize เลย — ผลลัพธ์ normalize เดิมต้องถูกล้างไปด้วย ไม่ใช่ค้างไว้เฉย ๆ
-      // ไม่งั้น publish จะยังส่งรูปที่ผู้ใช้เพิ่งลบไป และ `no_image` guard ใน publish.ts ก็ไม่มีทาง
-      // ทำงานเพราะ normalizedFileId ยังไม่ใช่ null
-      result = await services.menus.update(saved.id, {
-        normalizedFileId: null, normalizedMime: null, normalizedSize: null,
-      })
+    const patch: Partial<RichMenuRow> = {
+      name: input.name,
+      channelId: input.channelId,
+      size: input.size,
+      chatBarText: input.chatBarText,
+      chatBarMode: input.chatBarMode,
+      selected: input.selected,
+      templateKey: input.templateKey,
+      areas: input.areas,
+      imageFileId: input.imageFileId,
+      areaImages: input.areaImages,
+      aliasId: input.aliasId,
     }
-  }
 
-  await writeDisplayPeriod(services.schedules, saved.id, input)
-  return result
+    const saved = existing === null
+      ? await services.menus.create({ ...patch, status: 'draft' })
+      : await services.menus.update(existing.id, patch)
+
+    // normalize เกิดตรงนี้ ไม่ใช่ตอน publish (design notes ข้อ 3) และเกิดเฉพาะตอนที่สิ่งที่
+    // ทำให้ผลของมันเปลี่ยนจริง ๆ เปลี่ยน — แก้ข้อความปุ่มไม่ควรทำให้ต้องบีบรูปใหม่ห้าวินาที
+    const changed = existing === null
+      || existing.normalizedFileId === null
+      || imageFingerprint(sourceOf(existing)) !== imageFingerprint(sourceOf(saved))
+
+    let result = saved
+    if (changed) {
+      if (saved.imageFileId !== null || saved.areaImages.length > 0) {
+        const prepared = await prepareImage({ store: services.store }, sourceOf(saved), saved.id)
+        result = await services.menus.update(saved.id, prepared)
+      } else {
+        // (I5) ผู้ใช้เพิ่งลบรูปทิ้ง (`changed` เป็น true เพราะ fingerprint รวม imageFileId ด้วย) แต่ไม่มี
+        // แหล่งรูปเหลือให้ normalize เลย — ผลลัพธ์ normalize เดิมต้องถูกล้างไปด้วย ไม่ใช่ค้างไว้เฉย ๆ
+        // ไม่งั้น publish จะยังส่งรูปที่ผู้ใช้เพิ่งลบไป และ `no_image` guard ใน publish.ts ก็ไม่มีทาง
+        // ทำงานเพราะ normalizedFileId ยังไม่ใช่ null
+        result = await services.menus.update(saved.id, {
+          normalizedFileId: null, normalizedMime: null, normalizedSize: null,
+        })
+      }
+    }
+
+    await writeDisplayPeriod(services.schedules, saved.id, input)
+    return result
+  })
 }

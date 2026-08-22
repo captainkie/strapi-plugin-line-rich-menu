@@ -36,6 +36,16 @@ export interface Services {
   store: ImageStore
   lock: ScheduleLock
   clientFor(channel: ChannelWithSecrets): LineClient
+  /**
+   * Task 20 item 5 (strapi-v5 M1) — จุดเดียวที่ `menu-write.ts:saveMenu` เข้าถึง DB transaction
+   * จริงของ Strapi ผ่าน `Services` แทนที่จะรับ `strapi` ทั้งตัวเข้าไปตรง ๆ (ซึ่งจะทำให้ทดสอบ
+   * `saveMenu` ต้องปลอมทั้ง `StrapiV5` แทนที่จะปลอมแค่ `Services`) `strapi.db.transaction(cb)`
+   * ใช้ `AsyncLocalStorage` (`transactionCtx` ใน `@strapi/database`) ผูก connection ปัจจุบันไว้กับ
+   * คำเรียก `documents()`/`db.query()` ทุกตัวที่เกิด**ระหว่าง** `cb` ทำงานโดยอัตโนมัติ ไม่ต้องส่ง
+   * `trx` ผ่านทุกเลเยอร์เอง (ตรวจกับซอร์สจริงที่ติดตั้งอยู่ใน examples/v5-app/node_modules/
+   * @strapi/database — ไม่ใช่เดาจากเอกสาร) `cb` ที่ throw จะ rollback แล้ว rethrow ให้เอง
+   */
+  transaction<T>(fn: () => Promise<T>): Promise<T>
 }
 
 /**
@@ -69,6 +79,7 @@ export function getServices(strapi: StrapiV5): Services {
       ttlMs: config.scheduler.lockTtlMs,
       columns: { id: SCHEDULE_ID_COLUMN },
     }),
+    transaction: (fn) => strapi.db.transaction(fn),
     clientFor: (channel) => new LineClient({
       accessToken: channel.channelAccessToken,
       apiBaseUrl: config.lineApiBaseUrl,

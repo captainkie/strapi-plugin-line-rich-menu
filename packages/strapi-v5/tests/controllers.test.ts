@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { controllers } from '../server/src/controllers/index.js'
+import { UID } from '../server/src/content-types/index.js'
 import { toHttpError } from '../server/src/http-error.js'
 import { admin } from '../server/src/routes/admin.js'
 import { PERMISSION } from '../server/src/permissions.js'
@@ -84,6 +85,15 @@ describe('route ทุกเส้น (สเปก §11.4)', () => {
  * strapi ปลอมที่มีเฉพาะสิ่งที่ `getServices` เดินผ่านจริง — controller ทุกตัวเรียก
  * `getServices(strapi)` เป็นบรรทัดแรกก่อนแตะ zod ด้วยซ้ำ การส่ง `{}` เข้าไปจึงได้ 500 จาก
  * `resolveEncryptionKey` ทุกครั้ง ซึ่งกลบสิ่งที่เทสต์ตั้งใจจะพิสูจน์ทั้งหมด
+ *
+ * `db.transaction` (Task 20 item 5, strapi-v5 M1) ปลอม rollback ด้วยการ snapshot ทุกตารางก่อนเรียก
+ * `fn` แล้วคืนกลับถ้า `fn` throw — ไม่ใช่ knex transaction จริง (ของจริงพิสูจน์แล้วแยกต่างหากว่า
+ * commit/rollback ถูกต้องจาก @strapi/database เอง ดูคอมเมนต์ที่ container.ts) แต่จำลอง**สัญญา**ที่
+ * `saveMenu` พึ่งพา (all-or-nothing) ได้พอให้พิสูจน์ว่าโค้ดของเราเรียกมันถูกจุดจริง — ถ้า `saveMenu`
+ * ลืมห่อ transaction กลับ เทสต์ atomicity ด้านล่างจะเห็นแถวกำพร้าเหลือค้างและแดงทันที
+ *
+ * `plugin('upload')` เพิ่ม `findOne` ที่คืน `null` เป็นค่าเริ่มต้น — จำลองไฟล์ที่ถูกลบจาก Media
+ * Library (repro ตรงของ item 5/6) เทสต์อื่นในไฟล์นี้ไม่แตะรูปเลยจึงไม่ได้รับผลกระทบ
  */
 function fakeStrapi(rows: Record<string, Record<string, unknown>[]> = {}) {
   const table = (uid: string) => (rows[uid] ??= [])
@@ -94,8 +104,25 @@ function fakeStrapi(rows: Record<string, Record<string, unknown>[]> = {}) {
         (path === 'server.app.keys' ? (['app-key-one-that-is-long-enough'] as unknown as T) : (fallback as T)),
     },
     dirs: { static: { public: '/tmp' } },
-    plugin: () => ({ service: () => ({}), contentType: () => ({}) }),
-    db: { connection: () => ({ where: () => ({}) }) },
+    plugin: (name: string) =>
+      (name === 'upload'
+        ? { service: () => ({ findOne: async () => null, upload: async () => [{ id: 900 }] }) }
+        : { service: () => ({}), contentType: () => ({}) }),
+    db: {
+      connection: () => ({ where: () => ({}) }),
+      transaction: async <T>(fn: () => Promise<T>): Promise<T> => {
+        const snapshot = Object.fromEntries(
+          Object.entries(rows).map(([uid, entries]) => [uid, entries.map((row) => ({ ...row }))]),
+        )
+        try {
+          return await fn()
+        } catch (error) {
+          for (const uid of Object.keys(rows)) delete rows[uid]
+          Object.assign(rows, snapshot)
+          throw error
+        }
+      },
+    },
     cron: { add: vi.fn() },
     admin: { services: { permission: { actionProvider: { registerMany: async () => {} } } } },
     documents: (uid: string) => ({
@@ -204,6 +231,56 @@ describe('guard แปลง error เป็น response ที่มี code �
 
     expect(ctx.status).toBe(404)
     expect((ctx.body as { error: { code: string } }).error.code).toBe('channel_not_found')
+  })
+})
+
+/**
+ * Task 20 item 5 (strapi-v5 M1) — repro ตรงจากรีวิว: ไฟล์รูปที่เมนูอ้างถึงถูกลบไปจาก Media Library
+ * แล้ว (พารามิเตอร์ `fileId: 42` ในเทสต์นี้คือไฟล์ที่ "หายไปแล้ว" — `plugin('upload')` ปลอมคืน
+ * `findOne` เป็น `null` เสมอ) `saveMenu` ต้องล้มทั้งก้อน ไม่ใช่ commit แถวร่างแล้วค่อยพังที่ขั้นถัดไป
+ * — พิสูจน์สองข้อ: (1) ไม่มีแถวกำพร้าเหลือค้างในตารางหลังบันทึกล้ม (2) บันทึกใหม่ด้วย alias เดิม
+ * (ที่ไม่เคยสำเร็จจริงสักครั้ง) ต้องไม่โดนปฏิเสธด้วย `alias_id_taken` — ไม่ตรวจ status code ที่ได้ตรงนี้
+ * เพราะการแปลง error ของ `store.read` ให้มี code ที่ถูกต้องเป็นคนละเรื่อง (item 6, strapi-v5 M3)
+ */
+describe('menus controller > create — atomicity ของ saveMenu (Task 20 item 5, strapi-v5 M1)', () => {
+  async function seedChannel(strapi: StrapiV5) {
+    const ctx = makeCtx({
+      request: { body: { name: 'ร้าน', channelId: 'ch0000000000000000000001', channelAccessToken: 'a-token-long-enough' } },
+    })
+    await controllers.channels({ strapi }).create(ctx)
+    return (ctx.body as { id: string }).id
+  }
+
+  function menuBody(channelId: string, aliasId: string) {
+    return {
+      name: 'เมนูหลัก', channelId, size: 'large' as const, chatBarText: '', chatBarMode: 'default' as const,
+      selected: true, templateKey: null,
+      areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 1686 }, action: { type: 'message', text: 'hi' } }],
+      imageFileId: null, areaImages: [{ index: 0, fileId: 42 }],
+      aliasId, startAt: null, endAt: null,
+    }
+  }
+
+  it('ไม่มีแถวร่างกำพร้าเหลือค้างในตารางหลังบันทึกล้ม — และลองใหม่ด้วย alias เดิมได้โดยไม่โดน alias_id_taken', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeStrapi(rows)
+    const channelId = await seedChannel(strapi)
+
+    const first = makeCtx({ request: { body: menuBody(channelId, 'tab-a') } })
+    await controllers.menus({ strapi }).create(first)
+    // ก่อนแก้ item 6 นี่คือ 500 (bare Error จาก store.read ไม่มี code) — เทสต์นี้สนใจแค่ atomicity
+    // ไม่สนใจว่า status ที่ได้คือเลขอะไร แค่ต้องไม่ใช่ 2xx (บันทึกไม่สำเร็จจริง)
+    expect(first.status).toBeGreaterThanOrEqual(400)
+
+    expect(rows[UID.menu] ?? []).toHaveLength(0)
+
+    const second = makeCtx({ request: { body: menuBody(channelId, 'tab-a') } })
+    await controllers.menus({ strapi }).create(second)
+    expect(second.status).toBeGreaterThanOrEqual(400)
+    expect((second.body as { error: { code: string } }).error.code).not.toBe('alias_id_taken')
+
+    // ยืนยันซ้ำว่ายังไม่มีแถวค้างแม้พยายามสองรอบ — ไม่ใช่แค่รอดรอบเดียว
+    expect(rows[UID.menu] ?? []).toHaveLength(0)
   })
 })
 
