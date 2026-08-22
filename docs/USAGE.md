@@ -15,6 +15,7 @@ working install.
 - [Publish](#publish)
 - [Tabbed menus with aliases](#tabbed-menus-with-aliases)
 - [Scheduling](#scheduling)
+- [Two menus, two audiences](#two-menus-two-audiences)
 - [When LINE and Strapi disagree](#when-line-and-strapi-disagree)
 - [Troubleshooting](#troubleshooting)
 
@@ -159,6 +160,96 @@ curl -X POST https://your-strapi/line-rich-menu/schedules/tick \
 
 That route requires `publish` like every other route that touches LINE. It is not public, and
 calling it more often than necessary is harmless — jobs that are not due are skipped.
+
+## Two menus, two audiences
+
+Every menu has an **audience**: `all` or `members`. `all` is the default, and it is exactly what
+this plugin always did — whichever menu you set as the account default, by hand or through
+[Scheduling](#scheduling), is what everyone who opens the chat sees. `members` is for showing a
+*second*, different menu to a specific list of LINE users without touching that default. The
+current-menu card at the top of the rich menu list shows both at once — who "Everyone" is seeing
+right now and who "Members" is seeing — each read live from LINE rather than guessed from the
+database, so it can never disagree with what a user actually has open.
+
+**Marking a menu as a members menu is an API call today, not a form field.** The editor saves every
+other setting on a menu but never sends `audience` — on purpose, so an ordinary edit of a members
+menu (renaming it, swapping its image) can never reset it back to `all` by accident. Until this
+plugin grows a picker for it, the only way in is to set it yourself when you create the menu, by
+calling `POST /line-rich-menu/menus` with `audience: "members"` added to the body the editor would
+otherwise send. Trying to switch on the members toggle described below for a menu that is still
+`audience: "all"` fails — and today it fails with the same generic "Could not complete that action"
+message every other failure in this section uses, without saying why. If that toggle refuses to
+turn on and the menu was not created with `audience: "members"`, that mismatch is the first thing
+to check.
+
+### Creating members
+
+**LINE member** is a content type you can see and edit in Content Manager — unlike every other
+content type this plugin defines, which stay hidden — because managing that list by hand is the
+whole feature: there is no webhook, no CSV import, and no separate REST endpoint of its own for
+adding people. Each row needs a **channel** and a **LINE user ID**. The channel is required, not
+just convenient: a LINE user ID is scoped to one Official Account, so the same person following two
+of your channels holds two different, unrelated IDs — a member row with no channel would be an ID
+nobody could resolve back to an account.
+
+Add a member while that channel's members menu is already switched on, and the plugin links that
+one person to LINE immediately, inside the same save — it does not wait for the background job
+described next. Delete a member who was linked, and the plugin unlinks them the same way. Both are
+best-effort: a LINE failure here is logged and written to the audit trail rather than blocking the
+edit, because Content Manager already told you the row saved successfully, and undoing that to
+match a failed LINE call would throw away work that already succeeded.
+
+### The members toggle
+
+Once a menu is published and its audience is `members`, its row in the rich menu list grows an
+**Enable for members** toggle. Turning it on asks how many members are on file for that channel,
+shows you the number so you know what you are about to do, and — once you confirm — links every one
+of them to the menu; LINE's own default for everyone else is left untouched. Turning it off unlinks
+everyone currently held to that menu.
+
+Linking goes through LINE's bulk-link endpoint, which accepts at most 500 user IDs per request, so
+turning the toggle on for a channel with more members than that runs as a background job, 500 at a
+time, rather than inside the request that pressed the toggle — a channel with fifty thousand members
+would otherwise mean a hundred LINE calls and ten thousand row updates inside one HTTP request,
+which is exactly what a proxy timeout or a mid-deploy restart cuts off part way through. That job
+remembers where it stopped: each chunk's position is saved before the next one starts, so if LINE
+hard-fails partway through — a real error, not a timeout — the job stops and waits for you to press
+the toggle again to resume from that point, rather than silently retrying forever or starting over
+from the first member. Turning the toggle off does not need the same bookkeeping, because its job
+draws from "everyone still holding this menu," a set that shrinks by itself every time a chunk
+succeeds — re-running it after a crash just continues, by definition, with nothing to remember in
+between.
+
+### "Sent," not "delivered"
+
+Every place this feature reports on an action — the toggle above, and **Unlink everyone** below —
+says the command was **sent**, never that it was delivered or applied. That word choice is
+deliberate, not vague: LINE's bulk-link and bulk-unlink calls both answer with an empty `202` the
+instant they accept the request, and there is no way to ask afterwards whether any given user
+actually received the change. Saying "delivered" would be reporting something this plugin has no
+way to check.
+
+You can check one member at a time, though: each **LINE member** row has a **Verify** action that
+calls `GET /v2/bot/user/{userId}/richmenu` for that person and shows which menu LINE says they are
+currently holding. It is a spot check rather than a report, because that endpoint only ever answers
+for one user per call — there is no bulk version of *reading back* what happened, only of asking
+LINE to make it happen.
+
+### Unlink everyone, at most three times an hour
+
+The toggle's off switch only reaches people the plugin's own member rows still point at. If a row
+went missing some other way — LINE was unreachable when someone unfollowed and the record never
+caught up, or a person was linked to this menu before this feature existed — that job has nothing
+left to find them by. **Unlink everyone**, on the rich menu list, reaches past the plugin's own
+records entirely and asks LINE directly to drop this one menu from every user still holding it,
+known to this plugin or not.
+
+That directness has a cost. It goes through `POST /v2/bot/richmenu/batch`, which LINE caps at
+**three requests per hour, per account** — not per menu, not per plugin instance. A fourth attempt
+inside the same hour fails, reported the same generic way as any other failure here, without
+repeating LINE's reason back to you — so if you have pressed this three times in the last hour, the
+fix is to wait for the hour to turn over, not to keep retrying. It is meant to be a rare maintenance
+action, which is why the confirmation dialog spells the limit out before you spend one of the three.
 
 ## When LINE and Strapi disagree
 

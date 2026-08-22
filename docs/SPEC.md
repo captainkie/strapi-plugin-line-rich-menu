@@ -48,8 +48,9 @@ examples/
   v5-app/        Strapi 5.x จริง ติดตั้งปลั๊กอินจาก tarball
 ```
 
-`core` and `ui` are published as `@fosivo/line-rich-menu-{core,ui}` but bundled into each adapter
-at build time, so an installed plugin is a single package with no workspace-only dependency.
+`core` and `ui` are internal workspace packages — both `package.json`s set `private: true` and are
+never published — bundled into each adapter at build time, so an installed plugin is a single
+package with no workspace-only dependency.
 
 The example apps install **from `npm pack` output**, not from a workspace link, because the tarball
 is what a user actually receives and a workspace link hides packaging mistakes until release day.
@@ -87,22 +88,42 @@ upload plugin, so the plugin never touches a filesystem and works with any uploa
 
 ## Data model
 
-Four content types, all `draftAndPublish: false` and all hidden from Content Manager — "published"
-here means *published to LINE*, and two competing notions of published in one table is a confusion
-that buys nothing.
+Five content types, all `draftAndPublish: false`. Four stay hidden from Content Manager —
+"published" here means *published to LINE*, and two competing notions of published in one table is
+a confusion that buys nothing. The fifth, `line-member`, is the deliberate exception.
 
 **`rich-menu`** — name, size, chat bar text/mode, `selected`, `templateKey`, `areas` (bounds +
 action as JSON), the raw and normalised image file ids, normalised mime and dimensions, `aliasId`,
-`status`, `lineRichMenuId`, `linePublishedAt`, `lastError`.
+`status`, `lineRichMenuId`, `linePublishedAt`, `lastError`, and `audience` (`'all' | 'members'`,
+defaulting to `'all'`).
 
 **`line-channel`** — name, channel id, and the encrypted `channelAccessToken` / `channelSecret`,
-both `private: true`, plus `accessTokenLast4` written once at save time.
+both `private: true`, plus `accessTokenLast4` written once at save time, and `memberRichMenuId` —
+the LINE rich menu id currently enabled for members on this channel, or `null`.
 
 **`rich-menu-schedule`** — one row per pending operation: `runAt`, `op`, `state`, `lockedBy`,
-`lockedAt`, `lastError`.
+`lockedAt`, `lastError`, `cursor`. See [Scheduling](#scheduling) for what `cursor` is for and which
+ops actually use it.
 
 **`rich-menu-audit`** — actor, action, before, after, result, error code, for everything that
 touched LINE.
+
+**`line-member`** — `channel` (required), `lineUserId`, `displayName`, `linkedRichMenuId`,
+`linkedAt`. `channel` is required rather than merely sensible: a LINE user id is scoped to one
+Official Account, so the same person following two of your channels holds two different, unrelated
+ids, and a member row with no channel would be an id nobody could resolve back to an account. This
+is the one content type in the plugin left visible in Content Manager, because managing that list
+by hand is the entire feature — deliberately no webhook, no CSV import, no bespoke REST endpoint of
+its own for populating it.
+
+Neither `rich-menu.audience` nor `line-channel.memberRichMenuId` is paired with a stored "is this
+live right now" flag, and that is deliberate, carrying forward the same rule the account default
+already followed: **which menu is active is derived, never stored.** For `audience: 'all'` that
+means asking LINE for the account default directly (`GET /v2/bot/user/all/richmenu`); for
+`audience: 'members'` it means comparing `memberRichMenuId` against the menu in question. A cached
+boolean would drift from whichever of those is actually true the moment a console edit or a
+half-finished background job changed the real answer without anyone updating the flag to match —
+asking the source of truth on every read is slower than trusting a column, but it cannot go stale.
 
 ### One shape that has caused repeated defects
 
@@ -162,6 +183,32 @@ constant with a test rather than a literal.
 
 `POST /schedules/tick` exposes the same routine for external schedulers, and carries the same
 `publish` permission as everything else that reaches LINE. It is not exempt.
+
+Two more ops ride the same table: `link-members` and `unlink-members`, queued by each adapter's
+`activate`/`deactivate` controller handlers rather than by a display period. Both walk LINE's
+bulk-link and bulk-unlink endpoints, which accept at most 500 user ids per call, so a channel with
+more members than that is worked through 500 at a time, possibly across several ticks, instead of
+inside the request that flipped the toggle — the same reasoning as [Images](#images): the slow,
+failure-prone part happens off to the side rather than inside a request a proxy's timeout can cut
+off partway through.
+
+The two jobs are not symmetric, on purpose. `link-members` pages with a keyset cursor (`id >
+cursor`, never an offset) written back onto the schedule row after every chunk, because its source
+— "members of this channel" — does not shrink while the job runs; without a remembered position, a
+job resumed after a crash would send everyone from the first member again. `unlink-members` carries
+no cursor and must not grow one: its source is "members still holding this menu's LINE id," which
+shrinks by exactly one chunk's worth every time a chunk succeeds, because linking a member clears
+that field the moment it happens. A job with no memory that resumes against a query which has
+already forgotten what it did is still correct; paging the same set by a remembered cursor would
+not be, and would need one anyway to know it was done.
+
+`unlink-all` (the "Unlink everyone" action — see [USAGE.md](USAGE.md#two-menus-two-audiences)) is
+deliberately not one of these jobs. It exists for members a chunked job cannot reach — rows deleted
+while LINE was unreachable, or people linked to a menu before this feature existed — by calling
+`POST /v2/bot/richmenu/batch` for the whole menu in one shot, synchronously inside the request that
+asked for it, never through the scheduler. LINE's quota on that endpoint — three requests per hour,
+per account — is the reason it stays a manual, confirmed action rather than something the
+scheduler could ever call on its own.
 
 ## Credentials at rest
 

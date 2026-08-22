@@ -5,7 +5,8 @@
   Templates, a drag-and-drop canvas, multi-tab menus via aliases, scheduled display periods,
   and a publish path that cleans up after itself when
   <a href="https://developers.line.biz/en/docs/messaging-api/rich-menus-overview/">LINE</a>
-  says no. One plugin, <b>Strapi 4 and Strapi 5</b>.
+  says no. Menus can target everyone or just your LINE members, linked and unlinked for you in the
+  background. One plugin, <b>Strapi 4 and Strapi 5</b>.
 </p>
 
 <p align="center">
