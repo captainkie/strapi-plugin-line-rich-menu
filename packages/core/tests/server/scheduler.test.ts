@@ -4,7 +4,7 @@ import { createAuditWriter } from '../../src/server/audit.js'
 import type { MemberRow } from '../../src/server/members.js'
 import { createScheduler } from '../../src/server/scheduler.js'
 import type { TickReport } from '../../src/server/scheduler.js'
-import type { AuditRow, Repo, RichMenuRow, ScheduleRow } from '../../src/server/types.js'
+import type { AuditRow, ListParams, Repo, RichMenuRow, ScheduleRow } from '../../src/server/types.js'
 
 const silent = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 const NOW = new Date('2026-08-21T12:00:00.000Z')
@@ -396,9 +396,15 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     report: TickReport
     sentChunks: string[][]
     released: { state: string; error: string | null } | undefined
+    /** ListParams ที่ ops.members.findMany ได้รับจริง เรียงตามลำดับ — ยืนยัน "ยิง query ยังไง" ไม่ใช่แค่ผลลัพธ์ */
+    queries: ListParams[]
+    /** cursor ที่ค้างอยู่บนแถว schedule หลัง tick จบ (ไม่ว่า done หรือ failed) */
+    cursorPersisted: string | null
   }> {
     const memberRows = membersFor(options.members)
+    const memberRepo = memberRepoFor(memberRows)
     const sentChunks: string[][] = []
+    const queries: ListParams[] = []
     let bulkLinkCalls = 0
 
     const line = {
@@ -456,7 +462,15 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
         menus: listRepo([menuRow({ id: '1', channelId: '10' })]),
         audit: createAuditWriter({ repo: auditRepo, logger: silent }),
         clientFor: async () => line as never,
-        members: memberRepoFor(memberRows),
+        // ห่อ findMany ไว้บันทึก query ทุกครั้งที่ยิงจริง — เหมือน `deps()` ใน members.test.ts:
+        // assertion บนผลลัพธ์อย่างเดียวผ่านได้แม้ query ที่ยิงจริงผิด (เช่น cursor ไม่ถูกส่ง)
+        members: {
+          ...memberRepo,
+          async findMany(params) {
+            queries.push(params ?? {})
+            return memberRepo.findMany(params)
+          },
+        },
       },
       logger: silent,
       now: () => NOW,
@@ -464,7 +478,7 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     })
 
     const report = await scheduler.tick()
-    return { report, sentChunks, released }
+    return { report, sentChunks, released, queries, cursorPersisted: scheduleRows[0]!.cursor }
   }
 
   it('งาน link-members เดินครบทุกชุดในหนึ่ง tick', async () => {
@@ -482,16 +496,27 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     expect(writes.length).toBeGreaterThanOrEqual(2)
   })
 
-  /** ตายกลางทางแล้วรอบถัดไปต้องต่อ ไม่ใช่เริ่มใหม่ตั้งแต่คนแรก */
-  it('tick รอบถัดไปเริ่มจาก cursor ที่ค้างไว้', async () => {
-    const { sentChunks } = await tickWith({ members: 1001, op: 'link-members', startCursor: 'm00499' })
-    expect(sentChunks[0]![0]).not.toBe(`U${'0'.repeat(32)}`)
+  /**
+   * ตายกลางทางแล้วรอบถัดไปต้องต่อ ไม่ใช่เริ่มใหม่ตั้งแต่คนแรก — ต้องเช็คกลไก ไม่ใช่แค่ผลลัพธ์:
+   * "ไม่ใช่คนแรก" อย่างเดียวผ่านได้แม้ cursor ที่ใช้จริงเป็นค่าอื่นที่ผิดก็ตาม (ดู probe ท้ายไฟล์
+   * ในรายงาน — เดิม assertion นี้จับได้แค่โดยบังเอิญผ่าน chunk-count ของเทสต์ข้างบน ไม่ใช่จับเอง)
+   * เช็คสองชั้น: (1) query แรกของรอบ resume พก idGreaterThan เป็น cursor ที่ให้ไปจริง ๆ ไม่ใช่ค่าอื่น
+   * (2) คนแรกที่ถูกส่งคือคนถัดจาก cursor นั้นพอดี ('m00499' → ลำดับที่ 500 → id ตัวเลข 500)
+   */
+  it('tick รอบถัดไปเริ่มจาก cursor ที่ค้างไว้ ไม่ใช่แค่ "ไม่ใช่คนแรก"', async () => {
+    const { sentChunks, queries } = await tickWith({ members: 1001, op: 'link-members', startCursor: 'm00499' })
+    expect(queries[0]).toMatchObject({ idGreaterThan: 'm00499' })
+    expect(sentChunks[0]![0]).toBe(`U${String(500).padStart(32, '0')}`)
   })
 
+  // ชื่อเทสต์นี้สัญญาว่าเช็ค "cursor ที่ทำไปแล้ว" — ต้องเช็คค่าจริง ไม่ใช่แค่พูดถึงในชื่อ เพราะทั้งหมด
+  // ที่การเขียน cursor ทีละ chunk มีไว้เพื่อคือให้ตอบคำถามนี้ได้หลัง crash: "ทำไปถึงไหนแล้ว"
   it('งานล้มกลางทางปล่อย lock เป็น failed พร้อม cursor ที่ทำไปแล้ว', async () => {
-    const { report, released } = await tickWith({ members: 600, op: 'link-members', failOnChunk: 2 })
+    // 600 คน, ชุดละ 500 — ชุดแรก (0..499) ผ่านและเขียน cursor='m00499' ก่อน ชุดที่สอง (500..599) ถึงจะล้ม
+    const { report, released, cursorPersisted } = await tickWith({ members: 600, op: 'link-members', failOnChunk: 2 })
     expect(report.failed).toBe(1)
     expect(released).toMatchObject({ state: 'failed' })
+    expect(cursorPersisted).toBe('m00499')
   })
 
   it('ไม่มี ops.members แล้วมีงาน link-members เข้ามา → พังทันที ไม่ใช่ข้ามงานไปเงียบ ๆ', async () => {
