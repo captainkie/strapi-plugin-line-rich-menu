@@ -19,7 +19,7 @@ export const richMenuSchedule: { schema: ContentTypeSchema } = {
       runAt: { type: 'datetime' as const, required: true },
       op: {
         type: 'enumeration' as const,
-        enum: ['set-default', 'clear-default', 'swap-alias'],
+        enum: ['set-default', 'clear-default', 'swap-alias', 'link-members'],
         required: true,
       },
       state: {
@@ -31,6 +31,9 @@ export const richMenuSchedule: { schema: ContentTypeSchema } = {
       lockedBy: { type: 'string' as const },
       lockedAt: { type: 'datetime' as const },
       lastError: { type: 'text' as const },
+      // id ของสมาชิกคนสุดท้ายที่ทำไปแล้วของงาน link-members — keyset ไม่ใช่ offset (ดู
+      // ListParams.idGreaterThan ใน core/server/types.ts) งานชนิดอื่นไม่แตะฟิลด์นี้เลย
+      cursor: { type: 'string' as const },
     },
   },
 }

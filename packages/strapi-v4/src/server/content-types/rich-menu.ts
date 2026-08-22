@@ -19,6 +19,9 @@ export const richMenu: { schema: ContentTypeSchema } = {
       chatBarText: { type: 'string' as const, required: true, maxLength: 14 },
       chatBarMode: { type: 'enumeration' as const, enum: ['default', 'custom'], default: 'default', required: true },
       selected: { type: 'boolean' as const, default: true },
+      // 'members' คือเมนูที่คนใน line-member เห็น ส่วน 'all' คือค่าเริ่มต้นเดิมที่ทุกคนเห็นเหมือนกัน —
+      // required เพราะ "ไม่ระบุ" ไม่ใช่สถานะที่มีความหมาย ทุกเมนูต้องมีคำตอบเสมอว่าใครเห็นมันบ้าง
+      audience: { type: 'enumeration' as const, enum: ['all', 'members'], default: 'all', required: true },
       templateKey: { type: 'string' as const },
       areas: { type: 'json' as const },
       image: { type: 'media' as const, multiple: false, allowedTypes: ['images'] },

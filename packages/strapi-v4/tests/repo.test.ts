@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { UID } from '../src/server/content-types/index.js'
 import { readDisplayPeriod, writeDisplayPeriod } from '../src/server/menu-write.js'
-import { createAuditRepo, createChannelRepo, createMenuRepo, createScheduleRepo } from '../src/server/repo.js'
+import {
+  createAuditRepo, createChannelRepo, createMemberRepo, createMenuRepo, createScheduleRepo,
+} from '../src/server/repo.js'
 import type { StrapiV4 } from '../src/server/strapi.js'
 
 type PopulateParams = { populate?: unknown } | undefined
@@ -231,6 +233,98 @@ describe('createAuditRepo', () => {
       before: null, after: null, result: 'success', errorCode: null,
     })
     expect(calls[0]!.args[0]).toMatchObject({ data: { actorId: null, richMenuId: null } })
+  })
+})
+
+describe('createMemberRepo', () => {
+  it('แปลง relation channel ที่ populate มาเป็น channelId ของชั้น service', async () => {
+    const { strapi } = fakeStrapi({
+      findMany: [{
+        id: 5, lineUserId: `U${'a'.repeat(32)}`,
+        channel: { id: 10 }, displayName: null, linkedRichMenuId: null, linkedAt: null,
+      }],
+    })
+    const rows = await createMemberRepo(strapi).findMany()
+    expect(rows[0]).toMatchObject({ id: '5', channelId: '10' })
+  })
+
+  it('populate ขอ channel เสมอ — ไม่งั้น channelId จะหายไปทุกแถว', async () => {
+    const { strapi, calls } = fakeStrapi({ findMany: [] })
+    await createMemberRepo(strapi).findMany()
+    expect((calls[0]!.args[0] as { populate: string[] }).populate).toEqual(['channel'])
+  })
+
+  it('กรองด้วย channelId แปลงเป็นเงื่อนไขบน relation ตัวเลข — แพทเทิร์นเดียวกับ menu/schedule', async () => {
+    const { strapi, calls } = fakeStrapi({ findMany: [] })
+    await createMemberRepo(strapi).findMany({ filters: { channelId: '10' } })
+    expect(calls[0]!.args[0]).toMatchObject({ filters: { channel: 10 } })
+  })
+
+  /**
+   * รูปทรงการเรียกจริงจาก `linkMemberChunk` (core/server/members.ts) — `idGreaterThan` เป็น
+   * property ระดับบนสุดของ `ListParams`, **ไม่ได้อยู่ใน** `filters` (ดูคอมเมนต์ที่ ListParams
+   * ใน core/server/types.ts ว่าทำไมถึงแยกกันโดยตั้งใจ) เทสต์นี้จึงเรียกด้วยรูปทรงนั้นตรง ๆ —
+   * ถ้า mapFilters เห็นแต่ input.filters เฉย ๆ (ไม่ผ่านการรวมใน define()) มันจะไม่มีทางเห็น
+   * ค่านี้เลย แล้ว findMany จะคืนสมาชิกทั้งชุดทุก chunk เงียบ ๆ — คือบั๊กที่ row-count assertion
+   * ใด ๆ จับไม่ได้ เพราะจำนวนแถวที่ได้ยังดูสมเหตุสมผล
+   */
+  it('idGreaterThan (นอก filters) กลายเป็นเงื่อนไข $gt ตัวเลขของ id — keyset ไม่ใช่ offset', async () => {
+    const { strapi, calls } = fakeStrapi({ findMany: [] })
+    await createMemberRepo(strapi).findMany({
+      filters: { channelId: '10' }, idGreaterThan: '5', sort: 'id:asc', limit: 500,
+    })
+    expect(calls[0]!.args[0]).toEqual({
+      populate: ['channel'],
+      filters: { channel: 10, id: { $gt: 5 } },
+      sort: 'id:asc',
+      limit: 500,
+    })
+  })
+
+  it('ไม่มี idGreaterThan ก็ไม่มี id filter ติดมาเอง', async () => {
+    const { strapi, calls } = fakeStrapi({ findMany: [] })
+    await createMemberRepo(strapi).findMany({ filters: { channelId: '10' }, sort: 'id:asc' })
+    expect(calls[0]!.args[0]).toMatchObject({ filters: { channel: 10 }, sort: 'id:asc' })
+    expect((calls[0]!.args[0] as { filters: Record<string, unknown> }).filters['id']).toBeUndefined()
+  })
+
+  // ต่างจาก v5 ที่ต้องมี mapSort แปล `id:asc` -> `documentId:asc` เพราะ id ของชั้น service กับ id
+  // ที่ entityService เรียงให้เป็นคนละคอลัมน์กัน — v4 ใช้ id ตัวเลขคอลัมน์เดียวทั้งกรองและเรียง
+  // จึงไม่มีช่องว่างแบบนั้นให้ปิด `sort` จึงไม่ถูกแตะเลยไม่ว่าค่าจะเป็นอะไร
+  it('sort ผ่านไปตามเดิมเสมอ ไม่มีการแปล', async () => {
+    const { strapi, calls } = fakeStrapi({ findMany: [] })
+    await createMemberRepo(strapi).findMany({ sort: 'lineUserId:asc' })
+    expect((calls[0]!.args[0] as { sort: unknown }).sort).toBe('lineUserId:asc')
+  })
+
+  it('เขียน relation ของ channel ด้วยตัวเลขดิบครบทุกฟิลด์', async () => {
+    const { strapi, calls } = fakeStrapi({ create: { id: 5 } })
+    await createMemberRepo(strapi).create({
+      channelId: '10', lineUserId: `U${'a'.repeat(32)}`, displayName: 'คุณเอ',
+      linkedRichMenuId: 'richmenu-a', linkedAt: '2026-08-22T00:00:00.000Z',
+    })
+    expect(calls[0]!.args[0]).toEqual({
+      populate: ['channel'],
+      data: {
+        channel: 10,
+        lineUserId: `U${'a'.repeat(32)}`,
+        displayName: 'คุณเอ',
+        linkedRichMenuId: 'richmenu-a',
+        linkedAt: '2026-08-22T00:00:00.000Z',
+      },
+    })
+  })
+
+  // ฟิลด์ที่ optional เหล่านี้หายไปทั้งคีย์ (undefined) ไม่ใช่ตั้งเป็น null ไว้ — จำลองแถวที่ยังไม่เคย
+  // ตั้งค่าฟิลด์พวกนี้เลย พิสูจน์ว่า orNull ทำงานจริง ไม่ใช่แค่ null เข้า null ออกโดยบังเอิญ
+  it('ฟิลด์ที่หายไปทั้งคีย์ (undefined) กลายเป็น null ไม่ใช่หลุดเป็น undefined ติดไปกับ row', async () => {
+    const { strapi } = fakeStrapi({
+      findOne: { id: 5, lineUserId: `U${'a'.repeat(32)}`, channel: { id: 10 } },
+    })
+    expect(await createMemberRepo(strapi).findOne('5')).toEqual({
+      id: '5', channelId: '10', lineUserId: `U${'a'.repeat(32)}`,
+      displayName: null, linkedRichMenuId: null, linkedAt: null,
+    })
   })
 })
 

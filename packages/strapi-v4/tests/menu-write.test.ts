@@ -63,6 +63,8 @@ function fakeServices(menus: Repo<RichMenuRow>, source: Buffer): Services {
     channels: {} as never,
     menus,
     schedules: fakeRepo<ScheduleRow>(),
+    // menu-write.ts ไม่แตะ members เลย (ไม่ใช่ path ของ link-members) — ใส่ไว้ให้ตรงกับ Services เฉย ๆ
+    members: {} as never,
     audit: {} as never,
     limiter: {} as never,
     store: fakeStore(source),

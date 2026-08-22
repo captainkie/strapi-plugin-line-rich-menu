@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
-  AuditRow, ChannelRow, ImageStore, ListParams, Repo, RichMenuRow, ScheduleRow,
+  AuditRow, ChannelRow, ImageStore, ListParams, MemberRow, Repo, RichMenuRow, ScheduleRow,
 } from '@fosivo/line-rich-menu-core'
 import { UID } from './content-types/index.js'
 import type { StrapiV4 } from './strapi.js'
@@ -34,15 +34,26 @@ function define<TRow extends { id: string }>(
 ): Repo<TRow> {
   const populate = shape.populate === undefined ? {} : { populate: [...shape.populate] }
 
-  const params = (input?: ListParams) => ({
-    ...populate,
-    ...(input?.filters === undefined
-      ? {}
-      : { filters: shape.mapFilters === undefined ? input.filters : shape.mapFilters(input.filters) }),
-    ...(input?.sort === undefined ? {} : { sort: input.sort }),
-    ...(input?.limit === undefined ? {} : { limit: input.limit }),
-    ...(input?.start === undefined ? {} : { start: input.start }),
-  })
+  const params = (input?: ListParams) => {
+    // idGreaterThan อยู่นอก `filters` โดยตั้งใจในสเปกของ core (ดูคอมเมนต์ที่ ListParams ใน
+    // core/server/types.ts) — ไม่ใช่ equality key อีกตัว แต่ปลายทางจริงของมันคือเงื่อนไข WHERE
+    // เดียวกับ filters ทั้งหมด รวมเข้าด้วยกันตรงนี้ก่อนส่งให้ mapFilters เพราะถ้าไม่รวม mapFilters
+    // ของ member repo จะไม่มีทางเห็นค่านี้เลย (มันมองเห็นแค่ input.filters) — findMany จะคืน
+    // สมาชิกทั้งชุดทุก chunk แล้วงาน link-members จะวนไม่รู้จบ (ดู scheduler.ts / members.ts)
+    const rawFilters = input?.filters === undefined && input?.idGreaterThan === undefined
+      ? undefined
+      : { ...input?.filters, ...(input?.idGreaterThan === undefined ? {} : { idGreaterThan: input.idGreaterThan }) }
+
+    return {
+      ...populate,
+      ...(rawFilters === undefined
+        ? {}
+        : { filters: shape.mapFilters === undefined ? rawFilters : shape.mapFilters(rawFilters) }),
+      ...(input?.sort === undefined ? {} : { sort: input.sort }),
+      ...(input?.limit === undefined ? {} : { limit: input.limit }),
+      ...(input?.start === undefined ? {} : { start: input.start }),
+    }
+  }
 
   return {
     async findMany(input) {
@@ -170,8 +181,8 @@ export function createScheduleRepo(strapi: StrapiV4): Repo<ScheduleRow> {
       lockedBy: orNull<string>(entity['lockedBy']),
       lockedAt: orNull<string>(entity['lockedAt']),
       lastError: orNull<string>(entity['lastError']),
-      // คอลัมน์จริงยังไม่มีใน content-type นี้ — Task 6 เป็นคนเพิ่ม schema field ตัวนี้
-      // ตอนต่อสาย `link-members` เข้า scheduler ทำแค่ mapping ไว้ก่อนไม่ให้ type ของ core หลุด
+      // id ของสมาชิกคนสุดท้ายที่ทำไปแล้วของงาน link-members (keyset ไม่ใช่ offset) — งานชนิดอื่น
+      // ไม่แตะคอลัมน์นี้เลยจึงเป็น null เสมอสำหรับพวกมัน (ดู cursor ใน core/server/types.ts)
       cursor: orNull<string>(entity['cursor']),
     }),
     toData: (patch) => {
@@ -184,6 +195,43 @@ export function createScheduleRepo(strapi: StrapiV4): Repo<ScheduleRow> {
       if (patch.lockedAt !== undefined) data['lockedAt'] = patch.lockedAt
       if (patch.lastError !== undefined) data['lastError'] = patch.lastError
       if (patch.cursor !== undefined) data['cursor'] = patch.cursor
+      return data
+    },
+  })
+}
+
+export function createMemberRepo(strapi: StrapiV4): Repo<MemberRow> {
+  return define<MemberRow>(strapi, UID.member, {
+    populate: ['channel'],
+    mapFilters: (filters) => {
+      // `idGreaterThan`/`channelId` แปลไปคนละทาง แม้จะยิงผ่าน mapFilters ตัวเดียวกัน: channelId
+      // เป็น relation (แพทเทิร์นเดียวกับ menu/schedule repo ด้านบน) ส่วน idGreaterThan เป็น
+      // เงื่อนไขบน `id` ตัวเลข primary key ของแถวเอง ไม่ใช่ relation — ต้อง $gt ไม่ใช่ equality
+      // ถึงจะเป็น "id มากกว่า" จริง และต้องแปลงเป็นตัวเลขก่อนเทียบกับคอลัมน์ตัวเลข
+      const { channelId, idGreaterThan, ...rest } = filters
+      const out: Record<string, unknown> = { ...rest }
+      if (channelId !== undefined && channelId !== null) out['channel'] = Number(channelId)
+      if (idGreaterThan !== undefined && idGreaterThan !== null) out['id'] = { $gt: Number(idGreaterThan) }
+      return out
+    },
+    // ไม่มี mapSort: `id:asc` ที่ core ส่งมาคือคอลัมน์ตัวเลขเดียวกับที่ idGreaterThan กรองอยู่แล้ว
+    // (ต่างจาก v5 ที่ id ของชั้น service คือ documentId แต่ default sort ของ Strapi คือ id ตัวเลข
+    // คนละคอลัมน์ — v4 ไม่มีช่องว่างแบบนั้นเพราะมี id คอลัมน์เดียว ไม่ต้องแปลอะไร)
+    toRow: (entity) => ({
+      id: asString(entity['id']),
+      channelId: asString(relationId(entity['channel'])),
+      lineUserId: (entity['lineUserId'] as string | undefined) ?? '',
+      displayName: orNull<string>(entity['displayName']),
+      linkedRichMenuId: orNull<string>(entity['linkedRichMenuId']),
+      linkedAt: orNull<string>(entity['linkedAt']),
+    }),
+    toData: (patch) => {
+      const data: Entity = {}
+      if (patch.channelId !== undefined) data['channel'] = Number(patch.channelId)
+      if (patch.lineUserId !== undefined) data['lineUserId'] = patch.lineUserId
+      if (patch.displayName !== undefined) data['displayName'] = patch.displayName
+      if (patch.linkedRichMenuId !== undefined) data['linkedRichMenuId'] = patch.linkedRichMenuId
+      if (patch.linkedAt !== undefined) data['linkedAt'] = patch.linkedAt
       return data
     },
   })
