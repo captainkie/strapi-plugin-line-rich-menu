@@ -144,7 +144,7 @@ describe('channel repo', () => {
         documentId: 'ch0000000000000000000001', id: 7,
         name: 'ร้าน', channelId: '1650000000',
         channelAccessToken: 'v1.iv.tag.ct', channelSecret: null,
-        accessTokenLast4: 'ABCD', isDefault: true,
+        accessTokenLast4: 'ABCD', isDefault: true, memberRichMenuId: 'richmenu-member',
       },
     })
     const row = await createChannelRepo(strapi).findOne('ch0000000000000000000001')
@@ -156,7 +156,23 @@ describe('channel repo', () => {
       channelSecret: null,
       accessTokenLast4: 'ABCD',
       isDefault: true,
+      memberRichMenuId: 'richmenu-member',
     })
+  })
+
+  // Task 7 เป็นผู้บริโภคจริงคนแรกของคอลัมน์นี้ (ดูคอมเมนต์ที่ ChannelRow.memberRichMenuId ใน core) —
+  // แถวที่ยังไม่เคยตั้งเมนูสำหรับสมาชิกต้องอ่านเป็น null ไม่ใช่ undefined หลุดออกไป
+  it('channel ที่ยังไม่ได้ตั้งเมนูสำหรับสมาชิก อ่าน memberRichMenuId เป็น null', async () => {
+    const { strapi } = fakeStrapi({
+      findOne: {
+        documentId: 'ch0000000000000000000001', id: 7,
+        name: 'ร้าน', channelId: '1650000000',
+        channelAccessToken: 'v1.iv.tag.ct', channelSecret: null,
+        accessTokenLast4: 'ABCD', isDefault: true,
+      },
+    })
+    const row = await createChannelRepo(strapi).findOne('ch0000000000000000000001')
+    expect(row!.memberRichMenuId).toBeNull()
   })
 
   // `id: 7` ที่ติดมาด้วยคือ primary key ของแถว ไม่ใช่ตัวระบุที่ชั้น service ใช้ — ถ้าหยิบผิดตัว

@@ -49,6 +49,16 @@ export interface ChannelRow {
    */
   accessTokenLast4: string
   isDefault: boolean
+  /**
+   * เมนูที่ควรได้เมื่อ LINE user คนนั้นมีแถวใน line-member ของ channel นี้ — Task 5/6 เพิ่มคอลัมน์นี้
+   * ไว้ในสคีมาของทั้งสอง adapter แล้ว แต่ไม่ได้ผูกเข้า repo/service ชั้นนี้เลยสักที่ (Task 7 เป็น
+   * ผู้บริโภคจริงคนแรก จึงเป็นคนปิดช่องว่างนี้)
+   *
+   * optional เพราะ adapter ของ Strapi 4 (Task 8) ยังไม่ได้เพิ่ม key นี้ใน `toRow` ของตัวเอง —
+   * แถวที่มาจากที่นั่นจะไม่มี key นี้เลย ไม่ใช่ตั้งใจให้เป็น `null`; แยกจาก `undefined` (adapter เก่า
+   * ไม่รู้จัก field นี้) ไปเป็น `string | null` เสมอที่ `ChannelRecord` (ดู `toChannelRecord`)
+   */
+  memberRichMenuId?: string | null
 }
 
 /** สิ่งที่ออกจาก service ได้ — ไม่มีฟิลด์ลับ ไม่ว่าจะเป็น plaintext หรือ ciphertext */
@@ -59,6 +69,9 @@ export interface ChannelRecord {
   /** `••••••••abcd` — สี่ตัวท้ายของ access token เท่านั้น (สเปก §11.2) */
   accessTokenPreview: string
   isDefault: boolean
+  /** normalize จาก `ChannelRow.memberRichMenuId` ที่อาจไม่มี key เลย (adapter ที่ยังไม่ผูก field นี้)
+   * ให้เป็น `string | null` เสมอที่ชั้นนี้ — ผู้เรียก service ไม่ต้องรู้ว่าแถวมาจาก adapter ไหน */
+  memberRichMenuId: string | null
 }
 
 export interface ChannelWithSecrets extends ChannelRecord {

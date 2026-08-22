@@ -32,6 +32,29 @@ export interface DocumentsApi {
   delete(params: DocumentParams & { documentId: string }): Promise<unknown>
 }
 
+/**
+ * รูปทรงขั้นต่ำของ event ที่ `db.lifecycles` ส่งเข้า subscriber แต่ละตัว (`@strapi/database`
+ * ประกาศไว้กว้างกว่านี้มากใน `Event`/`Params` แต่ adapter นี้ import เฉพาะสิ่งที่ใช้จริงเสมอ —
+ * เหตุผลเดียวกับที่ `StrapiV5`/`DocumentsApi` ทั้งไฟล์ไม่ import type จาก `@strapi/*` ทั้งก้อน)
+ *
+ * `data`/`where` เป็น `Record<string, unknown>` ไม่ใช่ type ที่เจาะจงกว่านี้ เพราะรูปจริงของ
+ * relation ในนั้น (สตริง documentId ดิบ, object ที่ populate แล้ว, หรือ `{connect:[...]}`)
+ * ไม่มีเอกสารที่ระบุตรง ๆ ว่าที่ระดับ `db.lifecycles` (ก่อน `attachRelations`) จะเป็นรูปไหน —
+ * ผู้เรียก (`lifecycles.ts`) ต้องเผื่อเองแทนที่จะเชื่อ type ที่แคบเกินจริง
+ */
+export interface LifecycleEvent {
+  params: { data?: Record<string, unknown>; where?: Record<string, unknown> }
+  result?: Record<string, unknown>
+}
+
+export type LifecycleSubscriber = {
+  models: string[]
+  beforeCreate?(event: LifecycleEvent): Promise<void>
+  beforeUpdate?(event: LifecycleEvent): Promise<void>
+  afterCreate?(event: LifecycleEvent): Promise<void>
+  afterDelete?(event: LifecycleEvent): Promise<void>
+}
+
 export interface StrapiV5 {
   log: StrapiLogger
   config: { get<T>(path: string, defaultValue?: T): T }
@@ -47,6 +70,8 @@ export interface StrapiV5 {
      * ส่ง `trx` ผ่านทุกเลเยอร์ — ดูคอมเมนต์เต็มที่ `Services.transaction` ใน container.ts
      */
     transaction<T>(fn: () => Promise<T>): Promise<T>
+    /** Task 7 — `lifecycles.ts` ใช้ตัวนี้ผูก link/unlink สมาชิกเข้ากับ create/delete ของ line-member */
+    lifecycles: { subscribe(subscriber: LifecycleSubscriber): void }
   }
   admin: { services: { permission: { actionProvider: { registerMany(actions: unknown[]): Promise<void> } } } }
   cron: { add(jobs: Record<string, unknown>): void }

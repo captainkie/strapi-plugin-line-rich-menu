@@ -152,6 +152,9 @@ importers:
       '@strapi/sdk-plugin':
         specifier: ^6.1.1
         version: 6.1.1(@types/node@20.19.43)(rollup@4.62.4)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0)
+      '@strapi/utils':
+        specifier: ^5.52.1
+        version: 5.52.1(ts-toolbelt@9.6.0)
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1
@@ -18722,7 +18725,7 @@ snapshots:
     dependencies:
       deepmerge: 2.2.1
       hoist-non-react-statics: 3.3.2
-      lodash: 4.17.21
+      lodash: 4.18.1
       lodash-es: 4.18.1
       react: 18.3.1
       react-fast-compare: 2.0.4

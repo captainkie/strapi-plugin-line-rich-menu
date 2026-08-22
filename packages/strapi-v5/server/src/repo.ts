@@ -125,6 +125,9 @@ export function createChannelRepo(strapi: StrapiV5): Repo<ChannelRow> {
       channelSecret: orNull<string>(entity['channelSecret']),
       accessTokenLast4: (entity['accessTokenLast4'] as string | undefined) ?? '',
       isDefault: entity['isDefault'] === true,
+      // Task 5 เพิ่มคอลัมน์นี้ไว้ในสคีมาแล้วแต่ไม่ได้ผูกเข้า repo — Task 7 (lifecycles.ts) เป็น
+      // ผู้บริโภคจริงคนแรก ต้องอ่านได้จริงถึงจะรู้ว่า channel นี้มีเมนูสำหรับสมาชิกหรือยัง
+      memberRichMenuId: orNull<string>(entity['memberRichMenuId']),
     }),
     toData: (patch) => ({ ...patch }),
   })
