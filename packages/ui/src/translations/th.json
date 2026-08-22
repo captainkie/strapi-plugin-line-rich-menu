@@ -130,6 +130,7 @@
   "template.picker.title": "เลือก template",
   "validation.area_out_of_bounds": "ช่องนี้อยู่นอกกรอบเมนู",
   "validation.canvas_size_not_allowed": "ขนาดผืนผ้าใบนี้ไม่ใช่ขนาดที่ LINE รองรับ",
+  "validation.display_period_end_not_after_start": "วันที่สิ้นสุดต้องอยู่หลังวันที่เริ่มต้น",
   "validation.too_big": "ค่านี้ยาวเกินไป",
   "validation.too_small": "ค่านี้สั้นเกินไป",
   "validation.unknown": "ค่านี้ไม่ถูกต้อง",

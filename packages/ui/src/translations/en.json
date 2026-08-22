@@ -130,6 +130,7 @@
   "template.picker.title": "Select a template",
   "validation.area_out_of_bounds": "This area falls outside the menu",
   "validation.canvas_size_not_allowed": "That canvas size is not one LINE accepts",
+  "validation.display_period_end_not_after_start": "The end date must be set after the start date.",
   "validation.too_big": "This value is too long",
   "validation.too_small": "This value is too short",
   "validation.unknown": "This value is not valid",

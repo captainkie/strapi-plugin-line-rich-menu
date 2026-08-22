@@ -34,6 +34,12 @@ const VALIDATION_CODE_DEF = {
   uriSchemeNotAllowed: 'uri_scheme_not_allowed',
   canvasSizeNotAllowed: 'canvas_size_not_allowed',
   areaOutOfBounds: 'area_out_of_bounds',
+  // Task 20 item 10 (ui-core L1) — DISPLAY_PERIOD_ORDER_CODE (ประกาศไว้แยกต่างหากด้านล่างเดิม)
+  // ย้ายเข้ามาที่นี่แล้ว: มันเคยอยู่นอก VALIDATION_CODE_DEF ทั้งที่คอมเมนต์ของ object นี้บอกตรง ๆ ว่า
+  // "เป็นที่เดียวที่พิมพ์สตริงพวกนี้" — ผลคือ VALIDATION_CODES (ด้านล่าง) มีแค่ 3 ตัวทั้งที่ไฟล์นี้
+  // ประกาศ code จริง 4 ตัว และ i18n.test.ts (packages/ui) ที่ import VALIDATION_CODES ไปตรวจว่า
+  // คำแปลครบทุก code ไม่เคยเห็น code ตัวที่สี่นี้เลย — guard เขียวได้โดยไม่ได้ตรวจ code ล่าสุด
+  displayPeriodOrderNotAfterStart: 'display_period_end_not_after_start',
 } as const
 
 export const VALIDATION_CODES: readonly string[] = Object.freeze(Object.values(VALIDATION_CODE_DEF))
@@ -189,8 +195,11 @@ export function validateRichMenu(input: unknown): RichMenuPayload {
  * ช่วงเวลาแสดงผลที่กลับหัว — เอกสารตัวเองว่าทำไม issue นี้เป็นของเรา ไม่ใช่ค่า 'custom' ดิบของ zod
  * (ดูคอมเมนต์ที่ `toValidationIssue` ด้านบน) แม้ `http-error.ts` ของทั้งสอง adapter จะยังไม่ได้
  * อ่าน `params` ตอนแปลง ZodError เป็น HTTP response ก็ตาม (ต่างจาก `toValidationIssue` ในไฟล์นี้)
+ *
+ * อ้างกลับไปที่ `VALIDATION_CODE_DEF` แทนพิมพ์ literal ซ้ำ (Task 20 item 10, ui-core L1) — สอง
+ * ค่าที่ประกาศแยกกันจะไม่ตรงกันในวันใดวันหนึ่งเสมอ และนั่นคือช่องโหว่เดิมของบรรทัดนี้พอดี
  */
-export const DISPLAY_PERIOD_ORDER_CODE = 'display_period_end_not_after_start'
+export const DISPLAY_PERIOD_ORDER_CODE = VALIDATION_CODE_DEF.displayPeriodOrderNotAfterStart
 
 /**
  * กฎเดียวที่ทั้งฟอร์มฝั่ง UI และ request schema ของทั้งสอง adapter ต้องเห็นตรงกัน: `endAt` ต้องอยู่

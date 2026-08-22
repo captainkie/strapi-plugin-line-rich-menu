@@ -22,12 +22,18 @@ if (typeof window !== 'undefined') {
   proto['releasePointerCapture'] ??= function releasePointerCapture(): void {}
 
   /**
-   * `Layouts.Header` (Task 17 — primitives.tsx ของ Page) อ่าน `window.strapi.flags.docLinks`
-   * ตอน render ทุกครั้ง เพื่อตัดสินใจว่าจะวาดปุ่ม "Learn more" ไหม — ค่านี้ถูก Strapi เอง bootstrap
-   * ไว้ก่อนแอดมิน mount เสมอในแอปจริง แต่ jsdom ไม่มีให้ ปล่อยว่างจะได้ TypeError
-   * "Cannot read properties of undefined (reading 'flags')" ก่อนจะวาดอะไรออกมาเลย
-   * (ช่องว่างของสภาพแวดล้อมเทสต์เดียวกับสี่ตัวข้างบน ไม่ใช่ adapter เขียนผิด) — ปิด docLinks
-   * ไว้ (false) เพราะปลั๊กอินนี้ไม่มี doc link ของตัวเองให้ Strapi จับคู่อยู่แล้ว
+   * Task 20 item 10 (strapi-v5 L4) — คอมเมนต์นี้เคยอ้างว่า `Layouts.Header` จริงอ่าน
+   * `window.strapi.flags.docLinks` ตอน render และเทสต์ที่ `tests/admin/primitives.test.tsx`
+   * render component นั้นจริง จึงต้องปลอมค่านี้ไว้ — **ไม่จริง**: `vitest.config.ts:50` ของแพ็กเกจนี้
+   * alias `@strapi/strapi/admin` ทั้งไฟล์ไปที่ `tests/doubles/strapi-admin.tsx` ตลอดทั้งโปรเจกต์
+   * เทสต์ `primitives.Page` จึง render `Layouts.Header` ของ**ตัวปลอม**เสมอ (ดูคอมเมนต์เต็มที่
+   * `Page` ใน `admin/src/primitives.tsx`) ไม่ใช่ตัวจริงที่อ่าน `window.strapi.flags` เลยสักครั้ง —
+   * polyfill นี้จึงเป็น dead code ในสภาพแวดล้อมเทสต์ปัจจุบัน ไม่มีอะไรอ่านมันจริง
+   *
+   * เก็บไว้โดยตั้งใจแทนที่จะลบทิ้ง: เป็นเกราะกันไว้เผื่อวันที่ `vitest.config.ts` เลิก alias ไฟล์นี้
+   * (เช่นย้ายไป render ของจริงเพื่อพิสูจน์ path นี้จริง ๆ ตามที่คอมเมนต์เดิมตั้งใจไว้) ตอนนั้น
+   * polyfill นี้จะกลับมาจำเป็นทันทีโดยไม่ต้องมีใครมาเขียนใหม่ — แต่คอมเมนต์เดิมที่อ้างว่ามันถูกใช้
+   * อยู่ *ตอนนี้* เป็นเท็จ แก้ให้ตรงกับความจริงแทน
    */
   const globalWithStrapi = globalThis as unknown as { strapi?: { flags?: { docLinks?: boolean } } }
   globalWithStrapi.strapi ??= { flags: { docLinks: false } }

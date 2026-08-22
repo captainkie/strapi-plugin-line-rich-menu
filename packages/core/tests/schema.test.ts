@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { ValidationError, type ValidationIssue } from '../src/errors.js'
 import {
-  actionSchema, draftActionSchema, isDisplayPeriodValid, validateRichMenu, VALIDATION_CODES,
+  actionSchema, draftActionSchema, DISPLAY_PERIOD_ORDER_CODE, isDisplayPeriodValid, validateRichMenu,
+  VALIDATION_CODES,
 } from '../src/schema.js'
 
 /** เรียก validateRichMenu แล้วคืน issues ที่ได้ — ล้มเทสต์ถ้ามันดันผ่าน */
@@ -157,10 +158,16 @@ describe('validateRichMenu', () => {
   // code ออกจาก VALIDATION_CODE_DEF โดยที่ params: { code: ... } ยังอ้างถึงอยู่ ที่นี่จะพังก่อน
   // ให้เห็นตอนคอมไพล์อยู่แล้ว (ตัวแปรอ้างไม่ถึง) แต่ถ้าใครลบ entry ที่ไม่มี refinement ไหนอ้างถึง
   // เทสต์นี้จับ drift ของ "รายการ" ตรง ๆ แทนที่จะพึ่ง type error เพียงอย่างเดียว
-  it('VALIDATION_CODES มี code ที่ schema นี้ตั้งเองครบทั้ง 3 ตัว ไม่มากไม่น้อยกว่านี้', () => {
-    expect([...VALIDATION_CODES].sort()).toEqual(
-      ['area_out_of_bounds', 'canvas_size_not_allowed', 'uri_scheme_not_allowed'],
-    )
+  /**
+   * Task 20 item 10 (ui-core L1) — `display_period_end_not_after_start` ย้ายเข้ามาอยู่ใน
+   * VALIDATION_CODE_DEF แล้ว (เดิมอยู่นอกออบเจกต์นี้ ทำให้ i18n.test.ts ของ packages/ui ไม่เคยเห็น
+   * มันเลย) จำนวนจึงเป็น 4 ไม่ใช่ 3 อีกต่อไป
+   */
+  it('VALIDATION_CODES มี code ที่ schema นี้ตั้งเองครบทั้ง 4 ตัว ไม่มากไม่น้อยกว่านี้', () => {
+    expect([...VALIDATION_CODES].sort()).toEqual([
+      'area_out_of_bounds', 'canvas_size_not_allowed',
+      'display_period_end_not_after_start', 'uri_scheme_not_allowed',
+    ])
   })
 
   it('ทุก code ใน VALIDATION_CODES โผล่จริงเป็น issue.code เมื่อ payload ผิดแบบที่ code นั้นตรวจ', () => {
@@ -179,7 +186,13 @@ describe('validateRichMenu', () => {
     })
     expect(boundsIssues.map((i) => i.code)).toContain('area_out_of_bounds')
 
+    // display_period_end_not_after_start ตั้งใจไม่รวมในลูปนี้ — มันไม่ใช่ code ที่
+    // `richMenuPayloadSchema`/`validateRichMenu` ของไฟล์นี้ตรวจเลย (ช่วงเวลาแสดงผลไม่ใช่ฟิลด์ของ
+    // RichMenuPayload ที่ส่งให้ LINE — ดูคอมเมนต์เต็มที่ isDisplayPeriodValid ด้านล่าง) แต่ถูก
+    // emit จาก `menuInputSchema.superRefine` ของแต่ละ adapter (v4/v5 validation.ts) แทน — คนละ
+    // schema กับที่เทสต์นี้ทดสอบ การเช็ค "ครบทุก code" (test ก่อนหน้า) ยังคุมว่า i18n ครบอยู่
     for (const code of VALIDATION_CODES) {
+      if (code === DISPLAY_PERIOD_ORDER_CODE) continue
       const allEmitted = [...uriIssues, ...sizeIssues, ...boundsIssues].map((i) => i.code)
       expect(allEmitted, `${code} ไม่เคยถูกโค้ดจริง emit เลยสักครั้ง`).toContain(code)
     }

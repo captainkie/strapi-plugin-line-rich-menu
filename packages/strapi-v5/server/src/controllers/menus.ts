@@ -34,7 +34,7 @@ async function opsFor(services: Services, menu: RichMenuRow) {
 }
 
 export const menus = ({ strapi }: { strapi: StrapiV5 }) => ({
-  find: guard(async (ctx) => {
+  find: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const query = listQuerySchema.parse(ctx.query)
     const rows = await services.menus.findMany({
@@ -44,14 +44,14 @@ export const menus = ({ strapi }: { strapi: StrapiV5 }) => ({
     ctx.body = rows.map(toSummary)
   }),
 
-  findOne: guard(async (ctx) => {
+  findOne: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const row = await services.menus.findOne(idParam.parse(ctx.params['id']))
     if (row === null) { ctx.status = 404; ctx.body = { error: { code: 'menu_not_found' } }; return }
     ctx.body = await toDetail(services, row)
   }),
 
-  create: guard(async (ctx) => {
+  create: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const input = menuInputSchema.parse(ctx.request.body)
     const saved = await saveMenu(services, input, null, actorOf(ctx))
@@ -59,7 +59,7 @@ export const menus = ({ strapi }: { strapi: StrapiV5 }) => ({
     ctx.body = await toDetail(services, saved)
   }),
 
-  update: guard(async (ctx) => {
+  update: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const id = idParam.parse(ctx.params['id'])
     const input = menuInputSchema.parse(ctx.request.body)
@@ -69,7 +69,7 @@ export const menus = ({ strapi }: { strapi: StrapiV5 }) => ({
     ctx.body = await toDetail(services, saved)
   }),
 
-  delete: guard(async (ctx) => {
+  delete: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const id = idParam.parse(ctx.params['id'])
     const existing = await services.menus.findOne(id)
@@ -86,7 +86,7 @@ export const menus = ({ strapi }: { strapi: StrapiV5 }) => ({
     ctx.body = null
   }),
 
-  publish: guard(async (ctx) => {
+  publish: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const id = idParam.parse(ctx.params['id'])
     const body = publishBodySchema.parse(ctx.request.body)
@@ -105,7 +105,7 @@ export const menus = ({ strapi }: { strapi: StrapiV5 }) => ({
     }, { menuId: id, actorId: actorOf(ctx), setAsDefault: body.setAsDefault })
   }),
 
-  setDefault: guard(async (ctx) => {
+  setDefault: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const id = idParam.parse(ctx.params['id'])
     setDefaultBodySchema.parse(ctx.request.body)
@@ -117,7 +117,7 @@ export const menus = ({ strapi }: { strapi: StrapiV5 }) => ({
     ctx.body = null
   }),
 
-  clearDefault: guard(async (ctx) => {
+  clearDefault: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const id = idParam.parse(ctx.params['id'])
     const menu = await services.menus.findOne(id)
@@ -128,7 +128,7 @@ export const menus = ({ strapi }: { strapi: StrapiV5 }) => ({
     ctx.body = null
   }),
 
-  reconcile: guard(async (ctx) => {
+  reconcile: guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const channelId = idParam.parse(ctx.params['id'])
     const channel = await services.channels.withSecrets().findOne(channelId)

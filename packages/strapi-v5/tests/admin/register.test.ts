@@ -17,9 +17,11 @@ function register() {
 }
 
 describe('register', () => {
-  it('เมนูซ้ายชี้ไปยัง path เดียวกับที่ router ของปลั๊กอินรับไว้', () => {
+  // Task 20 item 10 (strapi-v5 L2) — ไม่มี `/` นำหน้าอีกต่อไป (เดิมเทสต์นี้ตรึงรูปแบบที่ Strapi 5.52
+  // ประกาศไว้ตรง ๆ ว่า deprecated และจะถูกถอดออกในอนาคต — ดูคอมเมนต์เต็มที่ admin/src/index.ts)
+  it('เมนูซ้ายชี้ไปยัง path เดียวกับที่ router ของปลั๊กอินรับไว้ (relative ไม่ใช่ absolute)', () => {
     const { link } = register()
-    expect(link['to']).toBe('/plugins/line-rich-menu')
+    expect(link['to']).toBe('plugins/line-rich-menu')
     expect(link['intlLabel']).toEqual({ id: 'line-rich-menu.plugin.name', defaultMessage: 'LINE Rich Menu' })
   })
 

@@ -12,8 +12,17 @@ import {
 // (ดู package.json) จึง import ผ่าน `@strapi/strapi/admin` ที่เป็น peer dependency อยู่แล้ว และ
 // re-export ทุกอย่างจาก `@strapi/admin/strapi-admin` ตรง ๆ (`export * from …` ใน dist/admin.d.ts
 // ของ @strapi/strapi) — `port.tsx` import hook ของ Strapi ผ่าน path เดียวกันนี้อยู่แล้ว
-// ชนิดของทั้งสองตัวอยู่ที่ strapi-admin.d.ts (shim เดียวกับที่ประกาศ useFetchClient/useNotification
-// ให้ไฟล์นั้น — @strapi/strapi ทั้งแพ็กเกจไม่ได้ถูกติดตั้งไว้ ไฟล์นี้จึงไม่มี type จริงให้พึ่ง)
+//
+// Task 20 item 10 (strapi-v5 L3) — ชนิดของทั้งสองตัวเคยมาจาก `admin/src/strapi-admin.d.ts`
+// (shim ที่เขียนเอง อ้างว่า "@strapi/strapi ทั้งแพ็กเกจไม่ได้ถูกติดตั้งไว้") ซึ่งเป็นเท็จในเวิร์กสเปซ
+// นี้: `packages/strapi-v5/node_modules/@strapi/strapi` เป็น symlink จริงไปหา `@strapi/strapi@5.52.1`
+// (ค่าติดตั้งผ่าน devDependency ของ workspace อื่นที่ hoist ขึ้นมา) shim นั้นเป็น ambient module
+// declaration ที่บัง TypeScript ไม่ให้อ่าน .d.ts จริงเลย — พิสูจน์แล้วว่าไม่จำเป็น: ลบไฟล์ shim
+// ออกแล้วรัน `pnpm --filter strapi-plugin-line-rich-menu typecheck` สะอาดทันที (ไม่มี "cannot find
+// module" เลยสักตัว) แปลว่า type จริงจาก @strapi/strapi ที่ติดตั้งอยู่ resolve ได้เองและตรงกับที่
+// โค้ดนี้ใช้อยู่แล้ว ตอนนี้ import ตรงนี้ (และของ `port.tsx`) พึ่ง .d.ts จริงของแพ็กเกจที่ติดตั้งไว้
+// ไม่ใช่คำสัญญาที่เขียนเองอีกต่อไป — การเปลี่ยนแบบ breaking ของ useFetchClient/useNotification/Page/
+// Layouts ในเวอร์ชันถัดไปจะทำให้ typecheck แดงจริง แทนที่จะเงียบสนิทเหมือนก่อนหน้านี้
 import { Layouts, Page as StrapiPage } from '@strapi/strapi/admin'
 import { usePort, type UIPrimitives } from '@fosivo/line-rich-menu-ui'
 
@@ -351,10 +360,16 @@ export const primitives: UIPrimitives = {
    *
    * ตั้งใจใช้ `Layouts.Header` (ไม่ใช่ `Layouts.BaseHeader`) แม้ตัวเต็มจะอ่าน
    * `window.strapi.flags.docLinks` ภายใน — เพราะนั่นคือพฤติกรรมจริงของแอดมินที่ปลั๊กอินนี้วิ่งอยู่
-   * เสมอ (ไม่ใช่สภาพแวดล้อมเทสต์ล้วน ๆ ที่ setup-dom.ts แก้ให้ได้ในจุดอื่น) `window.strapi` ถูก
-   * bootstrap ไว้ก่อนแอดมินจะ mount อยู่แล้วเสมอในแอปจริง — ยืนยันด้วยเทสต์ที่ render จริงใน
-   * tests/admin/primitives.test.tsx (ต้องปลอม `window.strapi` ไว้ใน setup-dom.ts ให้ตรงกับ
-   * แอปจริง ไม่ใช่ข้ามการทดสอบเส้นทางนี้ไปเฉย ๆ)
+   * เสมอ `window.strapi` ถูก bootstrap ไว้ก่อนแอดมินจะ mount อยู่แล้วเสมอในแอปจริง
+   *
+   * Task 20 item 10 (strapi-v5 L4) — ประโยคเดิมตรงนี้อ้างว่า `tests/admin/primitives.test.tsx`
+   * render `Layouts.Header` ตัวจริงเพื่อพิสูจน์ path นี้ ซึ่ง**ไม่จริง**: `vitest.config.ts:50`
+   * alias `@strapi/strapi/admin` ทั้งไฟล์ไปที่ `tests/doubles/strapi-admin.tsx` — เทสต์จึง render
+   * `Layouts.Header` ของตัวปลอม ไม่ใช่ตัวจริงที่อ่าน `window.strapi.flags` เลยสักครั้ง (พฤติกรรม
+   * ของตัวจริงตรวจด้วยการอ่านซอร์สตรง ๆ แทน — พบว่าวาด `<h1>{title}</h1>` กับ `primaryAction`
+   * ตรงกับตัวปลอม ไม่ใช่ปัญหาของโปรดักต์ แค่คอมเมนต์อ้างเทสต์ที่ไม่ได้พิสูจน์สิ่งที่มันอ้าง — ดู
+   * คอมเมนต์เต็มที่ polyfill ใน `tests/setup-dom.ts` ซึ่งเป็น dead code ในสภาพแวดล้อมเทสต์ปัจจุบัน
+   * ด้วยเหตุผลเดียวกันนี้)
    */
   Page: ({ title, subtitle, actions, children }) => (
     <StrapiPage.Main>

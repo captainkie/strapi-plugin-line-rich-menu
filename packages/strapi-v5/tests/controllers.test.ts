@@ -319,6 +319,38 @@ describe('menus controller > create — ไฟล์รูปที่ลบไ�
   })
 })
 
+/**
+ * Task 20 item 10 (strapi-v5 L6) — `guard()` เดิมไม่ log อะไรเลยตอนจับ error ทั้งที่ผสมกับ M2/M3
+ * (item 4, 6) แล้ว 500 `internal_error` ทุกตัวก่อนหน้านั้นไม่เหลือร่องรอยให้ operator เลย ทดสอบทั้ง
+ * สองทาง: error ที่ไม่มี code จริง (บั๊กภายใน) ต้องถูก log และ error ที่มี code รู้จักแล้ว (ผู้ใช้ทำ
+ * ผิดเอง) ต้องไม่ถูก log — ไม่งั้น log จะเต็มไปด้วย "ปัญหา" ที่ไม่ใช่ปัญหาจริง
+ */
+describe('guard — 500 ถูก log ผ่าน scrubbed logger เสมอ ไม่ใช่กลืนเงียบ ๆ (Task 20 item 10, strapi-v5 L6)', () => {
+  it('error ที่ไม่มี code (บั๊กภายในจริง) ตอบ 500 และถูก log ผ่าน strapi.log.error', async () => {
+    const strapi = fakeStrapi()
+    const boom = new TypeError('cannot read properties of undefined')
+    // จำลองบั๊กภายในจริง — documents() เองพังก่อนจะได้เรียก .findOne ด้วยซ้ำ
+    ;(strapi as unknown as { documents: () => never }).documents = () => { throw boom }
+
+    const ctx = makeCtx({ params: { id: 'doc1' } })
+    await controllers.menus({ strapi }).findOne(ctx)
+
+    expect(ctx.status).toBe(500)
+    const logError = strapi.log.error as unknown as ReturnType<typeof vi.fn>
+    expect(logError).toHaveBeenCalled()
+    expect(logError.mock.calls[0]?.[0]).toContain('unhandled error')
+  })
+
+  it('error ที่มี code รู้จักแล้ว (เช่น 404 menu_not_found) ไม่ถูก log — ไม่ใช่ความผิดปกติของเซิร์ฟเวอร์', async () => {
+    const strapi = fakeStrapi()
+    const ctx = makeCtx({ params: { id: 'doesnotexist' } })
+    await controllers.menus({ strapi }).findOne(ctx)
+
+    expect(ctx.status).toBe(404)
+    expect(strapi.log.error as unknown as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+  })
+})
+
 describe('toHttpError — error จาก @strapi/utils ที่ไม่มี code (Task 20 item 4, strapi-v5 M2)', () => {
   it('แม็ป error ตาม name ของ @strapi/utils เป็นสถานะ 4xx ที่ถูกต้อง แทนที่จะเป็น 500 internal_error เสมอ', () => {
     const cases: [{ name: string }, number, string][] = [

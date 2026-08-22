@@ -1,5 +1,7 @@
 import { ZodError } from 'zod'
 import { ValidationError, type ValidationIssue } from '@fosivo/line-rich-menu-core'
+import { getServices } from './container.js'
+import type { StrapiV5 } from './strapi.js'
 
 export interface AdminContext {
   request: { body: unknown }
@@ -12,8 +14,17 @@ export interface AdminContext {
 }
 
 /**
- * สเปก §11.7 — UI แปล `code` เป็นข้อความตามภาษา ชั้นนี้จึงส่งแค่ `code` ขึ้นไป
- * ไม่ส่ง `message` เด็ดขาด เพราะ message ของ LINE เคยมีเคสที่สะท้อน payload กลับมาพร้อม header
+ * สเปก §11.7 — UI แปล `code` เป็นข้อความตามภาษา `code` (และ `path` ของแต่ละ issue) จึงเป็นสิ่งที่
+ * ฟอร์มต้องพึ่งจริง ๆ
+ *
+ * Task 20 item 10 (strapi-v5 L5) — คอมเมนต์เดิมตรงนี้บอกว่า "ไม่ส่ง message เด็ดขาด" ซึ่ง**ไม่ตรง
+ * กับโค้ดจริง**: `issuesOf()` ด้านล่างใส่ `issue.message` ของ zod ไว้ในทุก issue และ
+ * `error.issues` ของ core's `ValidationError` (ก็มี `message` เหมือนกัน) ถูกส่งต่อดิบ ๆ ที่บรรทัด
+ * `ctx.body = ... issues: error.issues` ด้านล่าง — ไม่มี live leak จริง (zod ฝัง received value
+ * เฉพาะ `invalid_enum_value`/`invalid_literal`/`unrecognized_keys` และไม่มี field ที่เก็บ secret
+ * ตัวไหนเป็น enum ใน schema ของเรา; message ของ core เองก็เป็น static string หรือ scope แค่ payload
+ * ไม่เคย interpolate credential) แต่กฎจริงคือ **"message เป็นข้อความอังกฤษสำหรับนักพัฒนา ต้องไม่มี
+ * credential ปนอยู่"** ไม่ใช่ "ไม่ส่ง message เลย" — แก้คอมเมนต์ให้ตรงกับกฎจริง ไม่ใช่กฎที่โค้ดไม่ได้ทำตาม
  */
 const STATUS_BY_CODE: Record<string, number> = {
   validation_failed: 400,
@@ -110,8 +121,24 @@ export function toHttpError(ctx: AdminContext, error: unknown): void {
     : { error: { code } }
 }
 
-/** ห่อ handler ทุกตัวให้ error กลายเป็น response ที่มี code เสมอ ไม่ใช่ 500 เปล่า ๆ ของ koa */
+/**
+ * ห่อ handler ทุกตัวให้ error กลายเป็น response ที่มี code เสมอ ไม่ใช่ 500 เปล่า ๆ ของ koa
+ *
+ * Task 20 item 10 (strapi-v5 L6) — เดิม catch ที่นี่ไม่ log อะไรเลย ผสมกับ M2/M3 (item 4, 6 ของ
+ * task นี้) แล้ว 500 `internal_error` ทุกตัวก่อนหน้านั้นไม่เหลือร่องรอยอะไรให้ operator เลย: response
+ * บอกแค่ 'internal_error' และ log ก็ไม่มี stack ไม่มี message ไม่มี name — log เฉพาะตอนที่ยังตกไปที่
+ * `known === undefined` (500) เท่านั้น ไม่ log error ที่ตอบเป็นรหัสรู้จักแล้ว (400/404/409/...) เพราะ
+ * นั่นคือ input ของผู้ใช้ที่ถูกปฏิเสธถูกต้องแล้ว ไม่ใช่ความผิดปกติที่ operator ต้องรู้
+ *
+ * ใช้ `getServices(strapi).logger` (scrubbed ผ่าน `createScrubbedLogger`) — ช่องเดียวกับที่
+ * `tick.ts` ใช้อยู่แล้ว ไม่ใช่ `strapi.log` ดิบที่ไม่ผ่านการ scrub เลย ห่อด้วย try/catch อีกชั้น
+ * เพราะ `getServices` เองมีสิทธิ์ throw ได้ (เช่น encryption key ยังตั้งไม่เสร็จ — `resolveEncryptionKey`
+ * ในบูตแรกสุด) ซึ่งเป็นเคสเดียวกับที่ `tick.ts` มี "fallback ที่ไม่ต้องพึ่ง getServices สำเร็จ" ไว้แล้ว
+ * — ที่นี่ fallback ไปที่ `strapi.log.error` ดิบ (ไม่ scrub) เฉพาะตอนที่ scrubbed logger ประกอบไม่ได้
+ * จริง ๆ ดีกว่าไม่ log อะไรเลย
+ */
 export function guard(
+  strapi: StrapiV5,
   handler: (ctx: AdminContext) => Promise<void>,
 ): (ctx: AdminContext) => Promise<void> {
   return async (ctx) => {
@@ -119,6 +146,13 @@ export function guard(
       await handler(ctx)
     } catch (error) {
       toHttpError(ctx, error)
+      if (ctx.status === 500) {
+        try {
+          getServices(strapi).logger.error('line-rich-menu: unhandled error in admin route', { error })
+        } catch {
+          strapi.log.error('line-rich-menu: unhandled error in admin route (scrubbed logger unavailable)', error)
+        }
+      }
     }
   }
 }
