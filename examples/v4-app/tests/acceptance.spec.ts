@@ -138,6 +138,11 @@ test.describe('เส้นทางหลัก', () => {
       channelId: '1650000000',
       accessTokenPreview: '••••••••ABCD',
       isDefault: false,
+      // Task 5/6 เพิ่มคอลัมน์นี้ให้ channel (ตัวชี้เมนูสมาชิกที่กำลัง active) — เพิ่งถูกจับได้ตอนรัน
+      // acceptance ตัวจริงครั้งแรกว่าหายไปจาก literal นี้เหมือนกับที่ v5 เจอ (toChannelRecord ใน
+      // core/server/secrets.ts คืนฟิลด์นี้มาให้ทั้งสอง adapter เหมือนกัน) — ฟิลด์นี้คือของจริงที่
+      // ตั้งใจเพิ่ม ไม่ใช่ leak
+      memberRichMenuId: null,
     })
 
     // ก่อนจะเชื่อว่า "ไม่มีโฟลเดอร์ชั่วคราวเหลือ" ต้องพิสูจน์ก่อนว่าตัวสแกนมองเห็นของจริง
@@ -204,6 +209,12 @@ test.describe('เส้นทางหลัก', () => {
     // `imageUrl` เป็นชื่อไฟล์ที่ upload provider ตั้งเอง (มีแฮชต่อท้าย) จึงเทียบด้วยชนิดเหมือน
     // `updatedAt` — และการเทียบชนิดที่นี่มีความหมายจริง ไม่ใช่การยอมแพ้: `null` เป็น `'object'`
     // ด่านนี้จึงแดงทันทีถ้าเมนูที่มีรูปกลับได้ `imageUrl: null` ซึ่งเป็นรูปแบบที่หน้ารายการพังพอดี
+    //
+    // Task 13 — `audience`/`lineRichMenuId` เพิ่งถูกจับได้ตอนรัน acceptance ตัวจริงครั้งแรกว่าหายไป
+    // จาก literal นี้: `toSummary` (controllers/menus.ts) คืนทั้งสองฟิลด์มาตั้งแต่ Task 11 แต่ไม่มี
+    // ใครรัน suite นี้กับ Strapi จริงมาก่อนเลยจนถึงตอนนี้ (ดูคอมเมนต์อื่น ๆ ในไฟล์นี้ที่พูดเรื่อง
+    // เดียวกัน) `toEqual` เทียบทั้งก้อนจึงแดงทันทีที่รันจริงครั้งแรก — เพิ่มสองฟิลด์นี้เข้าไปแทนที่จะ
+    // เปลี่ยนเป็น objectContaining ซึ่งจะปิดทางจับ regression ในอนาคตทิ้งไปด้วย
     expect({
       ...rows[0],
       updatedAt: typeof rows[0].updatedAt,
@@ -215,6 +226,8 @@ test.describe('เส้นทางหลัก', () => {
       channelId,
       aliasId: 'main',
       updatedAt: 'string',
+      audience: 'all',
+      lineRichMenuId: outcome.lineRichMenuId,
       // ห้าฟิลด์ล่างนี้คือสิ่งที่หน้ารายการแบบ LINE วาดออกมา — ภาพย่อ (size + areas),
       // คอลัมน์ action (areas) และคอลัมน์ช่วงเวลา ถ้าหายไปหน้าจอจะว่างโดยไม่มีอะไรพัง
       size: 'large',
@@ -353,6 +366,9 @@ test.describe('RBAC — role ที่มีแค่ read', () => {
       channelId: '1650000000',
       accessTokenPreview: '••••••••ABCD',
       isDefault: false,
+      // ยังไม่มีเทสต์ไหนก่อนหน้านี้ (ไฟล์นี้รันตามลำดับ, workers: 1) เรียก audience/activate เลย —
+      // ยังเป็นค่าเริ่มต้น null อยู่ ไม่ใช่ค่าจาก 'audience สมาชิก' ที่อยู่ท้ายไฟล์
+      memberRichMenuId: null,
     }])
 
     const menus = await request.get('/line-rich-menu/menus', auth(token))
@@ -426,5 +442,241 @@ test.describe('บันเดิลของ admin โหลดขึ้นจ�
     // บันเดิลที่ "ขึ้นแล้วพัง" อ่านเหมือนผ่านถ้าดูแค่ว่า element โผล่ — React จับ error ของ
     // ตัวเองไว้ได้ในบางกรณี ด่านนี้จึงดูที่ error ของหน้าจริง ๆ ด้วย
     expect(errors).toEqual([])
+  })
+})
+
+/**
+ * Task 13 — ด่านสุดท้ายที่ตอบสามคำถามที่ยังไม่มีคำตอบของฟีเจอร์ audience สมาชิก (ดู
+ * task-13-brief.md) ด้วยการสังเกตพฤติกรรมจริงบน Strapi 4 ตัวจริง ไม่ใช่เดาจากโค้ด:
+ * 1) `afterDelete` ของ Strapi ส่ง channel ที่ populate มาให้ lifecycle จริงไหม
+ * 2) `beforeUpdate` ได้ identifier ที่ resolve แถวเดิมได้จริงไหม
+ * 3) payload update ที่ไม่ส่ง `channel` มา ยัง establish channel ได้จริงไหม
+ *
+ * v4 ไม่มีความกำกวมของ documentId เหมือน v5 (ดูคอมเมนต์ที่ lifecycles.ts:idOf ของฝั่ง v4 —
+ * `where.id` คือ primary key ตัวเลขตัวเดียวกับที่ `MemberRow.id` ใช้อยู่แล้วเสมอ) แต่ยังต้องรัน
+ * ชุดนี้กับ v4 จริงเหมือนกัน เพราะคำถามที่ 1 (afterDelete populate) กับ 3 (payload ไม่ส่ง channel)
+ * เป็นพฤติกรรมของ `@strapi/database` lifecycles ไม่ใช่เรื่องเฉพาะ v5 — ไม่มีเอกสารรับรองรูปทรงที่
+ * event.result/event.params.data ส่งมาในเวอร์ชันไหนเลย ต้องดูจากของจริงทั้งสองฝั่ง
+ *
+ * uid ของ LINE ต้องเป็น `U` + hex ตัวพิมพ์เล็ก 32 ตัว (isLineUserId ใน core) — ใช้ตัวอักษร hex
+ * ซ้ำ (0-9, a-f) เพราะมันคือ hex ที่ถูกต้องด้วย และอ่านแยกแต่ละ uid ออกจากกันง่ายกว่า uuid สุ่ม
+ */
+const uidOf = (hexDigit: string) => `U${hexDigit.repeat(32)}`
+const MEMBER_UID = 'plugin::line-rich-menu.line-member'
+
+/**
+ * `line-member` เป็นตัวเดียวในปลั๊กอินที่เปิดใน Content Manager (สเปก §Non-goals: สมาชิกจัดการ
+ * ด้วยมือผ่าน Content Manager ไม่มี REST ของตัวเอง) — ต้องยิงผ่าน `/content-manager/collection-types`
+ * ไม่ใช่ path ของปลั๊กอินเอง Content Manager ส่ง body ดิบเป็นฟิลด์ของ entity ตรง ๆ (ไม่ห่อ `data`
+ * อีกชั้น — ต่างจาก route ของปลั๊กอินเองที่ผ่าน zod) `channel` คือชื่อ attribute ของ relation
+ * ตามที่ประกาศใน content-types/line-member.ts ไม่ใช่ `channelId` แบบที่ route ของปลั๊กอินใช้
+ */
+async function createMemberRaw(
+  request: APIRequestContext, token: string, data: { channelId: string; lineUserId: string },
+) {
+  return request.post(`/content-manager/collection-types/${MEMBER_UID}`, {
+    ...auth(token),
+    data: { channel: data.channelId, lineUserId: data.lineUserId },
+  })
+}
+
+async function createMember(
+  request: APIRequestContext, token: string, data: { channelId: string; lineUserId: string },
+): Promise<{ id: number }> {
+  const response = await createMemberRaw(request, token, data)
+  // Task 13 — เพิ่งถูกจับได้ตอนรัน acceptance ตัวจริงครั้งแรกว่า Content Manager ของ Strapi 4 ตอบ
+  // 200 สำหรับ POST ที่สร้างสำเร็จ ไม่ใช่ 201 แบบ route ของปลั๊กอินเอง (เข้าใจผิดยกมาจากแพทเทิร์นของ
+  // route ปลั๊กอินซึ่งผ่าน zod และตอบ 201 เอง — Content Manager เป็นคนละ endpoint คนละ convention)
+  // v5 ยืนยันแล้วว่าตอบ 201 จริง (ดู acceptance.spec.ts ของ v5) — ต่างกันตามเวอร์ชัน ไม่ใช่ error
+  expect(response.status(), await response.text()).toBe(200)
+  return response.json()
+}
+
+/**
+ * เมนู "ของสมาชิก" ผ่านเส้นทางที่ผู้ใช้จริงเดิน — อัปโหลดรูป → สร้างเมนูพร้อม `audience: 'members'`
+ * → publish
+ *
+ * **Task 13 ruling ปิดช่องนี้แล้ว**: เดิม `menuInputSchema` เป็น `.strict()` และไม่มีคีย์ `audience`
+ * เลย ส่ง `audience: 'members'` ไปใน body ตอนนั้นจะโดน zod ปฏิเสธด้วย 400 — ตอนนี้ schema มีคีย์
+ * `audience` แล้ว (enum `'all' | 'members'`, default `'all'`) `saveMenu` เขียนมันลง patch จริง
+ * และ repo ของทั้งสอง adapter เขียนคอลัมน์นี้กลับ DB จริง (ดู validation.ts / menu-write.ts / repo.ts)
+ * เมนูที่สร้างผ่านฟังก์ชันนี้จึงมี `audience: 'members'` ในฐานข้อมูลจริง ไม่ใช่ default 'all' เหมือน
+ * ก่อนหน้านี้ — `audience` เป็นพารามิเตอร์ ไม่ใช่ค่าคงที่ เพราะเทสต์ท้ายไฟล์ต้องการเมนูที่เหลือเป็น
+ * 'all' ด้วย (เพื่อพิสูจน์ว่า activate ปฏิเสธมันจริง)
+ */
+async function publishedMenu(
+  request: APIRequestContext, token: string, channelId: string,
+  over: { name: string; aliasId: string; audience?: 'all' | 'members' },
+): Promise<{ id: string; lineRichMenuId: string }> {
+  const fileId = await uploadImage(request, token, `${over.aliasId}.jpg`)
+  const created = await request.post('/line-rich-menu/menus', {
+    ...auth(token),
+    data: {
+      ...menuBody({ name: over.name, channelId, imageFileId: fileId, aliasId: over.aliasId }),
+      audience: over.audience ?? 'members',
+    },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+  const menu = await created.json()
+  expect(menu.audience, 'audience ที่ส่งไปตอนสร้างต้องเขียนลงจริง ไม่ใช่ค่า default เงียบ ๆ')
+    .toBe(over.audience ?? 'members')
+
+  const published = await request.post(`/line-rich-menu/menus/${menu.id}/publish`, {
+    ...auth(token), data: { setAsDefault: false },
+  })
+  expect(published.status(), await published.text()).toBe(200)
+  const outcome = await published.json()
+  return { id: menu.id as string, lineRichMenuId: outcome.lineRichMenuId as string }
+}
+
+test.describe('audience สมาชิก', () => {
+  test('สมาชิกเห็นเมนูของตัวเอง คนอื่นเห็น default', async ({ request }) => {
+    const token = await login(request, ADMIN)
+    const channelId = (await theChannel(request, token)).id
+    const memberMenu = await publishedMenu(
+      request, token, channelId, { name: 'เมนูสมาชิก', aliasId: 'members-menu' })
+
+    // สมาชิกสามคนก่อนเปิดสวิตช์
+    const uids = ['1', '2', '3'].map(uidOf)
+    for (const lineUserId of uids) await createMember(request, token, { channelId, lineUserId })
+
+    const activated = await request.post(
+      `/line-rich-menu/menus/${memberMenu.id}/audience/activate`, auth(token))
+    // controllers/members.ts:activateOrSync ตอบ 204 ไม่ใช่ 200 — task-13-brief.md เขียน 200 ไว้ผิด
+    expect(activated.status(), await activated.text()).toBe(204)
+
+    // ยืนยันจากฝั่ง LINE ไม่ใช่จากฐานข้อมูลของเราเอง — ต้องแนบ lineAuth เสมอ mock แยก store ตาม
+    // access token (ดูคอมเมนต์ที่ CHANNEL_ACCESS_TOKEN ด้านบนไฟล์) ไม่แนบจะไปถามอีก store ที่ว่าง
+    // เปล่าเสมอ แล้วด่านนี้จะ 404 ตลอดไม่ว่าฟีเจอร์จะทำงานจริงหรือไม่ — เขียวหรือแดงผิดเหตุผลทั้งคู่
+    for (const uid of uids) {
+      const onLine = await request.get(`${LINE_MOCK}/v2/bot/user/${uid}/richmenu`, lineAuth)
+      expect(onLine.status(), await onLine.text()).toBe(200)
+      expect((await onLine.json()).richMenuId).toBe(memberMenu.lineRichMenuId)
+    }
+
+    // สมาชิกที่เพิ่มทีหลังได้เมนูโดยไม่ต้องกดอะไรอีก — พิสูจน์ afterCreate ของ lifecycles.ts
+    const late = uidOf('9')
+    await createMember(request, token, { channelId, lineUserId: late })
+    const lateOnLine = await request.get(`${LINE_MOCK}/v2/bot/user/${late}/richmenu`, lineAuth)
+    expect(lateOnLine.status(), await lateOnLine.text()).toBe(200)
+    expect((await lateOnLine.json()).richMenuId).toBe(memberMenu.lineRichMenuId)
+
+    // === คำถามที่ 1: afterDelete ของ Strapi ส่ง channel ที่ populate มาให้ lifecycle จริงไหม ===
+    // ถ้าไม่ populate `idOf(entity['channel'])` ใน lifecycles.ts จะได้ null แล้ว unlinkDeletedMember
+    // หา channel ไม่เจอ (error ถูกจับแล้วแค่ log — ดู unlinkDeletedMember) คนที่ถูกลบจะถือเมนูค้าง
+    // อยู่ตลอดไปโดยไม่มี error ให้เห็นที่ไหนเลย ใช้สมาชิกแยกต่างหาก ไม่ปนกับ uids/late ข้างบน
+    const toDeleteUid = uidOf('7')
+    const toDelete = await createMember(request, token, { channelId, lineUserId: toDeleteUid })
+    const beforeDelete = await request.get(`${LINE_MOCK}/v2/bot/user/${toDeleteUid}/richmenu`, lineAuth)
+    expect(beforeDelete.status(), 'สมาชิกที่เพิ่งสร้างต้องถูกผูกอัตโนมัติก่อนจะลบ').toBe(200)
+
+    const deleted = await request.delete(
+      `/content-manager/collection-types/${MEMBER_UID}/${toDelete.id}`, auth(token))
+    expect(deleted.status(), await deleted.text()).toBe(200)
+
+    const afterDelete = await request.get(`${LINE_MOCK}/v2/bot/user/${toDeleteUid}/richmenu`, lineAuth)
+    // expect.soft ไม่ใช่ expect ธรรมดา — ถ้าคำถามที่ 1 ตอบว่า "ไม่" (afterDelete ไม่ populate
+    // channel จริง) เทสต์นี้ต้องยังเดินต่อไปถึงคำถามที่ 2/3 ข้างล่าง ไม่ใช่หยุดตรงนี้ ไม่งั้นรอบเดียว
+    // ที่ยิงกับ Strapi จริงจะให้คำตอบได้แค่คำถามเดียวต่อครั้ง — เทสต์ทั้งก้อนยังถูกนับว่าแดงถ้า soft
+    // assertion ไหนพัง (task-13-ruling: ตอบไม่ได้คือ finding จริง ไม่ใช่สิ่งที่ควรถูกปิดบัง)
+    expect.soft(afterDelete.status(),
+      'คำถามที่ 1 (task-13-brief): afterDelete ต้อง populate channel ให้พอที่จะ unlink ได้จริง — ' +
+      'ถ้าด่านนี้แดง แปลว่ามันไม่ populate และสมาชิกที่ถูกลบจะถือเมนูค้างอยู่ตลอดไปอย่างเงียบ ๆ')
+      .toBe(404)
+
+    // === คำถามที่ 2 และ 3: beforeUpdate ได้ identifier ที่ resolve แถวเดิมได้จริงไหม, และ payload
+    // ที่ไม่ส่ง channel มา ยัง establish channel ได้จริงไหม ===
+    //
+    // สมาชิกแยกต่างหากอีกคู่ — ไม่มี afterUpdate lifecycle เลย (ดู registerMemberLifecycles) การแก้
+    // lineUserId ที่นี่จึงไม่ไปสั่งอะไรฝั่ง LINE ใหม่ ถ้าใช้ uids/late ข้างบนปนกันจะไปทำให้ด่าน
+    // "ทุกคนตกกลับไปที่ default" ท้ายเทสต์นี้แดงด้วยเหตุผลที่ไม่เกี่ยวกับคำถามที่ 2/3 เลย
+    const renameFrom = await createMember(request, token, { channelId, lineUserId: uidOf('5') })
+    await createMember(request, token, { channelId, lineUserId: uidOf('6') }) // เป้าหมายให้ชนซ้ำ
+
+    // เปลี่ยน lineUserId เป็นค่าที่ไม่ซ้ำใคร โดย **ไม่ส่ง channel มาด้วย** — เหมือนฟอร์มที่แก้ทีละ
+    // ฟิลด์จริง ถ้า exceptId (ที่ event.params.where ส่งมา) resolve แถวเดิมไม่ได้
+    // validateMemberWrite จะ throw "cannot verify lineUserId uniqueness" (fail closed โดยตั้งใจ —
+    // ดูคอมเมนต์ยาวที่ validateMemberWrite ใน lifecycles.ts) แม้ค่าใหม่จะถูกต้องและไม่ซ้ำใครเลยก็ตาม
+    const legitRename = await request.put(
+      `/content-manager/collection-types/${MEMBER_UID}/${renameFrom.id}`,
+      { ...auth(token), data: { lineUserId: uidOf('a') } })
+    // soft เหมือนคำถามที่ 1 ข้างบน — ถ้า exceptId ไม่ resolve จริง (คำถามที่ 2 ตอบว่า "ไม่") ด่าน
+    // collide ข้างล่างยังต้องได้รันเพื่อเก็บหลักฐานแยกว่าเป็นคำถามที่ 2 หรือ 3 ที่พัง
+    expect.soft(legitRename.status(), await legitRename.text()).toBe(200)
+
+    // ย้ายกลับไปชนกับ uidOf('6') ที่ยังใช้อยู่จริง — ต้องโดนปฏิเสธด้วยเหตุผล "ซ้ำ" ไม่ใช่ "verify
+    // channel ไม่ได้" ทั้งคู่ตอบ 400 เหมือนกัน ข้อความเท่านั้นที่แยกสองคำตอบออกจากกัน: ถ้าที่นี่ขึ้น
+    // "cannot verify" แปลว่า exceptId ไม่ resolve จริง (คำถามที่ 2 ตอบว่า "ไม่") และ legitRename
+    // ข้างบนที่ผ่านได้ 200 ก็มาจากช่องโหว่คนละจุด ไม่ใช่เพราะ resolve ติดจริง
+    const collide = await request.put(
+      `/content-manager/collection-types/${MEMBER_UID}/${renameFrom.id}`,
+      { ...auth(token), data: { lineUserId: uidOf('6') } })
+    expect.soft(collide.status(), await collide.text()).toBe(400)
+    const collideText = await collide.text()
+    expect.soft(collideText,
+      `คำถามที่ 2/3 (task-13-brief): ต้องถูกปฏิเสธเพราะ "ซ้ำ" ไม่ใช่เพราะ verify channel ไม่ได้ — ` +
+      `ได้: ${collideText}`).toContain('already used')
+
+    // ปิดสวิตช์แล้วทุกคนตกกลับไปที่ default
+    const deactivated = await request.post(
+      `/line-rich-menu/menus/${memberMenu.id}/audience/deactivate`, auth(token))
+    expect(deactivated.status(), await deactivated.text()).toBe(204)
+    for (const uid of [...uids, late]) {
+      const after = await request.get(`${LINE_MOCK}/v2/bot/user/${uid}/richmenu`, lineAuth)
+      expect(after.status()).toBe(404)
+    }
+  })
+
+  /**
+   * Task 13 ruling — activate ต้องปฏิเสธเมนูที่ publish แล้วแต่ audience ไม่ใช่ 'members' (ดู
+   * assertMembersAudience ใน core/server/menu-ops.ts) — ก่อนหน้านี้ด่านนี้พิสูจน์ไม่ได้เลยเพราะ
+   * ไม่มีเส้นทาง HTTP ไหนสร้างเมนู audience: 'members' ได้จริง (ดูคอมเมนต์เดิมที่เคยอยู่บน
+   * publishedMenu) ตอนนี้ที่ปิดช่องเขียนแล้ว ด่านนี้จึงพิสูจน์ครึ่งที่ขาดไป: เมนู 'members' activate
+   * ได้ (ด่านหลักข้างบน) และเมนู 'all' activate ไม่ได้ (ด่านนี้) — ไม่ใช่แค่เช็ค status code แต่ต้อง
+   * ยืนยันด้วยว่า channel.memberRichMenuId ไม่ถูกแตะเลย ผ่าน endpoint audience จริง ไม่ใช่เดาจากโค้ด
+   *
+   * ใช้เมนู 'เมนูหลัก' (aliasId: 'main') ที่ publish ไปแล้วตั้งแต่ด่านแรกสุดของไฟล์ (audience: 'all'
+   * ซึ่งเป็นค่า default ตอนนั้น ไม่เคยส่ง audience มาเลย) แทนที่จะ publish เมนูใหม่ที่นี่ — publish
+   * rate limiter (capacity: 3, คีย์ด้วย channelId — ดู core/server/rate-limit.ts) แชร์ channel
+   * เดียวกันกับทุกด่านในไฟล์นี้และเติมช้ากว่าที่ suite ทั้งไฟล์ publish กัน publish เมนูใหม่ตรงนี้อีก
+   * ครั้งจะชน 429 โดยไม่เกี่ยวอะไรกับสิ่งที่ด่านนี้ตั้งใจพิสูจน์เลย
+   */
+  test('activate เมนูที่ audience เป็น all ถูกปฏิเสธด้วย 409 menu_not_members_audience', async ({ request }) => {
+    const token = await login(request, ADMIN)
+    const channelId = (await theChannel(request, token)).id
+
+    const list = await request.get(`/line-rich-menu/menus?channel=${channelId}`, auth(token))
+    expect(list.status(), await list.text()).toBe(200)
+    const rows = await list.json() as
+      { id: string; aliasId: string | null; audience: string; lineRichMenuId: string | null }[]
+    const allMenu = rows.find((row) => row.aliasId === 'main')
+    expect(allMenu, 'ด่านแรกสุดของไฟล์ต้องสร้างเมนู aliasId: main ไว้ให้แล้ว').toBeDefined()
+    expect(allMenu!.audience, 'เมนูนี้ต้องยังเป็น all — ไม่มีด่านไหนก่อนหน้าเปลี่ยนมัน').toBe('all')
+
+    const activated = await request.post(
+      `/line-rich-menu/menus/${allMenu!.id}/audience/activate`, auth(token))
+    expect(activated.status(), await activated.text()).toBe(409)
+    expect(await activated.json()).toMatchObject({ error: { code: 'menu_not_members_audience' } })
+
+    // ปฏิเสธจริง ไม่ใช่ปฏิเสธแล้วยังเผลอเขียน pointer ไปแล้ว — เช็คจาก endpoint audience จริง
+    const audienceState = await request.get(`/line-rich-menu/channels/${channelId}/audience`, auth(token))
+    expect(audienceState.status(), await audienceState.text()).toBe(200)
+    expect((await audienceState.json()).memberRichMenuId).not.toBe(allMenu!.lineRichMenuId)
+  })
+
+  test('role ที่มีแค่ read เปิดสวิตช์ไม่ได้ (activate ต้องการ publish)', async ({ request }) => {
+    const token = await login(request, READER)
+    // v4 ใช้ literal '1' เหมือนตาราง RBAC ข้างบนของไฟล์นี้ — idParam ของ v4 คือ /^\d+$/ (ตัวเลขล้วน)
+    // ไม่มีความกำกวมแบบ documentId ของ v5 ให้ต้องเลี่ยงด้วยค่าที่หน้าตาเหมือน id จริง (ดู DOC_ID ที่
+    // v5 acceptance.spec.ts)
+    const response = await request.post('/line-rich-menu/menus/1/audience/activate', auth(token))
+    expect(response.status()).toBe(403)
+  })
+
+  test('uid ผิดรูปแบบถูกปฏิเสธตั้งแต่ตอนสร้าง member', async ({ request }) => {
+    const token = await login(request, ADMIN)
+    const channelId = (await theChannel(request, token)).id
+    const response = await createMemberRaw(request, token, { channelId, lineUserId: 'not-a-uid' })
+    expect(response.status(), await response.text()).toBe(400)
   })
 })
