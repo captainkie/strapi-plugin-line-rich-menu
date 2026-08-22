@@ -123,6 +123,21 @@ describe('update', () => {
     expect(updated.accessTokenPreview).toBe('••••••••6789')
     expect(deepContains(repo.rows, 'brand-new-token-6789')).toBe(false)
   })
+
+  // Task 9/10 — เมนูสมาชิก activate/deactivate ต้อง set/clear ฟิลด์นี้ได้จริง ก่อนแก้ `update()`
+  // ไม่รับพารามิเตอร์นี้เลย ส่งมาแล้วก็ถูกเมินเงียบ ๆ (แถวยังเป็นค่าเดิมทุกกรณี)
+  it('ส่ง memberRichMenuId มา = เขียนทับ ไม่ถูกเมิน', async () => {
+    const repo = fakeRepo()
+    const service = createChannelService({ repo, key })
+    const created = await service.create(input)
+
+    const updated = await service.update(created.id, { memberRichMenuId: 'line-rm-1' })
+    expect(updated.memberRichMenuId).toBe('line-rm-1')
+    expect(repo.rows[0]!.memberRichMenuId).toBe('line-rm-1')
+
+    const cleared = await service.update(created.id, { memberRichMenuId: null })
+    expect(cleared.memberRichMenuId).toBeNull()
+  })
 })
 
 /**

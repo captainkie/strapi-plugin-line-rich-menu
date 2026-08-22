@@ -9,7 +9,14 @@ export interface MenuOpsDeps {
   audit: AuditWriter
 }
 
-async function publishedMenuOrThrow(menus: Repo<RichMenuRow>, menuId: string): Promise<RichMenuRow> {
+/**
+ * Task 9/10 — export ออกมาแทนที่จะเป็น local function ให้ทั้ง strapi-v5 และ strapi-v4 import
+ * เข้าไปใช้ตรง ๆ ใน controllers/members.ts's `activate` เมนูที่ยังไม่เคย publish ไม่มี
+ * lineRichMenuId ให้ผูกสมาชิกด้วย ต้องใช้ code `menu_not_ready` เดียวกับที่ publish ใช้อยู่แล้ว
+ * ไม่ใช่เขียนด่านเดียวกันซ้ำสองรอบในสอง adapter (นั่นคือรูปเดิมที่เคยทำให้ token-leak guard
+ * มีอยู่แค่ฝั่งเดียว)
+ */
+export async function publishedMenuOrThrow(menus: Repo<RichMenuRow>, menuId: string): Promise<RichMenuRow> {
   const menu = await menus.findOne(menuId)
   if (menu === null) throw new MenuNotFoundError(`rich menu ${menuId} does not exist`)
   // ตั้ง default ให้เมนูที่ยังไม่เคยขึ้น LINE ไม่ได้ — id ที่จะส่งไปยังไม่มีอยู่จริง
