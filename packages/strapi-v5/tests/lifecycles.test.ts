@@ -102,10 +102,30 @@ describe('validateMemberWrite', () => {
       .resolves.toBeUndefined()
   })
 
-  it('payload ไม่มี channel และไม่มี exceptId (ไม่รู้ว่าแถวไหนเลย) — ปล่อยผ่าน ไม่เดา', async () => {
+  /**
+   * ด่านนี้ต้องไม่ถูกข้ามเงียบ ๆ เด็ดขาด — ถ้าเช็คซ้ำไม่ได้จริง ๆ (ไม่มีทางรู้ channel เลย) ต้อง
+   * ปฏิเสธการเขียน ไม่ใช่ปล่อยผ่านแบบเดิม เพราะ "ปล่อยผ่านดีกว่าปฏิเสธของถูก" ใช้ไม่ได้กับด่าน
+   * uniqueness — ข้อมูลซ้ำที่หลุดเข้าไปเงียบ ๆ แพงกว่าการเขียนที่ถูกปฏิเสธแล้วผู้ใช้แก้ไขใหม่ได้
+   */
+  it('payload ไม่มี channel และไม่มี exceptId (ไม่รู้ว่าแถวไหนเลย) — ปฏิเสธ ไม่ใช่ปล่อยผ่าน', async () => {
     const members = fakeMemberRepo()
-    await expect(validateMemberWrite(members, { lineUserId: UID_A }, null)).resolves.toBeUndefined()
+    await expect(validateMemberWrite(members, { lineUserId: UID_A }, null))
+      .rejects.toThrow(/uniqueness/i)
     expect(members.findOne).not.toHaveBeenCalled()
+    expect(members.findMany).not.toHaveBeenCalled()
+  })
+
+  /**
+   * ตัวจับใจความของ fix รอบนี้: exceptId มีค่าจริง แต่ `members.findOne(exceptId)` หาแถวไม่เจอ
+   * (คืน null) — เช่น exceptId มาจาก where.id ที่เป็น primary key ตัวเลข ไม่ใช่ documentId ที่
+   * findOne คาดหวัง เดิมโค้ดตกลงไปที่ `existing?.channelId ?? null` แล้วปล่อยผ่านเงียบ ๆ เหมือน
+   * กรณี exceptId เป็น null เป๊ะ — รอบนี้ทั้งสองทางต้องจบที่ปฏิเสธเหมือนกัน
+   */
+  it('exceptId มีค่าแต่หาแถวไม่เจอ (findOne คืน null) — ปฏิเสธ ไม่ใช่ปล่อยผ่านเหมือนที่เคยเป็น', async () => {
+    const members = fakeMemberRepo() // ไม่มีแถวไหนเลย — findOne('m-missing') จะคืน null เสมอ
+    await expect(validateMemberWrite(members, { lineUserId: UID_A }, 'm-missing'))
+      .rejects.toThrow(/uniqueness/i)
+    expect(members.findOne).toHaveBeenCalledWith('m-missing')
     expect(members.findMany).not.toHaveBeenCalled()
   })
 })

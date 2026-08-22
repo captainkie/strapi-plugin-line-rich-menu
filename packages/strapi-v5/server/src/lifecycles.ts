@@ -53,18 +53,30 @@ export async function validateMemberWrite(
   }
 
   let channelId = idOf(data['channel'])
-  // beforeUpdate ที่แก้แค่ lineUserId ไม่ส่ง channel มาด้วย — schema ประกาศ channel เป็น
-  // required: true ก็จริง แต่ "ฟอร์มน่าจะส่งมาด้วยเสมอเพราะเป็น required" คือการเดารูป payload
-  // ไม่ใช่สิ่งที่ควรวางกฎ uniqueness ไว้บน อ่าน channel ของแถวเดิมจาก DB ตรง ๆ แทนเมื่อมี exceptId
-  // (คือกำลังแก้ไขแถวที่มีอยู่จริง) ให้เช็คซ้ำวิ่งกับ channel จริงเสมอ ไม่ใช่ข้ามทั้งด่านเงียบ ๆ
+  // beforeUpdate ที่แก้แค่ lineUserId ไม่ส่ง channel มาด้วย — อ่าน channel ของแถวเดิมจาก DB ตรง ๆ
+  // แทนเมื่อมี exceptId (คือกำลังแก้ไขแถวที่มีอยู่จริง) ให้เช็คซ้ำวิ่งกับ channel จริงเสมอ
   if (channelId === null && exceptId !== null) {
     const existing = await members.findOne(exceptId)
     channelId = existing?.channelId ?? null
   }
-  // เหลือ null ได้จริงแค่กรณีเดียว: beforeCreate ที่ data ผิดรูปจนไม่มี channel เลย (exceptId เป็น
-  // null เสมอตอน create) หรือ beforeUpdate ที่หา exceptId เองไม่ได้ (ดูคอมเมนต์ที่ registerMemberLifecycles) —
-  // ปล่อยผ่านดีกว่าปฏิเสธข้อมูลที่อาจถูกต้องเพราะเราเองหาตัวเทียบไม่เจอ
-  if (channelId === null) return
+  // กฎ: ด่านนี้ห้ามถูกข้ามเงียบ ๆ เด็ดขาด — ถ้าเช็คไม่ได้จริง ๆ ต้องปฏิเสธการเขียน ไม่ใช่ปล่อยผ่าน
+  //
+  // เดิมตรงนี้ `return` เมื่อ channelId ยังเป็น null คิดว่าเป็นแค่ "ไม่รู้ channel เฉย ๆ ปล่อยผ่านดีกว่า
+  // ปฏิเสธของถูก" — แต่ที่จริงมันเปิดช่องเดิม (ข้ามการเช็คซ้ำทั้งด่าน) กลับมาอีกทางหนึ่ง: `exceptId`
+  // ไม่ null แต่ `members.findOne(exceptId)` คืน null (หาแถวไม่เจอ เช่น exceptId ผิดรูปเพราะ
+  // where.id เป็น primary key ตัวเลขไม่ใช่ documentId — ดูคอมเมนต์ที่ idOf/registerMemberLifecycles)
+  // `existing?.channelId ?? null` ก็เป็น null เหมือนกัน แล้วโค้ดเดิมก็ปล่อยผ่านเงียบ ๆ อีกครั้ง
+  //
+  // ความไม่สมมาตรที่ถูกต้อง: `members.findOne` ที่ throw ปลอดภัยอยู่แล้ว (exception หลุดออกไปที่
+  // beforeUpdate เอง ทำให้ Strapi ปฏิเสธการเขียนเป็น 500 ที่ไม่สวยแต่ก็ปฏิเสธจริง) ส่วนที่คืน null
+  // คือด้านที่อันตราย เพราะมันดูเหมือนคำตอบที่สำเร็จ — throw ValidationError ตรงนี้ทำให้ทั้งสองทาง
+  // จบที่ผลเดียวกัน (ปฏิเสธการเขียน) แทนที่ทางหนึ่งจะแอบผ่านไปเงียบ ๆ
+  if (channelId === null) {
+    throw new strapiErrors.ValidationError(
+      'cannot verify lineUserId uniqueness without a channel — resend the write with channel included',
+      { path: 'lineUserId' },
+    )
+  }
 
   // ความซ้ำคือ (channel, lineUserId) ไม่ใช่ lineUserId เดี่ยว ๆ — คนเดียวกันมี user id คนละตัว
   // ต่าง OA กันได้ตามปกติ กฎ column เดียวจะปฏิเสธข้อมูลที่ถูกต้อง
