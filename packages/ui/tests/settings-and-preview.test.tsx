@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { TEMPLATES } from '@fosivo/line-rich-menu-core/browser'
+import { DEFAULT_CHAT_BAR_TEXT, TEMPLATES } from '@fosivo/line-rich-menu-core/browser'
 import { describe, expect, it, vi } from 'vitest'
 import { PortProvider } from '../src/port.js'
 import { createStubPort } from '../src/stub-port.js'
@@ -286,9 +286,28 @@ describe('Preview', () => {
     expect(screen.getByTestId('preview-chat-bar-label').style.background).toContain('242, 242, 243')
   })
 
-  it('ข้อความแถบแชทว่าง ใช้ label default แทน', () => {
+  /**
+   * Task 20 item 9 (ui-core M2) — เดิมเทสต์นี้ยืนยันว่าใช้ `t('chatBar.defaultLabel')` (คำแปลของ
+   * แอดมิน Strapi) ซึ่งเป็นตัวบั๊กเอง: LINE แสดง "Menu" เสมอไม่ว่าแอดมินตั้งภาษาอะไรไว้ (ดูคอมเมนต์
+   * เต็มที่ DEFAULT_CHAT_BAR_TEXT ใน schema.ts) ตอนนี้ตรวจกับค่าคงที่ตัวเดียวกับที่ publish จริงส่ง
+   * ให้ LINE (`resolveChatBarText` ใน packages/core/src/server/payload.ts) ไม่ใช่คำแปล
+   */
+  it('ข้อความแถบแชทว่าง ใช้ DEFAULT_CHAT_BAR_TEXT (ค่าเดียวกับที่ publish จริงส่งให้ LINE) ไม่ใช่คำแปลของแอดมิน', () => {
     wrap(<Preview size={template.size} bounds={template.bounds} chatBarText="" expanded />)
-    expect(screen.getByTestId('preview-chat-bar').textContent).toContain('chatBar.defaultLabel')
+    expect(screen.getByTestId('preview-chat-bar').textContent).toContain(DEFAULT_CHAT_BAR_TEXT)
+  })
+
+  // เจตนาแยกจากเทสต์ข้างบน — ยืนยันว่าพรีวิวไม่ผูกกับ t() เลยสำหรับกรณีนี้ แม้ t() จะถูกปลอมให้
+  // คืนคำแปลอื่น (ยาวกว่า/ภาษาอื่น) พรีวิวก็ต้องยังโชว์ "Menu" เพราะ LINE ไม่สนภาษาของแอดมิน
+  it('ต่อให้ t() ถูกปลอมให้คืนคำแปลอื่นของ chatBar.defaultLabel พรีวิวก็ยังไม่ใช้ค่านั้น', () => {
+    render(
+      <PortProvider value={createStubPort({ t: (key) => (key === 'chatBar.defaultLabel' ? 'เมนูภาษาไทยที่ยาวกว่านี้มาก' : key) })}>
+        <Preview size={template.size} bounds={template.bounds} chatBarText="" expanded />
+      </PortProvider>,
+    )
+    const text = screen.getByTestId('preview-chat-bar').textContent
+    expect(text).toContain(DEFAULT_CHAT_BAR_TEXT)
+    expect(text).not.toContain('เมนูภาษาไทยที่ยาวกว่านี้มาก')
   })
 
   it('ข้อความแถบแชทไม่ว่าง แสดงข้อความนั้น ไม่ใช่ label default', () => {

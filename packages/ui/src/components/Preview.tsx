@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Bounds, RichMenuSize } from '@fosivo/line-rich-menu-core/browser'
+import { DEFAULT_CHAT_BAR_TEXT, type Bounds, type RichMenuSize } from '@fosivo/line-rich-menu-core/browser'
 import { usePort } from '../port.js'
 import { LINE_GREEN } from '../styles.js'
 import { CanvasEditor } from './CanvasEditor.js'
@@ -382,7 +382,12 @@ export function Preview({
           >
             {/* ▾ ชี้ลง = แตะแล้วยุบ (กางอยู่ตอนนี้) · ▴ ชี้ขึ้น = แตะแล้วกาง (ยุบอยู่ตอนนี้) — ทิศทาง
                 เดียวกับที่แอป LINE จริงใช้ ชี้ไปทิศที่แตะแล้วจะเกิดอะไรขึ้น ไม่ใช่ทิศทางของเมนูเอง */}
-            {chatBarText === '' ? t('chatBar.defaultLabel') : chatBarText} {showMenu ? '▾' : '▴'}
+            {/* Task 20 item 9 (ui-core M2) — เดิมใช้ t('chatBar.defaultLabel') ซึ่งเป็นคำแปลของ
+                แอดมิน Strapi (ขึ้นกับภาษาที่แอดมินตั้งไว้ และแอปที่ host ปลั๊กอินทับคำแปลนี้ได้ตามปกติ —
+                ดู i18n.test.ts) ไม่ใช่สิ่งที่ LINE จะแสดงจริง (`DEFAULT_CHAT_BAR_TEXT = 'Menu'` เสมอ
+                ไม่ขึ้นกับภาษา — ดูคอมเมนต์เต็มที่ schema.ts) พรีวิวเป็นที่เดียวในโปรดักต์ที่อ้างว่า
+                แสดงสิ่งที่ผู้ใช้ปลายทางจะเห็นจริง ต้องแสดงค่าเดียวกับที่ publish จริงส่งให้ LINE */}
+            {chatBarText === '' ? DEFAULT_CHAT_BAR_TEXT : chatBarText} {showMenu ? '▾' : '▴'}
           </div>
           <div
             aria-hidden

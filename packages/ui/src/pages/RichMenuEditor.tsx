@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
-  SIZE_LADDER, TEMPLATES, ValidationError, canvasSizeChanged, isDisplayPeriodValid, validateRichMenu,
+  DEFAULT_CHAT_BAR_TEXT, SIZE_LADDER, TEMPLATES, ValidationError, canvasSizeChanged,
+  isDisplayPeriodValid, validateRichMenu,
   type Bounds, type RichMenuSizeName,
 } from '@fosivo/line-rich-menu-core/browser'
 import { emptyActionForm, toAction, type ActionFormState } from '../action-form.js'
@@ -256,7 +257,16 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
           name: toSave.title,
           // ข้อความว่างของโหมด custom ถูกกันไว้เป็น chatBarError ข้างบนแล้ว ตรงนี้จึงเหลือแค่กรณี
           // mode === 'default' ที่ต้องเติม label กลางให้เสมอ ไม่มีการเติมแทนความว่างอีกต่อไป
-          chatBarText: draft.chatBar.mode === 'custom' ? draft.chatBar.text : t('chatBar.defaultLabel'),
+          //
+          // Task 20 item 9 (ui-core M2) — เดิมใช้ t('chatBar.defaultLabel') ซึ่งเป็นคำแปลของแอดมิน
+          // ไม่ใช่ DEFAULT_CHAT_BAR_TEXT ที่ publish จริงส่งให้ LINE (`resolveChatBarText` ใน
+          // packages/core/src/server/payload.ts) สองผลที่ตามมา: (1) การตรวจที่นี่ตรวจคนละสตริงกับ
+          // ที่ publish จริงใช้ (2) ถ้าแอปที่ host ปลั๊กอินทับคำแปล chatBar.defaultLabel ด้วยคำที่ยาว
+          // กว่า 14 ตัว (ปกติได้ตามที่ i18n.test.ts ยืนยัน — "แอป Strapi ทับคำแปลของปลั๊กอินได้เป็น
+          // เรื่องปกติ") การตรวจนี้จะปฏิเสธ publish ด้วย too_big ที่ผูกกับ chatBarText ซึ่ง**ปิดใช้งาน
+          // อยู่**ในโหมด default (แก้ไม่ได้เลย) ทั้งที่เซิร์ฟเวอร์จะ publish "Menu" ได้โดยไม่มีปัญหา
+          // ใช้ค่าคงที่ตัวเดียวกับที่ publish จริงใช้แทน แก้ทั้งสองข้อพร้อมกัน
+          chatBarText: draft.chatBar.mode === 'custom' ? draft.chatBar.text : DEFAULT_CHAT_BAR_TEXT,
           areas: draft.bounds.map((bounds, index) => ({
             bounds,
             action: toAction(draft.areas[index] ?? emptyActionForm()),

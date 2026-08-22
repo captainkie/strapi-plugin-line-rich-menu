@@ -6,6 +6,19 @@ import type { RichMenuPayload } from './types.js'
 export const ALLOWED_URI_SCHEMES = ['https:', 'http:', 'tel:', 'line:'] as const
 
 /**
+ * Task 20 item 9 (ui-core M2) — ค่าที่ LINE แสดงจริงเมื่อแถบแชทอยู่โหมด default (ไม่ใช่ custom)
+ * ต้อง**ไม่ขึ้นกับภาษาของ admin ที่กด save** เมนูเดียวกันไม่ควรได้แถบแชทคนละคำขึ้นกับว่าใครกด
+ * publish — เดิมค่านี้อยู่ที่ `packages/core/src/server/payload.ts` (`resolveChatBarText` ใช้จริง
+ * ตอน publish) ซึ่งเป็นไฟล์ฝั่งเซิร์ฟเวอร์ที่ `browser.ts` ไม่ export (import `validateRichMenu`/
+ * `canvasFor` ที่ลาก `sharp` เข้ามาด้วย) พรีวิวฝั่ง UI (`Preview.tsx`) กับการตรวจก่อน publish
+ * (`RichMenuEditor.tsx`) จึงไม่มีทางอ้างค่าเดียวกับที่ publish จริงใช้ได้เลย ต้องพึ่งคำแปล
+ * `chatBar.defaultLabel` (ของแอดมิน แปลได้ ไม่ตรงกับสิ่งที่ LINE จะแสดง) แทน — ย้ายค่านี้มาไว้ใน
+ * schema.ts (browser-safe อยู่แล้ว) แล้วให้ payload.ts import กลับไปใช้ แทนที่จะประกาศคนละที่
+ * สองค่าที่ประกาศแยกกันจะไม่ตรงกันในวันใดวันหนึ่งเสมอ — รูปแบบเดียวกับ VALIDATION_CODE_DEF ด้านล่าง
+ */
+export const DEFAULT_CHAT_BAR_TEXT = 'Menu'
+
+/**
  * รหัส validation ที่ schema นี้กำหนดเอง (ต่างจาก code มาตรฐานของ zod เช่น too_small, too_big,
  * unrecognized_keys ที่ใช้ค่าของ zod เองได้เลย ไม่ต้องประกาศซ้ำที่นี่ — ดูคอมเมนต์ของ
  * `toValidationIssue` ด้านล่าง)
