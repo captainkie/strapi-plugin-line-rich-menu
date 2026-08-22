@@ -194,6 +194,61 @@ a failed deploy the first time.
    This demo does **not** run `scripts/seed.js` in production — that script is for `pnpm e2e:v5`
    and reads `E2E_*` credentials that are never set on Render.
 
+6. **Then take superadmin away from the account whose password you are about to publish.** Step 5
+   leaves you holding a superadmin, and a superadmin's password printed in a public README is a
+   Strapi whose Content-Type Builder, admin user list, API tokens and entire database are open to
+   anyone who reads the page. A demo account and a superadmin account are not the same thing, and
+   the first admin Strapi creates is always the second one.
+
+   Create a second, private Super Admin first — otherwise Strapi correctly refuses to demote the
+   last one — then:
+
+   ```sh
+   STRAPI_URL=https://your-demo.example.com \
+   SUPERADMIN_EMAIL=... SUPERADMIN_PASSWORD=... DEMO_EMAIL=demo@example.com \
+   DEMO_ALLOW_CHANNEL_SETTINGS=true \
+   node examples/v5-app/scripts/demo-restrict.mjs
+   ```
+
+   It rewrites Strapi's stock **Editor** role — Community Edition cannot create new roles, so the
+   demo borrows one — down to four permissions by default: `read`, `write` and `publish` from this
+   plugin, plus `plugin::upload.assets.create` for the editor's image field. Everything else the
+   Editor role ships with (the whole Content Manager, i18n, the rest of the Media Library) is
+   replaced, not merged: what has to be true is "this account holds four permissions", not "this
+   account holds four permissions plus whatever was there before".
+
+   The fifth, `plugin::line-rich-menu.settings`, is the permission that sets and rotates LINE
+   channel access tokens, and it is **opt-in** through `DEMO_ALLOW_CHANNEL_SETTINGS=true` rather
+   than part of the default set. If your demo talks to a real LINE Official Account, leave it off:
+   handing it to an account whose password is printed in a README means handing over that
+   account's credentials, even though no route in this plugin ever returns a token to a client.
+
+   This demo turns it on, for three reasons that were checked rather than assumed. A channel
+   record has **no base-URL field** (`server/src/content-types/line-channel.ts`) — the endpoint
+   comes only from `LINE_API_BASE_URL` in the environment, so no visitor can point the demo at a
+   host of their choosing. That endpoint is the `line-mock` in the same container, which accepts
+   any token, so the credential on offer is fake to begin with. And without the permission, the
+   Channels page still renders but its **Add an account** and **Test connection** buttons answer
+   `403` when pressed — the plugin's UI does not currently hide controls the account cannot use,
+   so a first-time visitor reads that as a broken plugin rather than a restricted login.
+
+   Two details measured on the live host rather than assumed:
+
+   - **`plugin::upload.read` is not needed.** It looks like it should be: the upload controller
+     sanitises its response with the *read* ability, so an account without it could plausibly get
+     back a file object stripped of the `url` the editor needs. A real upload as the restricted
+     account comes back with `url` intact. Leaving the permission out also keeps Media Library out
+     of the demo's navigation entirely.
+   - **`PUT /admin/roles/:id/permissions` answers `200` with an empty `data` array when nothing
+     changed.** A script that reports what that response contains says "restricted to zero
+     permissions" on its second run — and would say exactly the same on a run that wrote nothing
+     at all. `demo-restrict.mjs` reads the role back with a `GET` and compares, because the only
+     thing a `200` here proves is that the request was well-formed.
+
+   Verify from the outside afterwards, as the demo account: `/admin/users`, `/admin/roles`,
+   `/admin/api-tokens`, `/content-type-builder/content-types` and `POST /line-rich-menu/channels`
+   must all answer `403`, while `GET /line-rich-menu/menus` answers `200`.
+
 ## The public hostname and its Cloudflare protection
 
 The demo lives at `line-rich-menu.fosivo.com` — Fosivo Labs' own subdomain, not a customer's.
@@ -211,24 +266,49 @@ Getting from "Render service exists" to "hostname is live and protected" is a sp
    Cloudflare's proxy would intercept `/.well-known/acme-challenge/` for its own purposes if
    the record were already orange-clouded — so issuance has to happen with Cloudflare out of
    the path.
-3. **Flip the record to proxied**, then put two Cloudflare custom rules in front of the
+3. **Flip the record to proxied**, then put **one** Cloudflare custom rule in front of the
    hostname: block the highest-volume scanner traffic a public host receives (`.php`, `.env`,
    `.git`, `wp-*`, phpMyAdmin paths) before it ever reaches Render — which also means that
    traffic never wakes the sleeping instance, protecting the free-hour pool from the section
-   above — and put a Managed Challenge in front of `/admin/login` and the auth API routes,
-   since this is a real Strapi admin with a real login and credential stuffing is the attack
-   that actually costs something. (A general per-IP rate limit was evaluated and dropped. The
-   Free plan allows exactly **one** rate-limiting rule per zone, and in this zone that slot was
-   already taken by brute-force protection for another host. Watch for the trap in the API if
-   you deploy this yourself: `PUT /zones/{id}/rulesets/phases/{phase}/entrypoint` **replaces the
-   entire phase** with the rules you send, so a call carrying only your own rules deletes
-   everyone else's and still returns HTTP 200 `"success": true`. Read the phase, merge, then
-   write. Here the merge left no room, so the rate limit was dropped rather than someone else's
-   defence — and the Managed Challenge above already covers the attack it would have addressed.) Cloudflare's **Bot Fight Mode** is deliberately left off —
-   it is zone-wide with no per-hostname exception, and this zone also serves API hosts whose
-   callers are programs, not browsers; turning it on to protect the demo would start
-   challenging those callers too, breaking someone else's project days later in a way that
-   would not point back here.
+   above.
+
+   **Do not put a Managed Challenge in front of `/admin/login`.** That rule was deployed here and
+   then removed, because it broke the demo's login outright. `/admin/login` is not the login
+   *page* — that is `/admin/auth/login` — it is the API endpoint the admin panel POSTs to. A
+   Managed Challenge answers with an HTML interstitial, the admin panel parses the reply as JSON,
+   and the user sees `The string did not match the expected pattern`, a message that points
+   nowhere near Cloudflare.
+
+   It was removed rather than narrowed to the page, because the path was only the visible half of
+   the mistake: **a challenge cannot protect an API endpoint at all.** It defends by asking a
+   browser to solve something, and a credential-stuffing script calling the endpoint directly
+   never renders the challenge, let alone solves it. The rule locked out the only population it
+   could actually reach — real users — while the attack it was aimed at went through untouched.
+
+   Credential stuffing is still the attack worth caring about on a real Strapi admin, and what
+   answers it is Strapi's own limiter: `@strapi/admin` puts `admin::rateLimit` on `POST
+   /admin/login` and `POST /admin/register-admin`, defaulting to five attempts per five minutes
+   keyed on the submitted email, the path and the caller's IP
+   (`server/src/middlewares/rateLimit.js`). It is enforced by the layer that knows what a login
+   is, it answers with JSON like every other Strapi error, and it is easy to confirm — run a
+   handful of scripted logins and the sixth comes back `429 RateLimitError`.
+
+   (A Cloudflare rate-limiting rule was evaluated and dropped. The Free plan allows exactly
+   **one** per zone, and in this zone that slot was already taken by brute-force protection for
+   another host. Watch for the trap in the API if you deploy this yourself:
+   `PUT /zones/{id}/rulesets/phases/{phase}/entrypoint` **replaces the entire phase** with the
+   rules you send, so a call carrying only your own rules deletes everyone else's and still
+   returns HTTP 200 `"success": true`. Read the phase, merge, then write.)
+
+   Cloudflare's **Bot Fight Mode** is deliberately left off — it is zone-wide with no
+   per-hostname exception, and this zone also serves API hosts whose callers are programs, not
+   browsers; turning it on to protect the demo would start challenging those callers too,
+   breaking someone else's project days later in a way that would not point back here. Note
+   that **Browser Integrity Check is on** for this zone, though, which is a milder version of
+   the same idea and does reach the demo: a request with an unusual or missing `User-Agent` —
+   `Python-urllib/3.x`, for instance — is answered with Cloudflare error `1010` before Strapi
+   ever sees it, while `curl` and real browsers pass. Worth knowing before you conclude the demo
+   API is down.
 4. **Verify** by requesting the hostname and checking the response carries a `cf-ray` header —
    that header is the proof Cloudflare is actually in the path; without it, every rule above is
    deployed and inert. Then confirm the block rule by requesting `/wp-login.php` and getting a

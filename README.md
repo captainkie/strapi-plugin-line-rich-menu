@@ -37,6 +37,14 @@ DemoRichMenu2026!
 Publishing there talks to a copy of `tools/line-mock` running inside the same container, not to
 LINE, so nothing you do reaches a real Official Account — press every button.
 
+That login is a **restricted account**, not the superadmin Strapi hands to whoever registers
+first. It holds every permission this plugin defines and nothing else — so you can build,
+publish and delete menus, upload images and manage the demo's LINE channel, while Strapi's own
+settings, the Content-Type Builder, the admin user list and the API tokens stay out of reach.
+If you are deploying your own demo, `examples/v5-app/scripts/demo-restrict.mjs` is what sets
+that up, and [docs/DEMO.md](docs/DEMO.md) explains which permission is safe to hand out and
+which one depends on whether your demo talks to a real Official Account.
+
 Two things to know before you judge it. The first request after a quiet spell takes about a
 minute: it runs on a free instance that sleeps, and the cold start is the hosting, not the
 plugin. And uploaded images live on an ephemeral disk, so they disappear whenever the demo

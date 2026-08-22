@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+// @ts-expect-error — สคริปต์ปฏิบัติการเป็น .mjs ล้วน ไม่มี .d.ts และไม่ควรมี
+import { BASE_PERMISSIONS, CHANNEL_SETTINGS_PERMISSION, DEMO_ROLE_CODE, demoPermissions } from '../../examples/v5-app/scripts/demo-restrict.mjs'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -10,6 +12,7 @@ const dockerignore = readFileSync(`${root}.dockerignore`, 'utf8')
 const renderYaml = readFileSync(`${root}render.yaml`, 'utf8')
 const demoWorkflow = readFileSync(`${root}.github/workflows/demo-image.yml`, 'utf8')
 const demoDoc = readFileSync(`${root}docs/DEMO.md`, 'utf8')
+const restrictScript = readFileSync(`${root}examples/v5-app/scripts/demo-restrict.mjs`, 'utf8')
 
 /**
  * The demo targets `examples/v5-app`, not `examples/v4-app` — this overturned the original plan's
@@ -300,5 +303,93 @@ describe('examples/v5-app/config/plugins.js ประกาศ jwtSecret ขอ�
     env.bool = (_key, fallback) => fallback as boolean
     const config = factory({ env })
     expect(config['users-permissions'].config.jwtSecret).toBe('a-real-secret')
+  })
+})
+
+
+/**
+ * บัญชีที่รหัสผ่านถูกประกาศไว้ใน README ต้องไม่ใช่ superadmin
+ *
+ * Strapi ยกสิทธิ์ทั้งหมดให้แอดมินคนแรกเสมอ เดโมสาธารณะจึงเริ่มต้นด้วยบัญชีที่เปิด Content-Type
+ * Builder, รายชื่อแอดมิน, API token และฐานข้อมูลทั้งก้อนให้ใครก็ตามที่อ่าน README — เคยเป็นแบบนั้น
+ * จริงบนโฮสต์เดโมจนกระทั่งเจ้าของสังเกตเห็นเอง ไม่ใช่เทสต์
+ *
+ * ด่านนี้จึงอ่านค่าคงที่จากสคริปต์จริง ไม่ใช่ regex บนข้อความในไฟล์ — สคริปต์ export ชุดสิทธิ์ออกมา
+ * และ `main()` ถูกกันไม่ให้ทำงานตอน import (ดูท้ายไฟล์ demo-restrict.mjs) ทำให้ที่นี่ทดสอบ
+ * "ของจริงที่จะถูกเขียนลง role" ไม่ใช่ของที่หน้าตาเหมือนกัน
+ */
+describe('examples/v5-app/scripts/demo-restrict.mjs — สิทธิ์ของบัญชีเดโมสาธารณะ', () => {
+  const PLUGIN = 'plugin::line-rich-menu'
+  const base = BASE_PERMISSIONS as string[]
+
+  it('ให้สิทธิ์ครบเท่าที่ปลั๊กอินต้องใช้จริง — อ่าน สร้าง ปล่อย และอัปโหลดรูป', () => {
+    expect(base).toContain(`${PLUGIN}.read`)
+    expect(base).toContain(`${PLUGIN}.write`)
+    expect(base).toContain(`${PLUGIN}.publish`)
+    // ImageField ยิง POST /upload ตรง ๆ ถ้าไม่มีสิทธิ์นี้ การอัปโหลดรูปเมนูจะ 403
+    expect(base).toContain('plugin::upload.assets.create')
+  })
+
+  /**
+   * `settings` คือสิทธิ์ที่ตั้งและหมุน LINE channel access token (server/src/routes/admin.ts)
+   * บนเดโมที่ต่อกับ LINE OA จริง มันคือกุญแจของ OA ตัวนั้น จึงต้องเป็น opt-in ที่คนติดตั้งพิมพ์เอง
+   * ไม่ใช่ของที่ติดมากับค่าตั้งต้นเพราะ "เดโมของ repo นี้เปิดไว้"
+   */
+  it('ค่าตั้งต้นไม่มีสิทธิ์ settings — ต้อง opt-in เท่านั้น', () => {
+    expect(base).not.toContain(CHANNEL_SETTINGS_PERMISSION)
+    expect(demoPermissions(false)).not.toContain(CHANNEL_SETTINGS_PERMISSION)
+    // env ที่ไม่ได้ตั้งค่ามาเลยต้องได้ชุดที่ปลอดภัย ไม่ใช่ชุดที่กว้างที่สุด
+    expect(demoPermissions(undefined)).toEqual(base)
+    expect(demoPermissions('true')).toEqual(base)
+  })
+
+  it('opt-in เติมสิทธิ์ channel เข้ามาหนึ่งอย่างพอดี ไม่ใช่เปิดประตูอื่นตามไปด้วย', () => {
+    const opened = demoPermissions(true) as string[]
+    expect(opened).toEqual([...base, CHANNEL_SETTINGS_PERMISSION])
+    expect(CHANNEL_SETTINGS_PERMISSION).toBe(`${PLUGIN}.settings`)
+  })
+
+  /**
+   * allowlist ไม่ใช่ blocklist ตั้งใจ: การไล่ห้ามทีละอย่าง (`admin::*`, content-manager,
+   * content-type-builder, ...) จะเขียวทันทีที่ Strapi เพิ่มพื้นผิวใหม่ที่ยังไม่มีใครนึกถึง
+   * ที่นี่บังคับให้ทุกสิทธิ์ที่เพิ่มเข้ามาใหม่ต้องถูกตัดสินใจอย่างตั้งใจ ไม่ใช่ไหลเข้ามาเงียบ ๆ
+   */
+  it('ไม่มีสิทธิ์อื่นนอกเหนือจากนั้นเลย — allowlist ไม่ใช่ blocklist', () => {
+    const allowed = new Set([
+      `${PLUGIN}.read`, `${PLUGIN}.write`, `${PLUGIN}.publish`,
+      `${PLUGIN}.settings`, 'plugin::upload.assets.create',
+    ])
+    for (const action of demoPermissions(true) as string[]) {
+      expect(allowed.has(action), `${action} ไม่ได้อยู่ในชุดที่ตั้งใจให้บัญชีเดโมถือ`).toBe(true)
+    }
+    expect(base).toHaveLength(allowed.size - 1)
+  })
+
+  it('ใช้ role มาตรฐานของ Strapi — CE สร้าง role ใหม่ไม่ได้', () => {
+    expect(['strapi-editor', 'strapi-author']).toContain(DEMO_ROLE_CODE)
+  })
+
+  /**
+   * `PUT /admin/roles/:id/permissions` ตอบ 200 พร้อม `data: []` เมื่อไม่มีอะไรเปลี่ยน — และตอบ
+   * แบบเดียวกันได้ในวันที่ไม่มีอะไรถูกเขียนลงไปเลย สคริปต์จึงต้อง GET กลับมาเทียบเสมอ
+   */
+  it('อ่าน role กลับมาเทียบ ไม่เชื่อ 200 ของ PUT', () => {
+    expect(restrictScript).toMatch(/call\('GET', `\/admin\/roles\/\$\{role\.id\}\/permissions`/)
+  })
+
+  it('ปฏิเสธการลดสิทธิ์ superadmin คนสุดท้าย แทนที่จะล็อกเจ้าของออกจากระบบ', () => {
+    expect(restrictScript).toMatch(/otherSuperAdmins/)
+    expect(restrictScript).toMatch(/only Super Admin/i)
+  })
+
+  // เอกสารกับสคริปต์ต้องพูดตรงกัน คนที่ deploy เดโมของตัวเองอ่าน DEMO.md ไม่ได้อ่าน .mjs
+  it('docs/DEMO.md บอกชุดสิทธิ์ชุดเดียวกับที่สคริปต์เขียนจริง', () => {
+    for (const action of demoPermissions(true) as string[]) {
+      const short = action.startsWith(`${PLUGIN}.`) ? action.slice(PLUGIN.length + 1) : action
+      expect(demoDoc, `DEMO.md ไม่ได้พูดถึง ${action}`).toContain(short)
+    }
+    expect(demoDoc).toMatch(/plugin::line-rich-menu\.settings/)
+    expect(demoDoc).toMatch(/DEMO_ALLOW_CHANNEL_SETTINGS/)
+    expect(demoDoc).toMatch(/superadmin/i)
   })
 })
