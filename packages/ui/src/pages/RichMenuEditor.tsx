@@ -108,7 +108,16 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
   const applyTemplate = (key: string) => {
     const next = TEMPLATES[key]!
     setDraft((prev) => {
-      const prevSize = prev.templateKey === null ? null : TEMPLATES[prev.templateKey]?.size ?? null
+      // Task 20 item 8 (ui-core M1) — เดิมอ่านจาก `prev.templateKey` ซึ่งเป็นฟิลด์เดียวกับที่
+      // `moveBounds`/`addArea`/`removeArea` เคลียร์เป็น `null` ทันทีที่ผู้ใช้ปรับผังเอง (โหมด custom
+      // layout) ทั้งที่ `sizeName`/`bounds` (ขนาดผืนผ้าใบจริง) ยังอยู่ครบ — ผลคือหลังปรับผังเอง
+      // `prevSize` อ่านเป็น `null` (แปลว่า "ยังไม่มีผืนผ้าใบ") เสมอ ต่อให้ผืนผ้าใบจริงมีอยู่และเลือก
+      // template ขนาดเดิมเป๊ะ `canvasSizeChanged(null, x)` ก็ยังตอบ `true` เสมอ (ดู templates.ts)
+      // รูปที่เพิ่งอัปโหลดจึงถูกทิ้งไปพร้อมคำเตือนที่พูดถึงการเปลี่ยนขนาดที่ไม่ได้เกิดขึ้นจริง
+      //
+      // ต้องอิงจากสิ่งที่ติดตามขนาดผืนผ้าใบจริง — expression เดียวกับ `size` ที่บรรทัดบนของไฟล์นี้
+      // (`bounds.length === 0` คือ "ยังไม่เคยเลือกอะไรเลย" เท่านั้นที่ตอบ null ได้ถูกต้อง)
+      const prevSize = prev.bounds.length === 0 ? null : SIZE_LADDER[prev.sizeName][0]!
       return {
         ...prev,
         templateKey: key,
@@ -436,6 +445,9 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
         {picking ? (
           <TemplatePicker
             currentKey={draft.templateKey}
+            // expression เดียวกับ prevSize ใน applyTemplate ข้างบนเป๊ะ — ดูคอมเมนต์เต็มที่นั่น
+            // (Task 20 item 8, ui-core M1) ทั้งสองจุดต้องตอบตรงกันเสมอว่าขนาดผืนผ้าใบปัจจุบันคืออะไร
+            currentSize={draft.bounds.length === 0 ? null : size}
             hasConfiguredActions={draft.areas.some(hasAnyActionConfigured)}
             hasImage={draft.image !== null}
             onApply={applyTemplate}

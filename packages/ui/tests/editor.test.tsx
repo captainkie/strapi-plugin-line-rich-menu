@@ -523,6 +523,33 @@ describe('RichMenuEditor', () => {
       fireEvent.click(screen.getByTestId('template-confirm'))
       expect(screen.queryByTestId('image-remove')).not.toBeInTheDocument()
     })
+
+    /**
+     * Task 20 item 8 (ui-core M1) — repro ตรงจากรีวิว: เดิม `applyTemplate` อ่าน `prevSize` จาก
+     * `prev.templateKey` ซึ่งโหมดปรับผังเอง (`moveBounds`) เคลียร์เป็น `null` ทันทีที่ผู้ใช้ขยับ
+     * ช่องแรก ทั้งที่ผืนผ้าใบยังเป็นขนาดเดิม (large) — `canvasSizeChanged(null, x)` ตอบ `true`
+     * เสมอ (templates.ts) เคสนี้ก่อนแก้จะแสดงคำเตือน "รูปจะถูกทิ้ง" และทิ้งรูปจริงทั้งที่ขนาด
+     * ผืนผ้าใบไม่ได้เปลี่ยนเลย — ทดสอบผ่าน RichMenuEditor เต็มตัว ไม่ใช่แค่ TemplatePicker เดี่ยว ๆ
+     * เพื่อพิสูจน์ว่า "สายไฟ" จาก moveBounds ไปถึง applyTemplate/TemplatePicker จริง ไม่ใช่แค่
+     * ตรรกะของแต่ละไฟล์แยกกันถูกต้อง
+     */
+    it('ปรับผังเองแล้ว (templateKey ถูกเคลียร์ แต่ขนาดผืนผ้าใบเดิม) เลือก template ขนาดเดิม — รูปเดิมยังอยู่ ไม่ต้องถาม', () => {
+      setup({ initial: initialWithImage('RICH_MENU_TEMPLATE_207') })
+      expect(screen.getByTestId('image-remove')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('editor.layout.custom'))
+      const area = within(screen.getByTestId('preview-menu')).getByRole('button', { name: /^A$/ })
+      fireEvent.pointerDown(area, { clientX: 0, clientY: 0, pointerId: 1 })
+      fireEvent.pointerMove(area, { clientX: 10, clientY: 0, pointerId: 1 })
+      fireEvent.pointerUp(area, { pointerId: 1 })
+
+      // RICH_MENU_TEMPLATE_201 เป็น large เหมือนกับ 207 เป๊ะ — ขนาดผืนผ้าใบไม่ได้เปลี่ยนจริง
+      fireEvent.click(screen.getByTestId('open-template-picker'))
+      fireEvent.click(screen.getByTestId('template-option-RICH_MENU_TEMPLATE_201'))
+      fireEvent.click(screen.getByTestId('template-apply'))
+      expect(screen.queryByTestId('template-confirm')).not.toBeInTheDocument()
+      expect(screen.getByTestId('image-remove')).toBeInTheDocument()
+    })
   })
 })
 
