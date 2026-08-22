@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { BatchOperation, LineClient } from '../line/client.js'
 import type { AuditWriter } from './audit.js'
-import { MenuNotFoundError, MenuNotMembersAudienceError, MenuNotReadyError } from './errors.js'
+import {
+  MenuActiveForMembersError, MenuNotFoundError, MenuNotMembersAudienceError, MenuNotReadyError,
+} from './errors.js'
 import type { Repo, RichMenuRow } from './types.js'
 
 export interface MenuOpsDeps {
@@ -42,6 +44,41 @@ export function assertMembersAudience(menu: RichMenuRow): void {
   if (menu.audience !== 'members') {
     throw new MenuNotMembersAudienceError(menu.id)
   }
+}
+
+/**
+ * Task 14b item 3 — ด่านตรงข้ามของ `assertMembersAudience` ข้างบน: ที่นั่นกันไม่ให้ **activate**
+ * เมนูที่ไม่ใช่ของสมาชิก ที่นี่กันไม่ให้ **ถอด** ป้าย `'members'` ออกจากเมนูที่กำลังเป็นเมนูสมาชิก
+ * อยู่จริง สองด่านนี้ปิดวงเดียวกันคนละทาง ก่อนมีตัวนี้ ช่องที่เหลือคือ: ตั้ง audience เป็น members
+ * → activate → กลับมาแก้ audience เป็น all ผ่านฟอร์ม ซึ่งพาไปลงสถานะที่ด่านแรกมีไว้กันพอดี
+ * (ดูคอมเมนต์เต็มที่ `MenuActiveForMembersError` ใน errors.ts)
+ *
+ * อยู่ใน core ไม่ใช่ใน `menu-write.ts` ของแต่ละ adapter ด้วยเหตุผลเดียวกับ `assertMembersAudience`
+ * และ `publishedMenuOrThrow` — ด่านที่เขียนซ้ำสองรอบคือด่านที่วันหนึ่งจะมีอยู่แค่ฝั่งเดียว
+ * (บทเรียนจริงจาก token-leak guard ที่เคยมีอยู่บน adapter เดียว)
+ *
+ * รับ `memberRichMenuId` เป็นค่าดิบ ไม่ใช่ `ChannelRow` ทั้งก้อน — ฟังก์ชันนี้ไม่ต้องรู้อะไรเกี่ยวกับ
+ * channel มากกว่านั้นเลย และผู้เรียกทั้งสอง adapter อ่านค่านี้จาก repo ของตัวเองคนละรูปกันอยู่แล้ว
+ *
+ * `next === undefined` (caller ไม่ส่งฟิลด์มา = "ไม่เปลี่ยน") ต้องผ่านเสมอ ไม่ใช่ถูกตีความเป็นการ
+ * ถอดป้าย — นั่นคือกฎเดียวกับที่ `saveMenu` ใช้ตัดสินว่าจะเขียน `audience` ลง patch ไหม และเป็นสิ่งที่
+ * เทสต์ round 4 ของ Task 13 คุ้มครองอยู่
+ */
+export function assertAudienceChangeAllowed(input: {
+  menu: Pick<RichMenuRow, 'id' | 'audience' | 'lineRichMenuId'>
+  next: 'all' | 'members' | undefined
+  memberRichMenuId: string | null
+}): void {
+  // ไม่ส่งมา = ไม่เปลี่ยน; ยังเป็น members = ไม่ใช่การถอดป้าย
+  if (input.next === undefined || input.next === 'members') return
+  // ป้ายเดิมไม่ใช่ members อยู่แล้ว — ไม่มีอะไรให้ถอด (เช่น all → all)
+  if (input.menu.audience !== 'members') return
+  // เมนูที่ไม่เคยขึ้น LINE เป็นเมนูสมาชิกของ channel ไหนไม่ได้ (activate ผ่าน publishedMenuOrThrow
+  // เสมอ) — เช็คตรงนี้ชัด ๆ ไม่ปล่อยให้ไปเทียบ `null === null` ข้างล่างแล้วปฏิเสธเมนูร่างที่ไม่มี
+  // ใครถืออยู่จริง ทั้งที่ channel นั้นก็แค่ยังไม่มีเมนูสมาชิกเลย
+  if (input.menu.lineRichMenuId === null) return
+  if (input.memberRichMenuId !== input.menu.lineRichMenuId) return
+  throw new MenuActiveForMembersError(input.menu.id)
 }
 
 export async function setMenuAsDefault(

@@ -117,8 +117,15 @@ describe('menuInputSchema', () => {
    * `{}` reach the database identically. `in` is preferred because it states the contract itself —
    * zod must not synthesise the key at all — rather than passing by accident of two downstream
    * guards that a later refactor could remove.
-   * `validMenu` above never included an `audience` key — that omission is the whole point here,
-   * it's the exact shape the real editor's PUT sends (see api.ts of ui).
+   * `validMenu` above never included an `audience` key — that omission is the whole point here.
+   *
+   * Task 14b item 1 changed *who* sends that shape, not whether it must keep working. The editor
+   * now has an Audience control and its PUT always carries `audience` (seeded from the row it
+   * loaded), so this body is no longer the editor's — it is every *other* caller: scripts,
+   * customer integrations, anything issuing a partial update. For them "absent" must still mean
+   * "unchanged", which is exactly what this test pins. The assertion is unchanged; only this
+   * sentence is, because leaving a comment that names the wrong caller is how the next person
+   * checking gets stopped by something false.
    *
    * Mutation check (required by task-13-findings-3.md): re-add `.default('all')` to
    * `menuInputSchema` here, confirm this test goes RED, revert.

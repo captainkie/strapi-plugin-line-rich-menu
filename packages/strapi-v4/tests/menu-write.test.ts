@@ -56,11 +56,18 @@ function fakeStore(source: Buffer): ImageStore {
   }
 }
 
-function fakeServices(menus: Repo<RichMenuRow>, source: Buffer): Services {
+/**
+ * `memberRichMenuId` คือ pointer เมนูสมาชิกของ channel ที่เมนูนี้สังกัด — `saveMenu` อ่านมันเมื่อ
+ * คำขอพก `audience` มาด้วย (Task 14b item 3) ค่าเริ่มต้น `null` คือ "channel นี้ยังไม่มีเมนูสมาชิก"
+ * ซึ่งเป็นสถานะของทุกเทสต์ในไฟล์นี้ยกเว้น describe ของ item 3 เองที่ส่งค่าจริงเข้ามา
+ */
+function fakeServices(
+  menus: Repo<RichMenuRow>, source: Buffer, memberRichMenuId: string | null = null,
+): Services {
   return {
     config: {} as never,
     logger: { debug() {}, info() {}, warn() {}, error() {} },
-    channels: {} as never,
+    channels: { findOne: async () => ({ memberRichMenuId }) } as never,
     menus,
     schedules: fakeRepo<ScheduleRow>(),
     // menu-write.ts ไม่แตะ members เลย (ไม่ใช่ path ของ link-members) — ใส่ไว้ให้ตรงกับ Services เฉย ๆ
@@ -149,20 +156,23 @@ describe('saveMenu — ลบรูปทิ้งต้องเคลียร
 /**
  * Task 13 fix round 3 (task-13-findings-2.md) — Critical: `menuInputSchema` เคย `.default('all')`
  * ทำให้ `input.audience` มีค่าเสมอแม้ caller ไม่ส่งมา แล้ว `saveMenu` เขียนมันลง patch แบบไม่มีเงื่อนไข
- * ผลคือแก้เมนูสมาชิกผ่าน editor (PUT body ไม่มีคีย์ `audience` เลย — ดู api.ts ของ ui) รีเซ็ต audience
+ * ผลคือแก้เมนูสมาชิกผ่าน editor (ตอนนั้น PUT body ไม่มีคีย์ `audience` เลย) รีเซ็ต audience
  * เป็น 'all' เงียบ ๆ ทุกครั้ง แม้เมนูยัง live กับสมาชิกจริงอยู่ — เทสต์เดิมใน describe ก่อนหน้าไม่มีทาง
  * จับได้ เพราะทุกที่ที่เรียก saveMenu ส่ง `audience: 'all'` มาชัดเจนเสมอ (baseInput) ไม่เคยจำลอง body
  * ที่ไม่มีคีย์นี้เลย ซึ่งเป็นรูปทรงเดียวที่เกิดขึ้นจริงตอนแก้ไขผ่านฟอร์ม
  */
 describe('saveMenu — audience: ไม่ส่งฟิลด์มาต้องแปลว่า "ไม่เปลี่ยน" ไม่ใช่ "ตั้งเป็น all" (Task 13 fix round 3)', () => {
-  it('แก้เมนูสมาชิกด้วย body รูปทรงเดียวกับที่ editor ส่งจริง (ไม่มีคีย์ audience เลย) — audience เดิมต้องรอด', async () => {
+  // Task 14b item 1 เปลี่ยน *ผู้ส่ง* body รูปนี้ ไม่ใช่เปลี่ยนกฎ: editor ส่ง `audience` มาทุกครั้งแล้ว
+  // body ที่ไม่มีคีย์นี้จึงเป็นของผู้เรียก API อื่น (สคริปต์/integration) ซึ่งยังต้องหมายถึง "ไม่เปลี่ยน"
+  // เหมือนเดิม — assertion ไม่ถูกแก้ แก้แค่ชื่อกับคอมเมนต์ให้เลิกอ้างผู้ส่งที่ไม่ใช่แล้ว
+  it('แก้เมนูสมาชิกด้วย body ที่ละคีย์ audience ไว้ (partial update ของผู้เรียก API) — audience เดิมต้องรอด', async () => {
     const menus = fakeRepo<RichMenuRow>()
     const services = fakeServices(menus, await realJpeg())
     const created = await saveMenu(services, { ...baseInput, audience: 'members' }, null, null)
     expect(created.audience).toBe('members') // sanity check ก่อนพิสูจน์ค่าที่ต้องรอด
 
     // destructure คีย์ออกจริง ๆ ไม่ใช่ตั้งเป็น undefined ตรง ๆ —ต้องได้ object ที่ไม่มีคีย์ audience
-    // เลย เหมือน body จริงของ PUT ที่ editor ส่ง ไม่ใช่แค่ค่าที่บังเอิญเป็น undefined
+    // เลย เหมือน partial update จริงของผู้เรียก API ไม่ใช่แค่ค่าที่บังเอิญเป็น undefined
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { audience: _omitted, ...withoutAudience } = { ...baseInput, audience: 'members' as const }
 
@@ -184,5 +194,69 @@ describe('saveMenu — audience: ไม่ส่งฟิลด์มาต้�
     // (การยืนยันว่าเมนูใหม่ยังได้ 'all' จริงบน Strapi จริงคือหน้าที่ของ acceptance.spec.ts — ดูด่าน
     // 'activate เมนูที่ audience เป็น all ถูกปฏิเสธ...' ที่ใช้เมนูแรกสุดของไฟล์ซึ่งไม่เคยส่ง audience)
     expect(created.audience).toBeUndefined()
+  })
+})
+
+/**
+ * Task 14b item 3 — เมื่อฟอร์มตั้ง `audience` ได้แล้ว (item 1) มันก็ **ล้าง** ได้ด้วย: สลับเมนู
+ * สมาชิกที่ยัง live อยู่กลับเป็น 'all' จะพาไปลงสถานะเดียวกับที่ 409 `menu_not_members_audience`
+ * (Task 13) มีไว้กันไม่ให้เกิด แต่มาทางประตูใหม่ — ดูคอมเมนต์เต็มที่ `MenuActiveForMembersError`
+ *
+ * ตรรกะเองอยู่ที่ `assertAudienceChangeAllowed` ใน core และมีเทสต์ของตัวเองที่นั่น
+ * (`packages/core/tests/server/menu-ops.test.ts`) ไฟล์นี้พิสูจน์คนละเรื่อง: `saveMenu` ของ
+ * **adapter ตัวนี้** เรียกด่านนั้นจริง ด้วย channel ของแถวเดิมจริง และปฏิเสธ **ก่อน** เขียนอะไรลง
+ * repo — ด่านที่ปฏิเสธหลังเขียนไปแล้วคือด่านที่ไม่ได้ป้องกันอะไรเลย
+ */
+describe('saveMenu — ถอดป้าย members ออกจากเมนูที่ยัง live กับสมาชิกไม่ได้ (Task 14b item 3)', () => {
+  /** เมนูสมาชิกที่ publish แล้วและมี id ฝั่ง LINE — สถานะเดียวที่ activate ทำให้เกิดได้ */
+  async function liveMemberMenu(menus: Repo<RichMenuRow>, services: Services): Promise<RichMenuRow> {
+    const created = await saveMenu(services, { ...baseInput, audience: 'members' }, null, null)
+    expect(created.audience).toBe('members') // sanity — เทสต์ทั้ง describe นี้ตั้งอยู่บนค่านี้
+    return menus.update(created.id, { status: 'published', lineRichMenuId: 'line-rm-1' })
+  }
+
+  it("channel ชี้มาที่เมนูนี้อยู่ → PUT ที่ส่ง audience: 'all' ถูกปฏิเสธด้วย menu_active_for_members", async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg(), 'line-rm-1')
+    const live = await liveMemberMenu(menus, services)
+
+    await expect(saveMenu(services, { ...baseInput, audience: 'all' }, live, null))
+      .rejects.toMatchObject({ code: 'menu_active_for_members' })
+
+    // ปฏิเสธจริง ไม่ใช่ปฏิเสธหลังเขียนไปแล้ว — v4 ไม่มี transaction ห่อ `saveMenu` (ดูไฟล์ต้นทาง)
+    // การเช็คหลังเขียนจึงทิ้งค่าที่ถูกเขียนไปแล้วค้างไว้จริง ไม่ใช่แค่ทฤษฎี
+    expect((await menus.findOne(live.id))!.audience).toBe('members')
+  })
+
+  // เมื่อ editor ส่ง `audience` มาทุกครั้งแล้ว (item 1) การแก้ชื่อเมนูสมาชิกที่ active อยู่จะพก
+  // `audience: 'members'` มาด้วยเสมอ — ถ้าด่านนี้ดูแค่ "มีคีย์ audience ไหม" แทนที่จะดูว่า
+  // **ค่ามันเปลี่ยนไปจาก members หรือเปล่า** เมนูสมาชิกที่ใช้งานอยู่จะแก้อะไรไม่ได้เลยสักอย่าง
+  it('แก้ชื่อเมนูสมาชิกที่ active อยู่ (ส่ง audience: members มาด้วย) — ยังบันทึกได้ตามปกติ', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg(), 'line-rm-1')
+    const live = await liveMemberMenu(menus, services)
+
+    const updated = await saveMenu(
+      services, { ...baseInput, name: 'เมนูสมาชิก (แก้ชื่อ)', audience: 'members' }, live, null)
+    expect(updated.name).toBe('เมนูสมาชิก (แก้ชื่อ)')
+    expect(updated.audience).toBe('members')
+  })
+
+  it('channel ยังไม่มีเมนูสมาชิกเลย — เปลี่ยน audience เป็น all ได้ตามปกติ', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg(), null)
+    const live = await liveMemberMenu(menus, services)
+
+    const updated = await saveMenu(services, { ...baseInput, audience: 'all' }, live, null)
+    expect(updated.audience).toBe('all')
+  })
+
+  it('channel ชี้ไปที่เมนูสมาชิกตัวอื่น — เมนูนี้ถอดป้ายได้ ไม่ใช่ถูกล็อกไปด้วย', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg(), 'line-rm-somebody-else')
+    const live = await liveMemberMenu(menus, services)
+
+    const updated = await saveMenu(services, { ...baseInput, audience: 'all' }, live, null)
+    expect(updated.audience).toBe('all')
   })
 })

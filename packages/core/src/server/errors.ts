@@ -67,6 +67,29 @@ export class MenuNotMembersAudienceError extends CoreError {
   }
 }
 
+/**
+ * Task 14b item 3 — เมนูนี้กำลังเป็นเมนูสมาชิกของ channel อยู่ (`channel.memberRichMenuId` ชี้มาที่
+ * `lineRichMenuId` ของมัน) การเปลี่ยน `audience` ออกจาก `'members'` ตอนนี้จะพาไปลงที่สถานะเดียวกับ
+ * ที่ `MenuNotMembersAudienceError` ข้างบนมีไว้กันไม่ให้เกิด แต่มาทางประตูใหม่: แถวถูก label ว่า
+ * `'all'` ขณะที่สมาชิกจริงยังถือมันอยู่ และหน้าจอจะมองไม่เห็นเลย เพราะ "active" ของเมนู `'all'`
+ * ถูกอ่านจากค่า default ของ LINE ไม่ใช่จาก pointer นี้ — ไม่มีใครเห็นสถานะที่แท้จริง และปิดจาก UI
+ * ก็ไม่ได้ (สวิตช์สมาชิกถูก gate ด้วย `menu.audience === 'members'` ตั้งแต่ Task 14b item 2)
+ *
+ * ตาม ruling ของ Task 13 ตรง ๆ — **การกระทำทำตามเจตนา ไม่ใช่เขียนทับเจตนา**: ไม่ deactivate ให้เอง
+ * เงียบ ๆ (นั่นคือการตัดสินใจแทนผู้ใช้ว่าสมาชิกหลายหมื่นคนควรถูกปลดเมนู) แต่ปฏิเสธแล้วบอกให้ปิด
+ * สวิตช์สมาชิกก่อน — 409 เหมือน `MenuNotMembersAudienceError` (ทั้งคู่คือ "เมนูนี้ยังทำสิ่งที่ขอ
+ * ไม่ได้" ไม่ใช่ "คำขอผิดรูปแบบ") แต่คนละ code เพราะแก้คนละวิธี
+ */
+export class MenuActiveForMembersError extends CoreError {
+  readonly code = 'menu_active_for_members'
+  constructor(readonly menuId: string) {
+    super(
+      `rich menu ${menuId} is currently the channel's member menu; `
+      + "turn the members toggle off before changing its audience away from 'members'",
+    )
+  }
+}
+
 /** ไม่มี encryptionKey และไม่มี APP_KEYS[0] ให้ derive — ปฏิเสธตั้งแต่ตอน bootstrap */
 export class EncryptionKeyMissingError extends CoreError {
   readonly code = 'encryption_key_missing'

@@ -15,6 +15,10 @@ const publishedMenu: RichMenuSummary = {
 // เมนูที่ยังไม่ publish ไม่มี lineRichMenuId — activate เส้นนี้จะโดน 409 menu_not_ready เปล่า ๆ
 const draftMenu: RichMenuSummary = { ...publishedMenu, id: 'm2', status: 'draft', lineRichMenuId: null }
 
+// publish แล้วแต่ประกาศไว้ว่าเป็นเมนูของทุกคน — activate เส้นนี้จะโดน 409 menu_not_members_audience
+// เปล่า ๆ (assertMembersAudience ตั้งแต่ Task 13) ซึ่งเป็นความล้มเหลวที่รู้ล่วงหน้าตัวที่สอง
+const allAudienceMenu: RichMenuSummary = { ...publishedMenu, id: 'm3', audience: 'all' }
+
 const noOneActive: Pick<ChannelAudience, 'defaultRichMenuId' | 'memberRichMenuId'> = {
   defaultRichMenuId: 'line-rm-9', memberRichMenuId: null,
 }
@@ -82,6 +86,42 @@ describe('AudienceToggle', () => {
   it('เมนูที่เป็นเมนูสมาชิกอยู่แล้ว (memberRichMenuId ตรงกับ lineRichMenuId ของแถวนี้) สวิตช์เริ่มเปิด', async () => {
     setup({ audience: { defaultRichMenuId: null, memberRichMenuId: 'line-rm-1', memberCount: 3 } })
     await waitFor(() => expect(screen.getByRole('switch')).toBeChecked())
+  })
+
+  /**
+   * Task 14b item 2 — กฎที่เขียนไว้แล้วสำหรับกรณี draft (สี่บรรทัดถัดไป) ไม่เคยถูกขยายมาถึง
+   * ความล้มเหลวที่รู้ล่วงหน้าตัวที่สองที่ Task 13 เพิ่มเข้ามา: เมนู `audience: 'all'` กดเปิดไปก็ได้
+   * 409 `menu_not_members_audience` กลับมาเสมอ แล้วขึ้น toast `audience.actionFailed` ที่ไม่ได้
+   * บอกอะไรเลยสักคำเรื่อง audience — ผู้ใช้ไม่มีทางรู้ว่าต้องไปแก้อะไรที่ไหน
+   */
+  describe('เมนูที่ audience เป็น all (Task 14b item 2)', () => {
+    it('ปิดสวิตช์ไว้ กดเปิดใช้งานไม่ได้ — ไม่ปล่อยให้ยิงคำขอที่รู้อยู่แล้วว่าต้องได้ 409', async () => {
+      const post = vi.fn()
+      const { get } = setup({ menu: allAudienceMenu, post })
+      // รอให้ audience โหลดเสร็จก่อน — ไม่งั้นจะพิสูจน์แค่ "ยังโหลดไม่เสร็จ" ซึ่งเป็นคนละเหตุผล
+      // กับที่ describe นี้ตั้งใจจับ และจะเขียวต่อไปแม้ gate ของ audience จะถูกถอดออกทั้งอัน
+      await waitFor(() => expect(get).toHaveBeenCalled())
+      expect(screen.getByRole('switch')).toBeDisabled()
+
+      // ยิง event ตรงเข้า input ข้าม attribute disabled ไปเลย — handler ต้องกันเองด้วย
+      // (แพทเทิร์นเดียวกับเทสต์ของเมนู draft ข้างล่าง)
+      fireEvent.click(screen.getByRole('switch'))
+      expect(post).not.toHaveBeenCalled()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    // สวิตช์ที่ปิดโดยไม่บอกเหตุผลคือทางตันของตัวมันเอง — เหตุผลต้องอยู่ตรงที่ผู้ใช้กำลังมองอยู่
+    it('บอกเหตุผลที่กดไม่ได้ พร้อมวิธีแก้ ไม่ใช่ปิดเงียบ ๆ', async () => {
+      setup({ menu: allAudienceMenu, t: realT('en') })
+      await waitFor(() => expect(screen.getByRole('switch')).toBeDisabled())
+      expect(screen.getByText(MESSAGES.en['audience.notMembersMenu']!)).toBeInTheDocument()
+    })
+
+    it('เมนูที่ audience เป็น members ไม่ขึ้นข้อความนั้น และสวิตช์ยังกดได้ตามปกติ', async () => {
+      setup({ t: realT('en') })
+      await waitFor(() => expect(screen.getByRole('switch')).not.toBeDisabled())
+      expect(screen.queryByText(MESSAGES.en['audience.notMembersMenu']!)).not.toBeInTheDocument()
+    })
   })
 
   // สเปกงานนี้ #1 — draft ไม่มี lineRichMenuId ให้ activate กดไปก็โดน 409 เปล่า ๆ ปิดสวิตช์ไว้ก่อน

@@ -1,5 +1,5 @@
 import {
-  ValidationError, imageFingerprint, prepareImage,
+  ValidationError, assertAudienceChangeAllowed, imageFingerprint, prepareImage,
   type Repo, type RichMenuRow, type ScheduleRow,
 } from '@fosivo/line-rich-menu-core'
 import type { Services } from './container.js'
@@ -95,6 +95,26 @@ export async function saveMenu(
   // ให้เอง ไม่ต้องเพิ่ม code ใหม่ — ผลลัพธ์ (channel record) ไม่ถูกใช้ต่อ เช็คแค่ว่ามีอยู่จริง
   await services.channels.findOne(input.channelId)
 
+  // Task 14b item 3 — เมื่อฟอร์มเซ็ต `audience` ได้แล้ว มันก็ **ล้าง**ได้ด้วย: สลับเมนูสมาชิกที่ยัง
+  // live อยู่กลับเป็น 'all' จะพาไปลงสถานะที่ 409 `menu_not_members_audience` มีไว้กันไม่ให้เกิดพอดี
+  // (label 'all' + สมาชิกยังถืออยู่จริง + หน้าจอมองไม่เห็นเพราะ 'all' อ่าน active จาก default ของ LINE)
+  // ปฏิเสธที่นี่แทนที่จะ deactivate ให้เองเงียบ ๆ ตามหลักของ Task 13 ruling: การกระทำทำตามเจตนา
+  // ไม่ใช่เขียนทับเจตนา — ตรรกะทั้งหมดอยู่ที่ `assertAudienceChangeAllowed` ใน core เพื่อให้สอง
+  // adapter เรียกด่านเดียวกันจริง ๆ ไม่ใช่ถือสำเนาที่วันหนึ่งจะไม่ตรงกัน
+  //
+  // อ่าน channel ของ **แถวเดิม** (`existing.channelId`) ไม่ใช่ `input.channelId` — pointer
+  // `memberRichMenuId` ที่ต้องตรวจอยู่บน channel ที่เมนูนี้สังกัดอยู่ตอนนี้ การย้ายเมนูข้าม channel
+  // พร้อมกับถอดป้ายในคำขอเดียวจึงยังถูกจับได้ ไม่ใช่หลุดไปเพราะบังเอิญไปอ่าน channel ปลายทางแทน
+  // ข้ามการอ่านนี้ไปเลยเมื่อ caller ไม่ส่ง `audience` มา ("ไม่ส่งมา" = "ไม่เปลี่ยน" — ไม่มีอะไรให้ตรวจ)
+  if (existing !== null && input.audience !== undefined) {
+    const owner = await services.channels.findOne(existing.channelId)
+    assertAudienceChangeAllowed({
+      menu: existing,
+      next: input.audience,
+      memberRichMenuId: owner.memberRichMenuId,
+    })
+  }
+
   // Task 20 item 5 (strapi-v5 M1) — ก่อนแก้ `menus.create` ถูก commit ทันที (แต่ละ `documents()`
   // call ของ Strapi ผูก transaction ของตัวเองแยกกัน) แล้ว `prepareImage` ที่ตามมาถึง throw ได้จาก
   // สาเหตุที่ไม่เกี่ยวกับแถวที่เพิ่งสร้างเลย (เช่นไฟล์ที่อ้างถูกลบไปจาก Media Library) ผลคือแถวร่าง
@@ -122,8 +142,9 @@ export async function saveMenu(
       imageFileId: input.imageFileId,
       areaImages: input.areaImages,
       aliasId: input.aliasId,
-      // input.audience เป็น undefined เมื่อ caller ไม่ส่งฟิลด์นี้มาเลย (editor's PUT ไม่เคยส่ง — ดู
-      // คอมเมนต์ที่ validation.ts) ไม่ใส่คีย์นี้ใน patch เลยตอนนั้น ไม่ใช่ใส่เป็น undefined — ความหมาย
+      // input.audience เป็น undefined เมื่อ caller ไม่ส่งฟิลด์นี้มาเลย (ตั้งแต่ Task 14b item 1
+      // editor ส่งมาทุกครั้งแล้ว เหลือแต่ผู้เรียก API อื่นที่ยังละคีย์นี้ได้ — ดูคอมเมนต์ที่
+      // validation.ts) ไม่ใส่คีย์นี้ใน patch เลยตอนนั้น ไม่ใช่ใส่เป็น undefined — ความหมาย
       // ปกติของ partial update คือ "ไม่ส่งมา" แปลว่า "ไม่เปลี่ยน" ไม่ใช่ "ตั้งเป็นค่า default" (Task 13
       // fix round 3, task-13-findings-2.md — `.default('all')` ตัวเดิมใน validation.ts ทำให้ทุก save
       // เขียนทับ audience เดิมเป็น 'all' เงียบ ๆ แม้เมนูยัง live กับสมาชิกจริงอยู่)

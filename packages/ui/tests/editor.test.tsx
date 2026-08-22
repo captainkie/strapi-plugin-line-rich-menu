@@ -489,6 +489,48 @@ describe('RichMenuEditor', () => {
     expect(screen.getByLabelText('chatBar.behavior.collapsed')).toBeChecked()
   })
 
+  /**
+   * Task 14b item 1 — `MainSettings` เป็นเจ้าของช่อง แต่ค่าต้องเดินทางต่อไปถึง `onSave` จริง ๆ
+   * ไม่งั้นผู้ใช้เลือกได้แต่ไม่มีอะไรถูกบันทึก ซึ่งแยกจาก "ไม่มีช่องให้เลือกเลย" ไม่ออกในสายตาคนใช้
+   *
+   * ยิงผ่านปุ่ม "Save draft" ตัวจริงเสมอ ไม่ใช่เรียก `save()` ตรง ๆ — เส้นทางเดียวกับที่ผู้ใช้เดิน
+   */
+  describe('กลุ่มเป้าหมายเดินทางถึง onSave (Task 14b item 1)', () => {
+    it('เมนูใหม่เริ่มที่ "ทุกคน" — เมนูสมาชิกต้องเป็นการเลือกที่ตั้งใจ ไม่ใช่ค่าที่ได้มาโดยไม่รู้ตัว', () => {
+      setup()
+      expect(screen.getByLabelText('audience.all')).toBeChecked()
+      expect(emptyDraft().audience).toBe('all')
+    })
+
+    it('เลือก "สมาชิก" แล้วกดบันทึกร่าง — draft ที่ส่งออกไปมี audience: members', async () => {
+      const { onSave } = setup()
+      fireEvent.change(screen.getByLabelText('editor.title'), { target: { value: 'เมนูสมาชิก' } })
+      fireEvent.click(screen.getByLabelText('audience.members'))
+      fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
+
+      await waitFor(() => expect(onSave).toHaveBeenCalled())
+      expect((onSave.mock.calls[0]![0] as RichMenuDraft).audience).toBe('members')
+    })
+
+    /**
+     * เคสที่สำคัญที่สุดของสามตัวนี้: เปิดเมนูสมาชิกเดิมมาแก้ชื่อแล้วกดบันทึกโดย**ไม่แตะ**ช่อง
+     * กลุ่มเป้าหมายเลย ค่าที่ส่งกลับต้องยังเป็น members — ถ้า `RichMenuEditor` ไม่ seed ช่องนี้จาก
+     * `initial` (หรือ seed แล้วแต่ไม่ส่งต่อ) การกด Save ครั้งเดียวจะถอดป้ายของเมนูที่ยัง live อยู่
+     * ทิ้ง ซึ่งคือรูปร่างเดียวกับ Critical ที่ 5c8621e แก้ไป เพียงแต่มาจากชั้น UI แทนชั้น schema
+     */
+    it('เปิดเมนูสมาชิกเดิมมาแก้ชื่ออย่างเดียว — audience ที่ส่งกลับต้องยังเป็น members', async () => {
+      const { onSave } = setup({ initial: { ...emptyDraft(), title: 'เมนูสมาชิก', audience: 'members' } })
+      expect(screen.getByLabelText('audience.members')).toBeChecked()
+      fireEvent.change(screen.getByLabelText('editor.title'), { target: { value: 'เมนูสมาชิก (ใหม่)' } })
+      fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
+
+      await waitFor(() => expect(onSave).toHaveBeenCalled())
+      const draft = onSave.mock.calls[0]![0] as RichMenuDraft
+      expect(draft.title).toBe('เมนูสมาชิก (ใหม่)') // sanity — พิสูจน์ว่าฟอร์มเขียนจริง
+      expect(draft.audience).toBe('members')
+    })
+  })
+
   // A1 — applyTemplate เปลี่ยน bounds/areas/sizeName ทุกครั้งแต่ไม่เคยแตะ draft.image เลย
   // ถ้าขนาดผืนผ้าใบเปลี่ยน (large ↔ compact) รูปเดิมค้างอยู่กับ canvas ใหม่ที่ไม่พอดี (สเปก §5.6.3)
   describe('เปลี่ยน template แล้วรูปเดิมที่อัปโหลดไว้', () => {

@@ -171,16 +171,34 @@ current-menu card at the top of the rich menu list shows both at once — who "E
 right now and who "Members" is seeing — each read live from LINE rather than guessed from the
 database, so it can never disagree with what a user actually has open.
 
-**Marking a menu as a members menu is an API call today, not a form field.** The editor saves every
-other setting on a menu but never sends `audience` — on purpose, so an ordinary edit of a members
-menu (renaming it, swapping its image) can never reset it back to `all` by accident. Until this
-plugin grows a picker for it, the only way in is to set it yourself when you create the menu, by
-calling `POST /line-rich-menu/menus` with `audience: "members"` added to the body the editor would
-otherwise send. Trying to switch on the members toggle described below for a menu that is still
-`audience: "all"` fails — and today it fails with the same generic "Could not complete that action"
-message every other failure in this section uses, without saying why. If that toggle refuses to
-turn on and the menu was not created with `audience: "members"`, that mismatch is the first thing
-to check.
+### Setting a menu's audience
+
+**Audience** is a two-option field in the rich menu editor, in **Main settings** next to the title
+and the display period: **Everyone** or **Members**. New menus start on Everyone, so a members menu
+is always something you chose rather than something you ended up with. Opening an existing menu
+fills the field in from what that menu already is, so renaming it or swapping its image and pressing
+Save leaves the audience alone.
+
+Setting the field is not the same as switching the menu on. Audience is a *label* — what this menu
+is for. The [members toggle](#the-members-toggle) below is the *action* that makes it the menu your
+members actually hold. A menu on Everyone cannot be switched on at all; its toggle stays disabled
+and says so, rather than letting you press a button that is guaranteed to fail.
+
+If you drive the API directly instead, `POST`/`PUT /line-rich-menu/menus` accepts `audience` as
+`"all"` or `"members"`. Leaving the key out of the body means *unchanged* — never *reset to
+`all`* — so a partial update from a script cannot quietly demote a members menu.
+
+#### Turning a live members menu back to Everyone
+
+Once a menu is switched on for members, changing its audience back to Everyone is refused with
+**409 `menu_active_for_members`**. It is not a bug to work around: a menu labelled Everyone while
+your members are still holding it is invisible on this screen — "active" for an Everyone menu is
+read from LINE's account default, not from the members pointer — so nothing would show you the real
+state, and there would be no way to switch it off from the UI either.
+
+**Turn the members toggle off first, then change the audience.** The plugin deliberately will not
+do that for you: switching the toggle off unlinks every member from the menu, and that is a decision
+about real people's chats, not a detail to be inferred from an edit to a form field.
 
 ### Creating members
 
@@ -201,8 +219,11 @@ match a failed LINE call would throw away work that already succeeded.
 
 ### The members toggle
 
-Once a menu is published and its audience is `members`, its row in the rich menu list grows an
-**Enable for members** toggle. Turning it on asks how many members are on file for that channel,
+Once a menu is published and its audience is `members`, its row in the rich menu list grows a
+working **Enable for members** toggle. Every row has one, but it stays disabled until the menu is
+both published and set to Members, because activating it in any other state answers with an error
+the plugin already knows is coming; a menu on Everyone says as much in a line under its toggle.
+Turning it on asks how many members are on file for that channel,
 shows you the number so you know what you are about to do, and — once you confirm — links every one
 of them to the menu; LINE's own default for everyone else is left untouched. Turning it off unlinks
 everyone currently held to that menu.
@@ -269,6 +290,16 @@ Reconcile only reads, apart from the delete you explicitly press. Requires `publ
 **"Could not save" with no field marked.** The server rejected the whole payload. Every field-level
 problem marks its own field, so a bare toast means the shape was wrong — usually a menu with no
 areas at all.
+
+**"Could not save" on a menu that is switched on for members.** If the only thing you changed was
+the audience — Members back to Everyone — the server refused it with `menu_active_for_members`,
+because that menu is still the one your members are holding. Turn its **Enable for members** toggle
+off first, then change the audience. See
+[Turning a live members menu back to Everyone](#turning-a-live-members-menu-back-to-everyone).
+
+**The members toggle is greyed out.** It needs both things: the menu must be published, and its
+audience must be **Members**. If the audience is the problem, a line under the toggle says so; if
+there is no such line, the menu has not been published yet.
 
 **A blank title.** Title is required on every save path including drafts. It is not filled in for
 you, because a database full of "Untitled" is worse than being asked once.

@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { LineServerError, LineValidationError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
-import { MenuNotMembersAudienceError, MenuNotReadyError } from '../../src/server/errors.js'
 import {
-  assertMembersAudience, clearChannelDefault, deleteOrphan, reconcileChannel, setMenuAsDefault,
-  swapMenuAlias, unlinkAllFromMenu,
+  MenuActiveForMembersError, MenuNotMembersAudienceError, MenuNotReadyError,
+} from '../../src/server/errors.js'
+import {
+  assertAudienceChangeAllowed, assertMembersAudience, clearChannelDefault, deleteOrphan,
+  reconcileChannel, setMenuAsDefault, swapMenuAlias, unlinkAllFromMenu,
 } from '../../src/server/menu-ops.js'
 import type { AuditRow, Repo, RichMenuRow } from '../../src/server/types.js'
 
@@ -88,6 +90,82 @@ describe('assertMembersAudience', () => {
       expect((error as MenuNotMembersAudienceError).code).toBe('menu_not_members_audience')
       expect((error as MenuNotMembersAudienceError).menuId).toBe('m-42')
     }
+  })
+})
+
+/**
+ * Task 14b item 3 — ด่านตรงข้ามของ `assertMembersAudience` ข้างบน (ดูคอมเมนต์ที่ตัวฟังก์ชันเอง)
+ * อยู่ใน core ด้วยเหตุผลเดียวกัน: สอง adapter ต้องเรียกด่านเดียวกันจริง ๆ ไม่ใช่ถือสำเนาคนละใบ
+ * เทสต์ตรงนี้จึงเป็นที่เดียวที่พิสูจน์ตรรกะของมันแยกจากกลไก saveMenu ของทั้งคู่
+ *
+ * แต่ละ `it` จับเงื่อนไขเดียวที่ต่างจากเคสที่ปฏิเสธเพียงจุดเดียว ไม่ใช่กองรวมกันใน expect เดียว —
+ * การลบเงื่อนไขไหนออกจากฟังก์ชันต้องทำให้ **แค่บางตัว** แดง ซึ่งเป็นสิ่งเดียวที่บอกได้ว่าเงื่อนไข
+ * นั้นบังคับอะไรอยู่จริง
+ */
+describe('assertAudienceChangeAllowed', () => {
+  const liveMemberMenu = menuRow({ id: 'm-live', audience: 'members', lineRichMenuId: 'richmenu-a' })
+
+  it('ถอดป้าย members ออกจากเมนูที่เป็นเมนูสมาชิกของ channel อยู่จริง — โยน MenuActiveForMembersError', () => {
+    try {
+      assertAudienceChangeAllowed({
+        menu: liveMemberMenu, next: 'all', memberRichMenuId: 'richmenu-a',
+      })
+      throw new Error('ต้องโยนก่อนถึงบรรทัดนี้')
+    } catch (error) {
+      expect(error).toBeInstanceOf(MenuActiveForMembersError)
+      expect((error as MenuActiveForMembersError).code).toBe('menu_active_for_members')
+      expect((error as MenuActiveForMembersError).menuId).toBe('m-live')
+    }
+  })
+
+  // "ไม่ส่งฟิลด์มา" = "ไม่เปลี่ยน" ไม่ใช่ "ตั้งเป็น all" — กฎเดียวกับที่ Task 13 fix round 3/4
+  // คุ้มครองไว้ที่ validation.ts/saveMenu ถ้าด่านนี้ตีความ undefined เป็นการถอดป้าย ผู้เรียก API ที่
+  // ละคีย์นี้ไว้ (ยังมีจริง) จะแก้เมนูสมาชิกที่ active อยู่ไม่ได้เลย ทั้งที่ไม่ได้ขอเปลี่ยน audience
+  it('ไม่ส่ง audience มาเลย (undefined) — ผ่าน ไม่ใช่ถูกตีความว่ากำลังถอดป้าย', () => {
+    expect(() => assertAudienceChangeAllowed({
+      menu: liveMemberMenu, next: undefined, memberRichMenuId: 'richmenu-a',
+    })).not.toThrow()
+  })
+
+  it('ส่ง members มาบนเมนูสมาชิกที่ active อยู่ (บันทึกโดยไม่เปลี่ยนกลุ่มเป้าหมาย) — ผ่าน', () => {
+    expect(() => assertAudienceChangeAllowed({
+      menu: liveMemberMenu, next: 'members', memberRichMenuId: 'richmenu-a',
+    })).not.toThrow()
+  })
+
+  it('เมนูที่ป้ายเดิมเป็น all อยู่แล้ว — ไม่มีอะไรให้ถอด ผ่านแม้ pointer จะชี้มาที่ id เดียวกัน', () => {
+    expect(() => assertAudienceChangeAllowed({
+      menu: menuRow({ audience: 'all', lineRichMenuId: 'richmenu-a' }),
+      next: 'all',
+      memberRichMenuId: 'richmenu-a',
+    })).not.toThrow()
+  })
+
+  // เมนูสมาชิกของ channel อื่น (หรือเมนูสมาชิกเก่าที่ถูกแทนที่ไปแล้ว) ต้องแก้ได้ตามปกติ —
+  // ถ้าด่านนี้ปฏิเสธทุกเมนูที่ audience เป็น members มันจะไม่ใช่ยาม แต่เป็นการล็อกฟิลด์นี้ถาวร
+  it('เมนู members ที่ channel ไม่ได้ชี้มาหา — ถอดป้ายได้ตามปกติ', () => {
+    expect(() => assertAudienceChangeAllowed({
+      menu: liveMemberMenu, next: 'all', memberRichMenuId: 'richmenu-somebody-else',
+    })).not.toThrow()
+  })
+
+  it('channel ยังไม่มีเมนูสมาชิกเลย (memberRichMenuId เป็น null) — ถอดป้ายได้', () => {
+    expect(() => assertAudienceChangeAllowed({
+      menu: liveMemberMenu, next: 'all', memberRichMenuId: null,
+    })).not.toThrow()
+  })
+
+  /**
+   * เมนูร่างที่ยังไม่เคยขึ้น LINE เป็นเมนูสมาชิกของใครไม่ได้ (activate ผ่าน `publishedMenuOrThrow`
+   * เสมอ) — ถ้าไม่มี guard `lineRichMenuId === null` ในฟังก์ชัน เคสนี้จะไปจบที่การเทียบ
+   * `null !== null` ซึ่งเป็นเท็จ แล้วปฏิเสธการแก้ร่างที่ไม่มีใครถืออยู่จริงบน channel ที่ยังว่าง
+   */
+  it('เมนูร่างที่ยังไม่เคย publish บน channel ที่ยังไม่มีเมนูสมาชิก — ถอดป้ายได้ ไม่ใช่โดน null === null จับ', () => {
+    expect(() => assertAudienceChangeAllowed({
+      menu: menuRow({ audience: 'members', status: 'draft', lineRichMenuId: null }),
+      next: 'all',
+      memberRichMenuId: null,
+    })).not.toThrow()
   })
 })
 

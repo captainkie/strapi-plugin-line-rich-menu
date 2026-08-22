@@ -36,6 +36,11 @@ const STATUS_BY_CODE: Record<string, number> = {
   // เพราะเป็น "เมนูนี้ยังทำสิ่งที่ขอไม่ได้" ไม่ใช่ 400 ที่แปลว่า "คำขอผิดรูปแบบ" แต่แยก code ออกจาก
   // menu_not_ready เพราะสาเหตุคนละเรื่องและแก้ต่างกัน (publish เมนู vs เปลี่ยน audience ของเมนู)
   menu_not_members_audience: 409,
+  // Task 14b item 3 — ด้านกลับของ `menu_not_members_audience` ข้างบน: ถอดป้าย 'members' ออกจาก
+  // เมนูที่กำลังเป็นเมนูสมาชิกของ channel อยู่จริงไม่ได้ ต้องปิดสวิตช์สมาชิกก่อน (ดู
+  // `MenuActiveForMembersError` ใน core) 409 ด้วยเหตุผลเดียวกัน — "เมนูนี้ยังทำสิ่งที่ขอไม่ได้"
+  // ไม่ใช่ "คำขอผิดรูปแบบ" — แต่คนละ code เพราะวิธีแก้ของผู้ใช้คนละอย่างกัน
+  menu_active_for_members: 409,
   alias_not_published: 409,
   publish_already_running: 409,
   publish_rate_limited: 429,

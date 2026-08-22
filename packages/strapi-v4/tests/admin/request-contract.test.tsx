@@ -123,6 +123,47 @@ describe('body ที่หน้า editor ส่ง ต้องผ่าน m
 })
 
 /**
+ * `menuDetail` + `setup` อยู่ระดับโมดูลเพราะมีสอง describe ใช้ร่วมกัน (Task 20 item 8 follow-up
+ * ด้านล่าง กับ Task 14b item 1) — เป็นสถานะเมนูเดียวกันเป๊ะที่ทั้งคู่ต้องการ: เมนูเดิมที่มีรูป
+ * มี template และเป็นเมนูของสมาชิก
+ */
+const menuDetail = {
+  id: 'menu-1',
+  name: 'เมนูเดิม',
+  channelId: '10',
+  size: 'large' as const,
+  chatBarText: 'เมนู',
+  chatBarMode: 'default' as const,
+  selected: true,
+  templateKey: 'RICH_MENU_TEMPLATE_207',
+  // Task 14b item 1 — `GET /menus/:id` คืนคอลัมน์นี้มาตั้งแต่ Task 11 (`toDetail` คืนทั้งแถว)
+  // แต่ไม่มีใครอ่านจนถึงตอนนี้ ตั้งเป็น 'members' เพราะนั่นคือค่าที่การหล่นหายจะเป็นอันตรายจริง
+  audience: 'members' as const,
+  areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 1686 }, action: { type: 'message' as const, text: 'hi' } }],
+  imageFileId: 42,
+  aliasId: null,
+  startAt: null,
+  endAt: null,
+}
+
+function setup() {
+  const put = vi.fn(async () => ({ id: 'menu-1' }))
+  const get = vi.fn(async (url: string) => (url === ENDPOINTS.menu('menu-1') ? menuDetail : []))
+  const port = createStubPort({
+    t: (key: string) => key,
+    http: { ...createStubPort().http, get: get as never, put: put as never },
+  })
+  render(
+    <MemoryRouter initialEntries={['/plugins/line-rich-menu/menus/menu-1']}>
+      <Route path="/plugins/line-rich-menu/menus/:id">
+        <PortProvider value={port}><EditorPage /></PortProvider>
+      </Route>
+    </MemoryRouter>,
+  )
+  return { put }
+}
+
+/**
  * Task 20 item 8 follow-up (found during item 8's audit, fixed per team lead review) —
  * `EditorPage.save()`'s `canvasUnchanged` used to check `saved.templateKey === next.templateKey`
  * alongside `saved.size === next.sizeName`. `templateKey` is the same field
@@ -138,39 +179,6 @@ describe('body ที่หน้า editor ส่ง ต้องผ่าน m
  * real `RichMenuEditor`, exactly the path the bug lived on.
  */
 describe('EditorPage (แก้เมนูเดิม) — canvasUnchanged ต้องไม่อ่านจาก templateKey (Task 20 item 8 follow-up)', () => {
-  const menuDetail = {
-    id: 'menu-1',
-    name: 'เมนูเดิม',
-    channelId: '10',
-    size: 'large' as const,
-    chatBarText: 'เมนู',
-    chatBarMode: 'default' as const,
-    selected: true,
-    templateKey: 'RICH_MENU_TEMPLATE_207',
-    areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 1686 }, action: { type: 'message' as const, text: 'hi' } }],
-    imageFileId: 42,
-    aliasId: null,
-    startAt: null,
-    endAt: null,
-  }
-
-  function setup() {
-    const put = vi.fn(async () => ({ id: 'menu-1' }))
-    const get = vi.fn(async (url: string) => (url === ENDPOINTS.menu('menu-1') ? menuDetail : []))
-    const port = createStubPort({
-      t: (key: string) => key,
-      http: { ...createStubPort().http, get: get as never, put: put as never },
-    })
-    render(
-      <MemoryRouter initialEntries={['/plugins/line-rich-menu/menus/menu-1']}>
-        <Route path="/plugins/line-rich-menu/menus/:id">
-          <PortProvider value={port}><EditorPage /></PortProvider>
-        </Route>
-      </MemoryRouter>,
-    )
-    return { put }
-  }
-
   it('ปรับผังเองด้วยมือ (ไม่แตะรูป) แล้วบันทึกร่าง — รูปเดิมต้องยังอยู่ ไม่ใช่หายไปเงียบ ๆ', async () => {
     const { put } = setup()
     await waitFor(() => expect((screen.getByLabelText('editor.title') as HTMLInputElement).value).toBe('เมนูเดิม'))
@@ -208,5 +216,50 @@ describe('EditorPage (แก้เมนูเดิม) — canvasUnchanged ต
     const [, body] = put.mock.calls[0] as unknown as [string, { imageFileId: number | null; size: string }]
     expect(body.size).toBe('compact')
     expect(body.imageFileId).toBeNull()
+  })
+})
+
+/**
+ * Task 14b item 1 — ครึ่งที่ `packages/ui` พิสูจน์ไม่ได้: ที่นั่นดักได้แค่ `draft` ที่ `onSave`
+ * ได้รับ ส่วน **body ที่ออกไปทางสาย** ประกอบขึ้นที่ `EditorPage.save()` ของ adapter นี้ ซึ่งเป็น
+ * จุดที่ฟิลด์หล่นหายได้เงียบที่สุด (ทั้งฟังก์ชันนั้นสร้าง object ใหม่ทีละคีย์ด้วยมือ)
+ *
+ * เคสที่อันตรายจริงคือเคสที่สอง: เปิดเมนูสมาชิกมาแก้ชื่อแล้วกด Save โดยไม่แตะช่องกลุ่มเป้าหมายเลย
+ * ถ้า seed ไม่เกิดขึ้น (`audience: detail.audience` หายไปจาก useEffect) ฟอร์มจะเริ่มที่ 'all'
+ * แล้วส่ง 'all' กลับไปเขียนทับ — คือ Critical ตัวเดียวกับ 5c8621e ที่กลับมาทางประตูใหม่ เพียงแต่
+ * คราวนี้เซิร์ฟเวอร์ปฏิเสธให้ถ้าเมนูยัง active อยู่ (item 3) ซึ่งไม่ได้แปลว่าฝั่ง UI ถูก
+ */
+describe('EditorPage — กลุ่มเป้าหมายเดินทางครบทั้งขาเข้าและขาออก (Task 14b item 1)', () => {
+  // ไฟล์นี้ไม่ได้ใช้ matcher ของ jest-dom เลยสักตัว (ทั้งไฟล์อ่าน property ของ DOM ตรง ๆ) —
+  // คงสำนวนเดิมไว้ ไม่ลาก dependency ใหม่เข้ามาเพื่อ assertion สามบรรทัด
+  const checked = (label: string) => (screen.getByLabelText(label) as HTMLInputElement).checked
+
+  it('เปิดเมนูสมาชิกมาแก้ — ช่องกลุ่มเป้าหมายถูก seed จากแถวเดิม ไม่ใช่เริ่มที่ค่า default', async () => {
+    setup()
+    await waitFor(() => expect(checked('audience.members')).toBe(true))
+    expect(checked('audience.all')).toBe(false)
+  })
+
+  it('แก้ชื่ออย่างเดียวแล้วบันทึก — body ที่ออกไปยังพก audience: members ไม่ใช่ถูกรีเซ็ตเป็น all', async () => {
+    const { put } = setup()
+    await waitFor(() => expect(checked('audience.members')).toBe(true))
+    fireEvent.change(screen.getByLabelText('editor.title'), { target: { value: 'เมนูเดิม (แก้ชื่อ)' } })
+    fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
+
+    await waitFor(() => expect(put).toHaveBeenCalled())
+    const [, body] = put.mock.calls[0] as unknown as [string, { name: string; audience: string }]
+    expect(body.name).toBe('เมนูเดิม (แก้ชื่อ)') // sanity — พิสูจน์ว่า body นี้คือของการแก้ชื่อจริง
+    expect(body.audience).toBe('members')
+  })
+
+  it('สลับมาที่ "ทุกคน" แล้วบันทึก — body ส่ง all จริง ไม่ใช่ค้างค่าเดิมของแถว', async () => {
+    const { put } = setup()
+    await waitFor(() => expect(checked('audience.members')).toBe(true))
+    fireEvent.click(screen.getByLabelText('audience.all'))
+    fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
+
+    await waitFor(() => expect(put).toHaveBeenCalled())
+    const [, body] = put.mock.calls[0] as unknown as [string, { audience: string }]
+    expect(body.audience).toBe('all')
   })
 })

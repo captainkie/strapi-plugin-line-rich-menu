@@ -125,6 +125,16 @@ boolean would drift from whichever of those is actually true the moment a consol
 half-finished background job changed the real answer without anyone updating the flag to match —
 asking the source of truth on every read is slower than trusting a column, but it cannot go stale.
 
+Deriving it that way has one consequence worth naming, because two guards exist only to enforce it:
+the two reads answer *different questions*, so a row whose `audience` says `'all'` while
+`memberRichMenuId` still points at it is invisible — the screen would ask LINE for the account
+default and never look at the pointer. Both writes that could produce that pairing are refused
+rather than corrected. Activating a menu that is not `audience: 'members'` answers `409
+menu_not_members_audience`; changing `audience` away from `'members'` on the menu a channel is
+currently pointing at answers `409 menu_active_for_members`. Neither one "fixes" the other half for
+the caller — unlinking members is a decision about real people's chats, not something to infer from
+an edit to a form field.
+
 ### One shape that has caused repeated defects
 
 `templateKey` is `null` whenever a layout has been hand-edited. It has been read as "which canvas

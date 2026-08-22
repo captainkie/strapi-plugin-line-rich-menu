@@ -46,11 +46,24 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
 
   const active = audience !== null && menu.lineRichMenuId !== null
     && audience.memberRichMenuId === menu.lineRichMenuId
+  /**
+   * Task 14b item 2 — `menu.audience === 'members'` คือเงื่อนไขที่สาม ไม่ใช่ของแถม
+   *
+   * Task 13 เพิ่มความล้มเหลวที่รู้ล่วงหน้าอันที่สองเข้ามา: `activateOrSync` เรียก
+   * `assertMembersAudience` แล้วตอบ 409 `menu_not_members_audience` ให้กับเมนูที่ `audience`
+   * ไม่ใช่ 'members' — แต่ไม่ได้ขยาย gate ตรงนี้ตามไปด้วย สวิตช์จึงเปิดคาไว้ทุกแถวของเมนู 'all'
+   * แล้วล้มด้วย toast `audience.actionFailed` ที่ไม่ได้บอกอะไรเลยสักคำเรื่อง audience
+   *
+   * กฎเดียวกับกรณี draft ด้านล่างเป๊ะ ๆ (เขียนไว้แล้วสี่บรรทัดข้างล่างตั้งแต่ Task 11): ปิดสวิตช์
+   * ดีกว่าปล่อยให้กด error ที่เรารู้อยู่แล้วว่าต้องเกิด — แต่สวิตช์ที่ปิดโดยไม่บอกเหตุผลคือทางตัน
+   * ของตัวมันเอง จึงมี `audience.notMembersMenu` ขึ้นใต้สวิตช์คู่กันเสมอ (ดูตอน render)
+   */
+  const isMembersMenu = menu.audience === 'members'
   // publish แล้วเท่านั้นถึงมี lineRichMenuId ให้ activate — เมนู draft ที่กดไปจะโดน 409
   // menu_not_ready จาก publishedMenuOrThrow เปล่า ๆ ปิดสวิตช์ไว้ตั้งแต่ต้นดีกว่าปล่อยให้กดแล้วเจอ
   // error ที่รู้ล่วงหน้าอยู่แล้วว่าต้องเกิด — audience === null (กำลังโหลด/โหลดพัง) ก็ปิดไว้ก่อน
   // เพราะยังไม่รู้สถานะปัจจุบันจริง ๆ
-  const canToggle = menu.lineRichMenuId !== null && audience !== null && !busy
+  const canToggle = menu.lineRichMenuId !== null && isMembersMenu && audience !== null && !busy
 
   const deactivate = async () => {
     setBusy(true)
@@ -118,6 +131,14 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
           else void deactivate()
         }}
       />
+
+      {/* เหตุผลที่สวิตช์ปิดอยู่ ในที่เดียวกับที่ผู้ใช้กำลังมองอยู่ — ไม่ใช่ปล่อยให้เขาเดาเอง
+          ผูกกับ `menu.audience` ตัวเดียว ไม่ใช่ `!canToggle` ทั้งก้อน เพราะอีกสามเงื่อนไข
+          (ยังไม่ publish / กำลังโหลด / กำลังยิงคำขอ) ไม่ได้แก้ด้วยการไปเปลี่ยน audience
+          และข้อความนี้จะกลายเป็นคำแนะนำที่ผิดทันทีถ้าขึ้นตอนนั้นด้วย */}
+      {isMembersMenu ? null : (
+        <ui.Typography textColor="neutral600">{t('audience.notMembersMenu')}</ui.Typography>
+      )}
 
       {error === null ? null : <ui.Alert variant="danger">{error}</ui.Alert>}
 

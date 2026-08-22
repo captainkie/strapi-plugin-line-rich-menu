@@ -640,7 +640,8 @@ test.describe('audience สมาชิก', () => {
     // ครึ่งที่สองของ Critical เดิม (`.default('all')` ใน validation.ts) ไม่มีเทสต์ไหนจับได้เลย
     // แม้แต่เทสต์ mutation-checked ของ round 3 (menu-write.test.ts) เพราะมันเรียก saveMenu ตรง ๆ
     // ข้าม zod ไปทั้งดุ้น — ด่านนี้ยิงผ่าน HTTP จริง (PUT /line-rich-menu/menus/:id) ด้วย body
-    // รูปทรงเดียวกับที่ editor ส่งจริง (menuBody() ไม่มีคีย์ audience อยู่แล้ว) เปลี่ยนแค่ name —
+    // รูปทรงของ partial update ที่ผู้เรียก API ยังส่งได้ (menuBody() ไม่มีคีย์ audience อยู่แล้ว —
+    // ตั้งแต่ Task 14b item 1 editor เองส่งคีย์นี้มาทุกครั้ง เส้นนี้จึงเป็นของผู้เรียกอื่น) เปลี่ยนแค่ name —
     // memberMenu ยัง active อยู่ตรงนี้ (activate รันไปแล้วข้างบน, deactivate ยังไม่รัน) ซึ่งเป็น
     // สถานะเดียวกับความเสียหายจริงของ Critical: label ถูกรีเซ็ตเป็น all เงียบ ๆ ทั้งที่เมนูยัง live
     // กับสมาชิกจริงอยู่ — วางไว้ก่อน deactivate โดยตั้งใจ (ดู placement note ใน task-13-findings-3.md)
@@ -650,7 +651,7 @@ test.describe('audience สมาชิก', () => {
 
     const ordinaryEdit = await request.put(`/line-rich-menu/menus/${memberMenu.id}`, {
       ...auth(token),
-      // เปลี่ยนแค่ name — ไม่มีคีย์ audience อยู่ในนี้เลยสักตัว เหมือน PUT body จริงของ editor
+      // เปลี่ยนแค่ name — ไม่มีคีย์ audience อยู่ในนี้เลยสักตัว
       data: menuBody({
         name: 'เมนูสมาชิก (แก้ชื่อแล้ว)',
         channelId,
@@ -677,6 +678,59 @@ test.describe('audience สมาชิก', () => {
       'channel.memberRichMenuId ต้องยังชี้ไปที่เมนูนี้อยู่ — ไม่ใช่แค่ label audience ที่รอด')
       .toBe(memberMenu.lineRichMenuId)
 
+    // === Task 14b item 3 — ถอดป้าย 'members' ออกจากเมนูที่ยัง live กับสมาชิกอยู่ ต้องถูกปฏิเสธ ===
+    //
+    // ประตูใหม่ที่ item 1 เปิดขึ้นมา: เมื่อฟอร์มตั้ง `audience` ได้ มันก็ล้างได้ ซึ่งพาไปลงสถานะ
+    // เดียวกับที่ 409 `menu_not_members_audience` (Task 13) มีไว้กันไม่ให้เกิดพอดี — label 'all'
+    // ขณะที่สมาชิกจริงยังถือเมนูนี้อยู่ และหน้าจอมองไม่เห็นเลยเพราะ 'all' อ่าน active จาก default
+    // ของ LINE ไม่ใช่จาก pointer ยิงผ่าน HTTP จริงที่นี่ ไม่ใช่แค่ unit test — บทเรียนเดียวกับที่
+    // round 4 เจอ: ยามที่มีอยู่แต่กับของปลอมเคยพลาดครึ่งหนึ่งของ Critical มาแล้วบนสาขานี้
+    //
+    // วางไว้ตรงนี้เพราะเป็นจุดเดียวในไฟล์ที่ memberMenu ยัง active จริง (activate รันแล้ว,
+    // deactivate ยังไม่รัน) — สถานะที่ทำให้ด่านนี้มีความหมาย ไม่ใช่เขียวเพราะไม่มีอะไรให้ปฏิเสธ
+    const strippedWhileLive = await request.put(`/line-rich-menu/menus/${memberMenu.id}`, {
+      ...auth(token),
+      data: {
+        ...menuBody({
+          name: 'เมนูสมาชิก (แก้ชื่อแล้ว)',
+          channelId,
+          imageFileId: menuBeforeEdit.imageFileId,
+          aliasId: menuBeforeEdit.aliasId,
+        }),
+        audience: 'all',
+      },
+    })
+    expect(strippedWhileLive.status(), await strippedWhileLive.text()).toBe(409)
+    expect(await strippedWhileLive.json()).toMatchObject({ error: { code: 'menu_active_for_members' } })
+
+    // ปฏิเสธจริง ไม่ใช่ปฏิเสธหลังเขียนไปแล้ว — อ่านกลับทั้งสองด้าน (label กับ pointer) เหมือนที่
+    // ด่าน round 4 ข้างบนทำ เพราะความเสียหายจริงคือทั้งสองอย่างไม่ตรงกัน ไม่ใช่แค่ status code
+    const afterRefusal = await request.get(`/line-rich-menu/menus/${memberMenu.id}`, auth(token))
+    expect(afterRefusal.status(), await afterRefusal.text()).toBe(200)
+    expect((await afterRefusal.json()).audience,
+      'คำขอที่ถูกปฏิเสธต้องไม่เขียนอะไรลงไปเลย').toBe('members')
+    const audienceAfterRefusal = await request.get(`/line-rich-menu/channels/${channelId}/audience`, auth(token))
+    expect(audienceAfterRefusal.status(), await audienceAfterRefusal.text()).toBe(200)
+    expect((await audienceAfterRefusal.json()).memberRichMenuId).toBe(memberMenu.lineRichMenuId)
+
+    // ...แต่การบันทึกธรรมดาของ editor ตัวใหม่ (ซึ่ง**ส่ง** audience: 'members' มาด้วยทุกครั้งตั้งแต่
+    // item 1) ต้องยังผ่าน — ถ้าด่านข้างบนดูแค่ "มีคีย์ audience ไหม" เมนูสมาชิกที่ใช้งานอยู่จะแก้
+    // อะไรไม่ได้เลยสักอย่าง ซึ่งแย่กว่าปัญหาที่มันตั้งใจแก้
+    const ordinaryEditFromNewEditor = await request.put(`/line-rich-menu/menus/${memberMenu.id}`, {
+      ...auth(token),
+      data: {
+        ...menuBody({
+          name: 'เมนูสมาชิก (ฟอร์มใหม่)',
+          channelId,
+          imageFileId: menuBeforeEdit.imageFileId,
+          aliasId: menuBeforeEdit.aliasId,
+        }),
+        audience: 'members',
+      },
+    })
+    expect(ordinaryEditFromNewEditor.status(), await ordinaryEditFromNewEditor.text()).toBe(200)
+    expect((await ordinaryEditFromNewEditor.json()).name).toBe('เมนูสมาชิก (ฟอร์มใหม่)')
+
     // ปิดสวิตช์แล้วทุกคนตกกลับไปที่ default
     const deactivated = await request.post(
       `/line-rich-menu/menus/${memberMenu.id}/audience/deactivate`, auth(token))
@@ -685,6 +739,28 @@ test.describe('audience สมาชิก', () => {
       const after = await request.get(`${LINE_MOCK}/v2/bot/user/${uid}/richmenu`, lineAuth)
       expect(after.status()).toBe(404)
     }
+
+    // === Task 14b item 3, ครึ่งที่สอง — เมนูที่ไม่ได้ active อยู่ ต้องเปลี่ยน audience ได้ตามปกติ ===
+    //
+    // ยามที่ปฏิเสธทุกอย่างก็ "ไม่มีบั๊ก" เหมือนกัน — ด่านนี้คือสิ่งเดียวที่แยก "ยาม" ออกจาก
+    // "ฟิลด์ที่ล็อกถาวร" เป็นเมนูตัวเดียวกับข้างบนเป๊ะ ต่างกันแค่ deactivate เพิ่งรันไป (pointer
+    // ของ channel ถูกล้างแล้ว) ซึ่งคือ "ปิดสวิตช์สมาชิกก่อน" ที่ข้อความของ 409 บอกให้ทำพอดี
+    const strippedAfterDeactivate = await request.put(`/line-rich-menu/menus/${memberMenu.id}`, {
+      ...auth(token),
+      data: {
+        ...menuBody({
+          name: 'เมนูสมาชิก (กลับเป็นของทุกคน)',
+          channelId,
+          imageFileId: menuBeforeEdit.imageFileId,
+          aliasId: menuBeforeEdit.aliasId,
+        }),
+        audience: 'all',
+      },
+    })
+    expect(strippedAfterDeactivate.status(), await strippedAfterDeactivate.text()).toBe(200)
+    expect((await strippedAfterDeactivate.json()).audience,
+      'ปิดสวิตช์แล้วต้องเปลี่ยน audience ได้จริง ไม่ใช่ถูกปฏิเสธต่อไป — ไม่งั้น 409 ข้างบนก็คือการ ' +
+      'ล็อกฟิลด์นี้ถาวร ไม่ใช่ยาม').toBe('all')
   })
 
   /**

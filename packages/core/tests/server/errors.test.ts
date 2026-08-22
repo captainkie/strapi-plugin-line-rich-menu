@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { CoreError } from '../../src/errors.js'
 import {
-  AliasNotPublishedError, ChannelNotFoundError, EncryptionKeyMissingError, MenuNotFoundError,
-  MenuNotMembersAudienceError, MenuNotReadyError, PublishRateLimitedError,
+  AliasNotPublishedError, ChannelNotFoundError, EncryptionKeyMissingError,
+  MenuActiveForMembersError, MenuNotFoundError, MenuNotMembersAudienceError, MenuNotReadyError,
+  PublishRateLimitedError,
 } from '../../src/server/errors.js'
 
 describe('error ของชั้น service (server/errors.ts)', () => {
@@ -14,6 +15,19 @@ describe('error ของชั้น service (server/errors.ts)', () => {
     expect(new MenuNotFoundError('x').code).toBe('menu_not_found')
     expect(new EncryptionKeyMissingError('x').code).toBe('encryption_key_missing')
     expect(new MenuNotMembersAudienceError('m1').code).toBe('menu_not_members_audience')
+    expect(new MenuActiveForMembersError('m1').code).toBe('menu_active_for_members')
+  })
+
+  // Task 14b item 3 — ข้อความต้องบอก **วิธีแก้** (ปิดสวิตช์สมาชิกก่อน) ไม่ใช่แค่บอกว่าถูกปฏิเสธ
+  // ผู้เรียกเห็นแต่ `code` ทาง HTTP (`toHttpError` ไม่ส่ง message ต่อ) ข้อความนี้จึงเป็นของนักพัฒนา
+  // และของ log — แต่มันคือที่เดียวในโค้ดที่บันทึกว่า "แล้วต้องทำยังไง" ไว้ตรงจุดที่ปฏิเสธจริง
+  it('MenuActiveForMembersError พก menuId และบอกให้ปิดสวิตช์สมาชิกก่อน', () => {
+    const e = new MenuActiveForMembersError('m-77')
+    expect(e.menuId).toBe('m-77')
+    expect(e.message).toBe(
+      "rich menu m-77 is currently the channel's member menu; "
+      + "turn the members toggle off before changing its audience away from 'members'",
+    )
   })
 
   it('MenuNotMembersAudienceError พก menuId จริงใน message', () => {
