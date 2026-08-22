@@ -228,12 +228,20 @@ describe('RichMenuEditor', () => {
   //
   // A6 — เดิม assert ด้วย expect.anything() ซึ่งผ่านได้กับค่าอะไรก็ตามที่ไม่ใช่ null/undefined จึงไม่ได้
   // พิสูจน์อะไรเลยว่า draft ที่ onSave ได้รับหน้าตาเป็นอย่างไร — เทียบกับ emptyDraft() ทั้งก้อนแทน
-  it('บันทึกร่างได้แม้ยังกรอกไม่ครบ — ร่างคือร่าง ไม่ว่าจะกดปุ่มหัวหรือท้ายฟอร์ม', async () => {
+  //
+  // title เป็น 'editor.untitled' ไม่ใช่ '' เหมือน emptyDraft() ดิบ — Task 20 item 2 (ui-core H1)
+  // เติม fallback ให้ title ที่ *ส่งจริง* ไม่ใช่แค่ตรวจตอน publish (ดูคอมเมนต์ที่ `toSave` ใน
+  // RichMenuEditor.tsx) เพราะ `menuInputSchema` ของทั้งสอง adapter บังคับ `name: min(1)` เสมอไม่ว่า
+  // จะ publish หรือไม่ (item 1) — ถ้า title ยังว่างหลุดไปถึง onSave แม้ในโหมด draft ก็จะพังเงียบ ๆ
+  // ที่เซิร์ฟเวอร์เหมือนกันทุกประการ ส่วนที่เหลือของ draft ยังไม่ครบและยังถูกส่งไปตามที่กรอกจริง
+  // ('ร่างคือร่าง') — เฉพาะ title เท่านั้นที่ได้ fallback เพราะเป็นฟิลด์เดียวที่ adapter ไม่ผ่อนให้ว่าง
+  it('บันทึกร่างได้แม้ยังกรอกไม่ครบ — ร่างคือร่าง ไม่ว่าจะกดปุ่มหัวหรือท้ายฟอร์ม (title ได้ fallback เสมอ)', async () => {
     const { onSave } = setup()
     for (const button of screen.getAllByTestId('save-draft')) {
       onSave.mockClear()
       fireEvent.click(button)
-      await waitFor(() => expect(onSave).toHaveBeenCalledWith(emptyDraft(), false))
+      await waitFor(() =>
+        expect(onSave).toHaveBeenCalledWith({ ...emptyDraft(), title: 'editor.untitled' }, false))
     }
   })
 
@@ -365,9 +373,15 @@ describe('RichMenuEditor', () => {
   // A3 — MainSettings รับ prop errors มาตั้งแต่ fix round ของ Task 9 แต่ RichMenuEditor ไม่เคยส่งอะไร
   // เข้าไปเลย issue ที่ไม่ใช่ของช่อง (เช่น path "name") จึงตกไปอยู่ที่แบนเนอร์รวมแทนที่จะขึ้นที่ช่องชื่อ
   //
-  // t('editor.untitled') ถูกบังคับให้คืนค่าว่างเปล่าเพื่อให้ name ผิด schema (min 1) จริง — ปกติ title
-  // ว่างจะถูกแทนด้วยคำนี้เสมอ ทำให้ name ไม่มีทางว่างได้ผ่านโค้ดจริง (จงใจ ไม่ใช่บั๊ก) จึงต้องปลอมจุดนี้
-  // เพื่อพิสูจน์ทางเดินของ error แม้ path นี้แทบไม่มีทางเกิดจากการกรอกฟอร์มปกติ
+  // Task 20 item 2 (ui-core H1) — ก่อนแก้ คอมเมนต์เดิมตรงนี้อ้างว่า "title ว่างจะถูกแทนด้วยคำนี้เสมอ
+  // ทำให้ name ไม่มีทางว่างได้ผ่านโค้ดจริง" ซึ่ง**เป็นจริงแค่ครึ่งเดียว**: ครึ่งที่ตรวจในเบราว์เซอร์
+  // (`validateRichMenu`) ใช่ แต่ครึ่งที่ส่งจริงไป `onSave` ไม่ใช่ — `save()` เดิมเติม fallback แค่ตอน
+  // เรียก validateRichMenu เท่านั้น ตัว draft ที่ส่งออกไปจริงยังว่างอยู่ นั่นคือช่องโหว่ที่ H1 รายงาน
+  // (Title ว่างผ่านการเช็คฝั่งนี้ แต่ adapter ปฏิเสธเสมอเพราะ `name: min(1)`) ตอนนี้ `save()` เติม
+  // fallback ที่ `toSave` ตัวเดียวแล้วใช้ทั้งตรวจและส่ง คอมเมนต์เดิมจึงเป็นจริงจริง ๆ แล้ว — เทสต์นี้ยัง
+  // ต้องปลอม t('editor.untitled') ให้คืนค่าว่างเพื่อพิสูจน์ทางเดินของ error เหมือนเดิม (การเติม
+  // fallback ไม่ได้ตัดทางเดิน error ทิ้ง แค่ทำให้ path นี้เกิดยากขึ้นในโลกจริง) ส่วนเทสต์คู่กันด้านล่าง
+  // ('title ว่าง + t จริง ...') พิสูจน์ครึ่งที่ H1 รายงานโดยตรง: ค่าที่ onSave ได้รับต้องไม่ว่าง
   it('error ที่ path "name" จาก validateRichMenu ขึ้นที่ช่องชื่อใน MainSettings ไม่ใช่แบนเนอร์รวม', async () => {
     const t = (key: string) => (key === 'editor.untitled' ? '' : key)
     render(
@@ -380,6 +394,46 @@ describe('RichMenuEditor', () => {
     await waitFor(() => expect(document.getElementById('title-error')).not.toBeNull())
     expect(document.getElementById('title-error')?.textContent).toBe('validation.too_small')
     expect(screen.queryByText('editor.error.noTemplate')).not.toBeInTheDocument()
+  })
+
+  /**
+   * Task 20 item 2 (ui-core H1) repro ตรง ๆ — ก่อนแก้ `onSave` ได้รับ `draft.title === ''` ดิบ
+   * (fallback ถูกเติมแค่ใน `validateRichMenu` ซึ่งเป็น object คนละตัว) พิสูจน์ทั้งสองเส้นทางบันทึก
+   * ไม่ใช่แค่ publish — save draft ก็ต้องได้ title เดียวกัน เพราะ `menuInputSchema` ของทั้งสอง adapter
+   * บังคับ `name: min(1)` เสมอไม่ว่า publish หรือไม่ (item 1) title ว่างที่หลุดไปถึง onSave ในโหมด
+   * draft จะพังเงียบ ๆ ที่เซิร์ฟเวอร์เหมือนกันทุกประการ
+   */
+  it('title ว่าง + t จริง (ไม่ได้ปลอมให้คืนค่าว่าง) — onSave ต้องได้ title ที่ถูกแทนแล้ว ไม่ใช่ค่าว่างดิบ', async () => {
+    stubImageSize(2500, 1686) // ขนาดของ RICH_MENU_TEMPLATE_207 (large เดี่ยว — ดู templates.ts)
+    const post = vi.fn(async () => [{ id: 1, url: '/uploads/a.png', width: 2500, height: 1686 }])
+    // 'chatBar.defaultLabel' ดิบยาวเกินเพดาน chatBarText (14) — ปลอมเฉพาะคีย์นี้เหมือนเทสต์ publish
+    // สำเร็จอื่น ๆ ในไฟล์นี้ (ดู 'fix round 1' ด้านบน) ไม่กระทบ 'editor.untitled' ที่เทสต์นี้ต้องการ
+    const t = (key: string) => (key === 'chatBar.defaultLabel' ? 'เมนู' : key)
+    const { onSave: onSavePublish } = setup(
+      {},
+      { t, http: { ...createStubPort().http, post: post as unknown as HttpClient['post'] } },
+    )
+    chooseTemplate('RICH_MENU_TEMPLATE_207')
+    fireEvent.click(screen.getByTestId('area-header-0'))
+    fireEvent.change(
+      within(screen.getByTestId('area-body-0')).getByLabelText('action.field.text'),
+      { target: { value: 'ปุ่ม' } },
+    )
+    fireEvent.change(screen.getByTestId('image-input'), { target: { files: [file()] } })
+    await waitFor(() => expect(screen.getByTestId('image-remove')).toBeInTheDocument())
+    fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+    await waitFor(() => expect(onSavePublish).toHaveBeenCalled())
+    expect(onSavePublish.mock.calls[0]![0].title).toBe('editor.untitled')
+    expect(onSavePublish.mock.calls[0]![0].title).not.toBe('')
+
+    cleanup()
+
+    const { onSave: onSaveDraft } = setup({}, { t })
+    chooseTemplate('RICH_MENU_TEMPLATE_207')
+    fireEvent.click(screen.getAllByTestId('save-draft')[0]!)
+    await waitFor(() => expect(onSaveDraft).toHaveBeenCalled())
+    expect(onSaveDraft.mock.calls[0]![0].title).toBe('editor.untitled')
+    expect(onSaveDraft.mock.calls[0]![0].title).not.toBe('')
   })
 
   // สเปก §5.6 ข้อ 4 — error ต้องโผล่ที่ช่องที่ผิด

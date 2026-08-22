@@ -207,6 +207,19 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
       return
     }
 
+    // Task 20 item 2 (ui-core H1) — เดิม fallback 'Untitled' ถูกเติมแค่ตอนเรียก `validateRichMenu`
+    // ด้านล่าง (เส้นทาง publish เท่านั้น) ส่วน `onSave(draft, publish)` ส่ง `draft.title` ดิบที่ยัง
+    // ว่างอยู่เสมอ — ค่าที่ตรวจผ่านกับค่าที่ส่งจริงจึงเป็นคนละ object กัน (path 'name' ผ่านการเช็ค
+    // ฝั่งนี้ได้ในเคสเดียวกับที่ adapter ปฏิเสธเสมอ เพราะ `name: z.string().min(1)`) เติม fallback
+    // ที่นี่ที่เดียว **ก่อน**แยกทาง publish/draft แล้วใช้ `toSave` ตัวเดียวกันทั้งตรวจและส่งต่อจากนี้
+    // ไป — ไม่ใช่คำนวณ fallback ซ้ำสองจุดที่มีสิทธิ์ไม่ตรงกันอีกต่อไป เพราะเป็น object เดียวกันจริง ๆ
+    // ใช้ทุกเส้นทางบันทึก (รวม draft) ไม่ใช่แค่ publish เพราะ `menuInputSchema` ของทั้งสอง adapter
+    // บังคับ `name: min(1)` เสมอไม่ว่าจะ publish หรือไม่ (ดู item 1 — create/update คือ draft write
+    // path เสมอ แต่ name ไม่ได้อยู่ในสิ่งที่ item 1 ผ่อนให้ว่างได้)
+    const toSave: RichMenuDraft = draft.title === ''
+      ? { ...draft, title: t('editor.untitled') }
+      : draft
+
     if (publish) {
       // เช็คจาก draft.bounds ไม่ใช่ templateKey — โหมดปรับผังเองเคลียร์ templateKey ทิ้งทันทีที่
       // ผู้ใช้ขยับ/เพิ่ม/ลบช่องแรก (moveBounds/addArea/removeArea) ถ้ายังเช็ค templateKey ตรงนี้
@@ -231,7 +244,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
         validateRichMenu({
           size,
           selected: draft.chatBar.selected,
-          name: draft.title === '' ? t('editor.untitled') : draft.title,
+          name: toSave.title,
           // ข้อความว่างของโหมด custom ถูกกันไว้เป็น chatBarError ข้างบนแล้ว ตรงนี้จึงเหลือแค่กรณี
           // mode === 'default' ที่ต้องเติม label กลางให้เสมอ ไม่มีการเติมแทนความว่างอีกต่อไป
           chatBarText: draft.chatBar.mode === 'custom' ? draft.chatBar.text : t('chatBar.defaultLabel'),
@@ -271,7 +284,7 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
 
     setSaving(true)
     try {
-      await onSave(draft, publish)
+      await onSave(toSave, publish)
       toast({ type: 'success', message: t(publish ? 'editor.published' : 'editor.savedDraft') })
     } catch {
       toast({ type: 'danger', message: t('editor.saveFailed') })
