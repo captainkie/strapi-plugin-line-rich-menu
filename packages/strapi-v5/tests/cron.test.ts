@@ -59,6 +59,7 @@ describe('runTick — log ต้องผ่าน services.logger ที่ scr
       channels: { withSecrets: () => ({ findOne: vi.fn(), findDefault: vi.fn() }) } as never,
       menus: emptyRepo() as never,
       schedules: emptyRepo() as never,
+      members: emptyRepo() as never,
       audit: { write: vi.fn(), around: vi.fn() } as never,
       limiter: {} as never,
       store: {} as never,
@@ -134,5 +135,50 @@ describe('runTick', () => {
     // (นั่นเป็นหน้าที่ของ scheduler.test.ts ฝั่ง core) เทสต์นี้ตรวจแค่ว่า client ไหนถูกขอ
     expect(report.due).toBe(2)
     expect(report.claimed).toBe(2)
+  })
+
+  /**
+   * Task 5 ต่อสาย `members: services.members` เข้า ops ของ scheduler — Task 4 (core) ตั้งใจ
+   * โยน "adapter did not wire it in" ทันทีถ้างาน link-members เข้ามาแต่ ops.members เป็น
+   * undefined (ดูคอมเมนต์ที่ SchedulerOps.members ใน core/server/scheduler.ts) เทสต์นี้พิสูจน์
+   * ว่า v5 ปิดช่องว่างนั้นแล้วจริง ๆ ไม่ใช่แค่ typecheck ผ่านเพราะ tick.ts ใส่คีย์ไว้เฉย ๆ —
+   * รัน end-to-end ผ่าน core จริง (ไม่ mock createScheduler) แล้วเช็คว่า bulkLink/update ถูกเรียก
+   */
+  it('งาน link-members วิ่งได้จริงเมื่อ services.members ถูกต่อสายเข้า ops — ไม่โยน adapter-not-wired', async () => {
+    const dueRows = [{
+      id: 'sc1', richMenuId: 'm1', runAt: '2020-01-01T00:00:00.000Z',
+      op: 'link-members' as const, state: 'pending' as const,
+      lockedBy: null, lockedAt: null, lastError: null, cursor: null,
+    }]
+    const memberRows = [
+      { id: 'mem1', channelId: 'ch1', lineUserId: `U${'a'.repeat(32)}`, displayName: null, linkedRichMenuId: null, linkedAt: null },
+    ]
+    const bulkLinkCalls: unknown[] = []
+    const updateCalls: unknown[] = []
+
+    const services = {
+      channels: { withSecrets: () => ({ findOne: async (id: string) => ({ id, channelAccessToken: `token-${id}` }) }) },
+      clientFor: () => ({ bulkLink: async (richMenuId: string, userIds: string[]) => { bulkLinkCalls.push({ richMenuId, userIds }) } }),
+      schedules: {
+        findMany: async (params?: { filters?: { state?: string } }) =>
+          params?.filters?.state === 'pending' ? dueRows : [],
+        update: async () => undefined,
+      },
+      lock: { claim: async () => true, release: async () => undefined },
+      menus: { findOne: async (id: string) => (id === 'm1' ? { channelId: 'ch1' } : null) },
+      members: {
+        findMany: async () => memberRows,
+        update: async (id: string, patch: unknown) => { updateCalls.push({ id, patch }) },
+      },
+      audit: { write: async () => undefined, around: async (_ctx: unknown, fn: () => Promise<unknown>) => fn() },
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+    }
+    const strapi = { log: { debug: vi.fn(), error: vi.fn() } } as unknown as StrapiV5
+
+    const report = await runTick(strapi, services as never)
+
+    expect(report).toMatchObject({ due: 1, claimed: 1, done: 1, failed: 0 })
+    expect(bulkLinkCalls).toEqual([{ richMenuId: 'm1', userIds: [`U${'a'.repeat(32)}`] }])
+    expect(updateCalls).toHaveLength(1)
   })
 })

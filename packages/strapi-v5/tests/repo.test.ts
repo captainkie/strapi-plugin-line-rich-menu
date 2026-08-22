@@ -6,7 +6,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { MenuNotReadyError } from '@fosivo/line-rich-menu-core'
 import { UID } from '../server/src/content-types/index.js'
 import {
-  createAuditRepo, createChannelRepo, createImageStore, createMenuRepo, createScheduleRepo,
+  createAuditRepo, createChannelRepo, createImageStore, createMemberRepo, createMenuRepo,
+  createScheduleRepo,
 } from '../server/src/repo.js'
 import type { DocumentParams, StrapiV5 } from '../server/src/strapi.js'
 
@@ -444,6 +445,93 @@ describe('schedule repo', () => {
         op: 'set-default',
         state: 'pending',
       },
+    })
+  })
+})
+
+describe('member repo', () => {
+  it('แปลง documentId ของ channel ที่ populate มาเป็น channelId ของชั้น service', async () => {
+    const { strapi } = fakeStrapi({
+      findMany: [{
+        documentId: 'mem1', lineUserId: `U${'a'.repeat(32)}`,
+        channel: { documentId: 'c1' }, displayName: null, linkedRichMenuId: null, linkedAt: null,
+      }],
+    })
+    const rows = await createMemberRepo(strapi).findMany()
+    expect(rows[0]).toMatchObject({ id: 'mem1', channelId: 'c1' })
+  })
+
+  it('populate ขอ channel เสมอ — ไม่งั้น channelId จะเป็นค่าว่างทุกแถว', async () => {
+    const { strapi, calls } = fakeStrapi()
+    await createMemberRepo(strapi).findMany()
+    expect((calls[0]!.params as { populate: string[] }).populate).toEqual(['channel'])
+  })
+
+  it('กรองด้วย channelId แปลงเป็นเงื่อนไขบน documentId ของ relation — แพทเทิร์นเดียวกับ menu/schedule', async () => {
+    const { strapi, calls } = fakeStrapi()
+    await createMemberRepo(strapi).findMany({ filters: { channelId: 'c1' } })
+    expect((calls[0]!.params as { filters: unknown }).filters).toEqual({ channel: { documentId: 'c1' } })
+  })
+
+  /**
+   * รูปทรงการเรียกจริงจาก `linkMemberChunk` (core/server/members.ts) — `idGreaterThan` เป็น
+   * property ระดับบนสุดของ `ListParams`, **ไม่ได้อยู่ใน** `filters` (ดูคอมเมนต์ที่ ListParams
+   * ใน core/server/types.ts ว่าทำไมถึงแยกกันโดยตั้งใจ) เทสต์นี้จึงเรียกด้วยรูปทรงนั้นตรง ๆ
+   * ไม่ใช่ยัด idGreaterThan ไว้ใน filters — ถ้า mapFilters เห็นแต่ input.filters เฉย ๆ
+   * (ไม่ผ่านการรวมใน define()) มันจะไม่มีทางเห็นค่านี้เลย แล้ว findMany จะคืนสมาชิกทั้งชุดทุก
+   * chunk เงียบ ๆ — คือบั๊กที่ row-count assertion ใด ๆ จับไม่ได้ เพราะจำนวนแถวที่ได้ยังดูสมเหตุสมผล
+   */
+  it('idGreaterThan (นอก filters) กลายเป็นเงื่อนไข $gt ของ documentId — keyset ไม่ใช่ offset', async () => {
+    const { strapi, calls } = fakeStrapi()
+    await createMemberRepo(strapi).findMany({
+      filters: { channelId: 'c1' }, idGreaterThan: 'mem5', sort: 'id:asc', limit: 500,
+    })
+    expect(calls[0]!.params).toEqual({
+      populate: ['channel'],
+      filters: { channel: { documentId: 'c1' }, documentId: { $gt: 'mem5' } },
+      sort: 'documentId:asc',
+      limit: 500,
+    })
+  })
+
+  it('ไม่มี idGreaterThan ก็ไม่มี documentId filter ติดมาเอง', async () => {
+    const { strapi, calls } = fakeStrapi()
+    await createMemberRepo(strapi).findMany({ filters: { channelId: 'c1' }, sort: 'id:asc' })
+    expect((calls[0]!.params as { filters: unknown }).filters).toEqual({ channel: { documentId: 'c1' } })
+    expect((calls[0]!.params as { sort: unknown }).sort).toBe('documentId:asc')
+  })
+
+  it('sort ที่ไม่ใช่ id:* ผ่านไปตามเดิม ไม่ถูกแตะ', async () => {
+    const { strapi, calls } = fakeStrapi()
+    await createMemberRepo(strapi).findMany({ sort: 'lineUserId:asc' })
+    expect((calls[0]!.params as { sort: unknown }).sort).toBe('lineUserId:asc')
+  })
+
+  it('เขียน relation ของ channel ด้วย set ของ documentId ครบทุกฟิลด์', async () => {
+    const { strapi, calls } = fakeStrapi({ create: { documentId: 'mem1' } })
+    await createMemberRepo(strapi).create({
+      channelId: 'c1', lineUserId: `U${'a'.repeat(32)}`, displayName: 'คุณเอ',
+      linkedRichMenuId: 'richmenu-a', linkedAt: '2026-08-22T00:00:00.000Z',
+    })
+    expect((calls[0]!.params as { data: unknown }).data).toEqual({
+      channel: { set: ['c1'] },
+      lineUserId: `U${'a'.repeat(32)}`,
+      displayName: 'คุณเอ',
+      linkedRichMenuId: 'richmenu-a',
+      linkedAt: '2026-08-22T00:00:00.000Z',
+    })
+  })
+
+  // ฟิลด์ที่ optional เหล่านี้หายไปทั้งคีย์ (undefined) ไม่ใช่ตั้งเป็น null ไว้ — ต่างจากเทสต์แรก
+  // ของกลุ่มนี้ที่ตั้งเป็น null ไว้แล้วซึ่งพิสูจน์ไม่ได้ว่า orNull ทำงานจริง (null เข้า null ออก
+  // แม้ไม่ผ่าน orNull เลยก็ได้ผลลัพธ์เดียวกัน) เคสนี้จำลองแถวที่ยังไม่เคยตั้งค่าฟิลด์พวกนี้เลย
+  it('ฟิลด์ที่หายไปทั้งคีย์ (undefined) กลายเป็น null ไม่ใช่หลุดเป็น undefined ติดไปกับ row', async () => {
+    const { strapi } = fakeStrapi({
+      findOne: { documentId: 'mem1', lineUserId: `U${'a'.repeat(32)}`, channel: { documentId: 'c1' } },
+    })
+    expect(await createMemberRepo(strapi).findOne('mem1')).toEqual({
+      id: 'mem1', channelId: 'c1', lineUserId: `U${'a'.repeat(32)}`,
+      displayName: null, linkedRichMenuId: null, linkedAt: null,
     })
   })
 })

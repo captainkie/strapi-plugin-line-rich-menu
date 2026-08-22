@@ -4,10 +4,10 @@ import { UID, contentTypes } from '../server/src/content-types/index.js'
 
 const schemas = Object.values(contentTypes).map((entry) => entry.schema)
 
-describe('content type ทั้งสี่', () => {
-  it('ครบสี่ตัวและ uid ตรงกับชื่อ singular ของแต่ละตัว', () => {
+describe('content type ทั้งห้า', () => {
+  it('ครบห้าตัวและ uid ตรงกับชื่อ singular ของแต่ละตัว', () => {
     expect(Object.keys(contentTypes).sort()).toEqual(
-      ['line-channel', 'rich-menu', 'rich-menu-audit', 'rich-menu-schedule'],
+      ['line-channel', 'line-member', 'rich-menu', 'rich-menu-audit', 'rich-menu-schedule'],
     )
     for (const [key, entry] of Object.entries(contentTypes)) {
       expect(entry.schema.info.singularName, key).toBe(key)
@@ -21,11 +21,25 @@ describe('content type ทั้งสี่', () => {
     }
   })
 
-  it('ซ่อนจาก content manager และ content-type builder ทุกตัว', () => {
-    for (const schema of schemas) {
-      expect(schema.pluginOptions?.['content-manager'], schema.collectionName).toEqual({ visible: false })
-      expect(schema.pluginOptions?.['content-type-builder'], schema.collectionName).toEqual({ visible: false })
+  it('ซ่อนจาก content manager และ content-type builder ทุกตัว ยกเว้น line-member', () => {
+    for (const [key, entry] of Object.entries(contentTypes)) {
+      if (key === 'line-member') continue
+      expect(entry.schema.pluginOptions?.['content-manager'], key).toEqual({ visible: false })
+      expect(entry.schema.pluginOptions?.['content-type-builder'], key).toEqual({ visible: false })
     }
+  })
+
+  // line-member คือตัวเดียวที่เปิดให้เห็นใน Content Manager โดยตั้งใจ (การจัดการรายชื่อด้วยมือ
+  // คือทั้งหมดของฟีเจอร์นี้) — ต้องยืนยันว่ามันเป็น "ข้อยกเว้นตัวเดียว" ไม่ใช่แค่ "มี visible: true"
+  // เพราะเทสต์ก่อนหน้านี้ข้ามมันไปเฉย ๆ ไม่ได้พิสูจน์ว่าไม่มีตัวอื่นหลุดตามมาด้วย
+  it('line-member เป็นตัวเดียวที่เปิดให้เห็นใน Content Manager', () => {
+    const visible = Object.entries(contentTypes)
+      .filter(([, entry]) => entry.schema.pluginOptions?.['content-manager'] === undefined
+        ? false
+        : (entry.schema.pluginOptions['content-manager'] as { visible?: boolean }).visible === true)
+      .map(([key]) => key)
+    expect(visible).toEqual(['line-member'])
+    expect(contentTypes['line-member'].schema.pluginOptions?.['content-type-builder']).toEqual({ visible: false })
   })
 
   // lock ยิงผ่าน knex ตรง ๆ ไม่ผ่าน documents() จึงไม่มีใครแปลงชื่อตารางให้
@@ -78,5 +92,35 @@ describe('content type ทั้งสี่', () => {
       expect(attributes[field], field).toBeDefined()
     }
     expect(attributes['linePublishedAt']?.type).toBe('datetime')
+  })
+
+  it('เมนูมี audience แบบ enum required ที่ default เป็น all — เมนูเก่าที่ไม่เคยตั้งค่าต้องยังทำงานแบบเดิม', () => {
+    const attribute = contentTypes['rich-menu'].schema.attributes['audience']
+    expect(attribute?.type).toBe('enumeration')
+    expect(attribute?.enum).toEqual(['all', 'members'])
+    expect(attribute?.default).toBe('all')
+    expect(attribute?.required).toBe(true)
+  })
+
+  it('channel มี memberRichMenuId เป็น string ธรรมดา ไม่ใช่ relation', () => {
+    expect(contentTypes['line-channel'].schema.attributes['memberRichMenuId']?.type).toBe('string')
+  })
+
+  it('schedule รับ op link-members และมีคอลัมน์ cursor', () => {
+    const attributes = contentTypes['rich-menu-schedule'].schema.attributes
+    expect(attributes['op']?.enum).toContain('link-members')
+    expect(attributes['cursor']?.type).toBe('string')
+  })
+
+  it('line-member: channel เป็น relation required, lineUserId required, ที่เหลือ optional', () => {
+    const attributes = contentTypes['line-member'].schema.attributes
+    expect(attributes['channel']).toMatchObject({
+      type: 'relation', relation: 'manyToOne', target: UID.channel, required: true,
+    })
+    expect(attributes['lineUserId']).toMatchObject({ type: 'string', required: true })
+    for (const field of ['displayName', 'linkedRichMenuId', 'linkedAt']) {
+      expect(attributes[field]?.required, field).not.toBe(true)
+    }
+    expect(attributes['linkedAt']?.type).toBe('datetime')
   })
 })

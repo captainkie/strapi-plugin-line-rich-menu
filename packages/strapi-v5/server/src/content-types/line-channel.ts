@@ -18,6 +18,9 @@ export const lineChannel: { schema: ContentTypeSchema } = {
       channelSecret: { type: 'text' as const, private: true },
       accessTokenLast4: { type: 'string' as const, private: true },
       isDefault: { type: 'boolean' as const, default: false },
+      // เมนูที่ต้องได้เมื่อสมาชิกถูก bulkLink — ไม่ใช่ relation เพราะ audience 'members' ผูกกับ
+      // channel ไม่ใช่กับเมนูใดเมนูหนึ่งโดยเฉพาะ ปล่อยว่างได้เมื่อยังไม่ตั้งเมนูสำหรับสมาชิก
+      memberRichMenuId: { type: 'string' as const },
     },
   },
 }

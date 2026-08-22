@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
-  AuditRow, ChannelRow, ImageStore, ListParams, Repo, RichMenuRow, ScheduleRow,
+  AuditRow, ChannelRow, ImageStore, ListParams, MemberRow, Repo, RichMenuRow, ScheduleRow,
 } from '@fosivo/line-rich-menu-core'
 import { MenuNotReadyError } from '@fosivo/line-rich-menu-core'
 import { UID } from './content-types/index.js'
@@ -56,20 +56,35 @@ function define<TRow extends { id: string }>(
     toRow(entity: Entity): TRow
     toData(patch: Partial<TRow>): Entity
     mapFilters?(filters: NonNullable<ListParams['filters']>): Record<string, unknown>
+    /** เหมือน mapFilters แต่สำหรับ `sort` — member repo ใช้แปล `id:asc` เป็น `documentId:asc` */
+    mapSort?(sort: string): string
     populate?: readonly string[]
   },
 ): Repo<TRow> {
   const populate = shape.populate === undefined ? {} : { populate: [...shape.populate] }
 
-  const params = (input?: ListParams): DocumentParams => ({
-    ...populate,
-    ...(input?.filters === undefined
-      ? {}
-      : { filters: shape.mapFilters === undefined ? input.filters : shape.mapFilters(input.filters) }),
-    ...(input?.sort === undefined ? {} : { sort: input.sort }),
-    ...(input?.limit === undefined ? {} : { limit: input.limit }),
-    ...(input?.start === undefined ? {} : { start: input.start }),
-  })
+  const params = (input?: ListParams): DocumentParams => {
+    // idGreaterThan อยู่นอก `filters` โดยตั้งใจในสเปกของ core (ดูคอมเมนต์ที่ ListParams ใน
+    // core/server/types.ts) — ไม่ใช่ equality key อีกตัว แต่ปลายทางจริงของมันคือเงื่อนไข WHERE
+    // เดียวกับ filters ทั้งหมด รวมเข้าด้วยกันตรงนี้ก่อนส่งให้ mapFilters เพราะถ้าไม่รวม mapFilters
+    // ของ member repo จะไม่มีทางเห็นค่านี้เลย (มันมองเห็นแค่ input.filters) — findMany จะคืน
+    // สมาชิกทั้งชุดทุก chunk แล้วงาน link-members จะวนไม่รู้จบ (ดู scheduler.ts / members.ts)
+    const rawFilters = input?.filters === undefined && input?.idGreaterThan === undefined
+      ? undefined
+      : { ...input?.filters, ...(input?.idGreaterThan === undefined ? {} : { idGreaterThan: input.idGreaterThan }) }
+
+    return {
+      ...populate,
+      ...(rawFilters === undefined
+        ? {}
+        : { filters: shape.mapFilters === undefined ? rawFilters : shape.mapFilters(rawFilters) }),
+      ...(input?.sort === undefined
+        ? {}
+        : { sort: shape.mapSort === undefined ? input.sort : shape.mapSort(input.sort) }),
+      ...(input?.limit === undefined ? {} : { limit: input.limit }),
+      ...(input?.start === undefined ? {} : { start: input.start }),
+    }
+  }
 
   return {
     async findMany(input) {
@@ -216,6 +231,43 @@ export function createScheduleRepo(strapi: StrapiV5): Repo<ScheduleRow> {
       if (patch.lockedAt !== undefined) data['lockedAt'] = patch.lockedAt
       if (patch.lastError !== undefined) data['lastError'] = patch.lastError
       if (patch.cursor !== undefined) data['cursor'] = patch.cursor
+      return data
+    },
+  })
+}
+
+export function createMemberRepo(strapi: StrapiV5): Repo<MemberRow> {
+  return define<MemberRow>(strapi, UID.member, {
+    populate: ['channel'],
+    mapFilters: (filters) => {
+      // `idGreaterThan`/`channelId` แปลไปคนละทาง แม้จะยิงผ่าน mapFilters ตัวเดียวกัน: channelId
+      // เป็น relation (เหมือน menu/schedule repo ด้านบน) ส่วน idGreaterThan เป็นเงื่อนไขบน
+      // documentId ของแถวเอง ไม่ใช่ relation — ต้อง $gt ไม่ใช่ equality ถึงจะเป็น "id มากกว่า" จริง
+      const { channelId, idGreaterThan, ...rest } = filters
+      const out: Record<string, unknown> = { ...rest }
+      if (channelId !== undefined && channelId !== null) out['channel'] = { documentId: String(channelId) }
+      if (idGreaterThan !== undefined && idGreaterThan !== null) out['documentId'] = { $gt: String(idGreaterThan) }
+      return out
+    },
+    // keyset ต้องเรียงตาม documentId เดียวกับที่ใช้กรอง `$gt` ไม่งั้นลำดับที่ได้กับเงื่อนไขที่กรอง
+    // เป็นคนละคอลัมน์กัน — `nextCursor` ใน linkMemberChunk (core) สมมติว่าแถวสุดท้ายของชุดคือ
+    // แถวที่ documentId มากที่สุด ถ้ายังเรียงด้วย id (primary key ตัวเลข) ข้อสมมตินั้นไม่จริงเสมอไป
+    mapSort: (sort) => sort.replace(/^id:/, 'documentId:'),
+    toRow: (entity) => ({
+      id: entity['documentId'] as string,
+      channelId: documentIdOf(entity['channel']) ?? '',
+      lineUserId: (entity['lineUserId'] as string | undefined) ?? '',
+      displayName: orNull<string>(entity['displayName']),
+      linkedRichMenuId: orNull<string>(entity['linkedRichMenuId']),
+      linkedAt: orNull<string>(entity['linkedAt']),
+    }),
+    toData: (patch) => {
+      const data: Entity = {}
+      if (patch.channelId !== undefined) data['channel'] = { set: [patch.channelId] }
+      if (patch.lineUserId !== undefined) data['lineUserId'] = patch.lineUserId
+      if (patch.displayName !== undefined) data['displayName'] = patch.displayName
+      if (patch.linkedRichMenuId !== undefined) data['linkedRichMenuId'] = patch.linkedRichMenuId
+      if (patch.linkedAt !== undefined) data['linkedAt'] = patch.linkedAt
       return data
     },
   })

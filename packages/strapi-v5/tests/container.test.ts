@@ -44,6 +44,16 @@ describe('getServices', () => {
     expect(getServices(strapi)).toBe(getServices(strapi))
   })
 
+  // ไม่มี members ก็คือ scheduler โยน "adapter did not wire it in" ทันทีที่งาน link-members
+  // แรกเข้ามา (ดูคอมเมนต์ที่ SchedulerOps.members ใน core/server/scheduler.ts) — tick.ts ของ v5
+  // ต้องส่งตัวจริงเข้าไป ไม่ใช่ปล่อยว่างไว้
+  it('services.members ถูกประกอบมาด้วย ไม่ใช่ undefined', () => {
+    const { knex } = fakeKnex()
+    const services = getServices(fakeStrapi(knex))
+    expect(services.members).toBeDefined()
+    expect(typeof services.members.findMany).toBe('function')
+  })
+
   it('strapi คนละตัวได้ services คนละชุด ไม่ปนกัน', () => {
     const a = fakeStrapi(fakeKnex().knex)
     const b = fakeStrapi(fakeKnex().knex)
