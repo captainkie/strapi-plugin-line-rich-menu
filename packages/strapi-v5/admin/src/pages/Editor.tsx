@@ -50,11 +50,21 @@ export function EditorPage() {
    * ตอนเปิดเมนูเก่ามาแก้ ถ้าปล่อยให้ `imageFileId` ตอน save เป็น `draft.image?.id ?? null`
    * ตามตรง การแก้แค่ชื่อเมนูจะลบรูปของมันทิ้งไปเงียบ ๆ — ซึ่งเป็นการสูญข้อมูล ไม่ใช่แค่ UI ไม่สวย
    *
-   * จึงคงค่าเดิมไว้ตราบใดที่ผืนผ้าใบยังเป็นอันเดิม (template และ size ไม่เปลี่ยน) เพราะรูปที่
-   * normalize ไว้แล้วผูกกับขนาดนั้น พอผู้ใช้เปลี่ยน template `RichMenuEditor` ถือว่ารูปถูกทิ้ง
-   * ไปแล้ว (ดู `TemplatePicker.discardImageBody`) ที่นี่จึงทิ้งตามให้ตรงกัน
+   * จึงคงค่าเดิมไว้ตราบใดที่ผืนผ้าใบยังเป็นอันเดิม (size ไม่เปลี่ยน) เพราะรูปที่ normalize ไว้แล้ว
+   * ผูกกับขนาดนั้น พอผู้ใช้เปลี่ยนไป template ที่ขนาดต่าง `RichMenuEditor` ถือว่ารูปถูกทิ้งไปแล้ว
+   * (ดู `TemplatePicker.discardImageBody`) ที่นี่จึงทิ้งตามให้ตรงกัน
+   *
+   * Task 20 item 8 ตามมา (พบระหว่าง audit ของ item 8, แก้ตามที่ทีมรีวิวขอ) — เดิมเก็บ `templateKey`
+   * ไว้ด้วยและเช็คคู่กับ `size` ใน `canvasUnchanged` ด้านล่าง แต่ `templateKey` เป็นฟิลด์เดียวกับที่
+   * `moveBounds`/`addArea`/`removeArea` (RichMenuEditor.tsx) เคลียร์เป็น `null` ทันทีที่ผู้ใช้เปิด
+   * โหมดปรับผังเอง ทั้งที่ `size` (ขนาดผืนผ้าใบจริง) ไม่เปลี่ยน — เปิดเมนูเก่าที่มีรูปมาแก้ เปิดโหมด
+   * ปรับผังเอง ขยับช่องเดียวแล้ว save โดยไม่แตะรูปเลย ก็ทำให้รูปที่อัปโหลดไว้หายไปเงียบ ๆ โดยไม่มี
+   * คำเตือนใด ๆ ทั้งที่ขนาดผืนผ้าใบไม่ได้เปลี่ยนจริง — ข้อมูลสูญจริง ไม่ใช่แค่ทิ้งรูปที่ไม่พอดีแล้ว
+   * (นี่คือดีเฟกต์ตัวที่ห้าบนสาขานี้ที่มีต้นเหตุเดียวกัน — อ่าน templateKey เป็น "อัตลักษณ์ของผืนผ้าใบ"
+   * ทั้งที่คำถามจริงตอบด้วย size อยู่แล้ว) เอา `templateKey` ออกจาก state นี้และจาก canvasUnchanged
+   * ทั้งเงื่อนไข ไม่ใช่แค่กรณีนี้เท่านั้น
    */
-  const [saved, setSaved] = useState<{ imageFileId: number | null; templateKey: string | null; size: string } | null>(null)
+  const [saved, setSaved] = useState<{ imageFileId: number | null; size: string } | null>(null)
 
   useEffect(() => {
     http.get<{ aliasId: string | null }[]>(ENDPOINTS.menus)
@@ -68,7 +78,7 @@ export function EditorPage() {
       .then((detail) => {
         setChannelId(detail.channelId)
         setAliasId(detail.aliasId)
-        setSaved({ imageFileId: detail.imageFileId, templateKey: detail.templateKey, size: detail.size })
+        setSaved({ imageFileId: detail.imageFileId, size: detail.size })
         setDraft({
           title: detail.name,
           startAt: detail.startAt ?? '',
@@ -87,9 +97,9 @@ export function EditorPage() {
   if (draft === null) return null
 
   const save = async (next: RichMenuDraft, publish: boolean): Promise<void> => {
-    const canvasUnchanged = saved !== null
-      && saved.templateKey === next.templateKey
-      && saved.size === next.sizeName
+    // `size` เป็นตัวเดียวที่ตอบคำถาม "รูปเดิมยังพอดีกับผืนผ้าใบไหม" ได้ตรง ๆ — ดูคอมเมนต์เต็มที่
+    // state `saved` ด้านบนว่าทำไม templateKey ต้องไม่อยู่ในเงื่อนไขนี้
+    const canvasUnchanged = saved !== null && saved.size === next.sizeName
 
     const body = {
       name: next.title,
