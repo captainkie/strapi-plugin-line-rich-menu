@@ -102,6 +102,27 @@ describe('menuInputSchema', () => {
       })).not.toThrow()
     })
   })
+
+  /**
+   * Task 13 fix round 4 (task-13-findings-3.md) — the schema half of the guard whose acceptance
+   * half lives in examples/v4-app/tests/acceptance.spec.ts (audience สมาชิก). Reverting
+   * `menuInputSchema` alone (re-adding `.default('all')`) brings the whole Critical back even with
+   * `saveMenu`'s conditional-spread fix untouched: zod would turn "absent" into `'all'` *before*
+   * `saveMenu` ever sees `input.audience === undefined`, so the round-3 unit test in
+   * menu-write.test.ts — which calls `saveMenu` directly and never runs zod — cannot catch it.
+   *
+   * Assert the key is absent, not `=== undefined`: `{audience: undefined}` also satisfies
+   * `toBe(undefined)` and is a different object from `{}` once it reaches the spread in `saveMenu`.
+   * `validMenu` above never included an `audience` key — that omission is the whole point here,
+   * it's the exact shape the real editor's PUT sends (see api.ts of ui).
+   *
+   * Mutation check (required by task-13-findings-3.md): re-add `.default('all')` to
+   * `menuInputSchema` here, confirm this test goes RED, revert.
+   */
+  it('ไม่ส่ง audience มาเลย — คีย์นี้ต้องหายไปจากผลลัพธ์ ไม่ใช่ถูกเติมเป็น all', () => {
+    const parsed = menuInputSchema.parse(validMenu)
+    expect('audience' in parsed, 'zod ต้องไม่เติม audience ให้เอง — omitted แปลว่าไม่แก้').toBe(false)
+  })
 })
 
 describe('channelCreateSchema', () => {

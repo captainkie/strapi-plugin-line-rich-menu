@@ -511,11 +511,15 @@ async function createMember(
  *
  * **Task 13 ruling ปิดช่องนี้แล้ว**: เดิม `menuInputSchema` เป็น `.strict()` และไม่มีคีย์ `audience`
  * เลย ส่ง `audience: 'members'` ไปใน body ตอนนั้นจะโดน zod ปฏิเสธด้วย 400 — ตอนนี้ schema มีคีย์
- * `audience` แล้ว (enum `'all' | 'members'`, default `'all'`) `saveMenu` เขียนมันลง patch จริง
- * และ repo ของทั้งสอง adapter เขียนคอลัมน์นี้กลับ DB จริง (ดู validation.ts / menu-write.ts / repo.ts)
- * เมนูที่สร้างผ่านฟังก์ชันนี้จึงมี `audience: 'members'` ในฐานข้อมูลจริง ไม่ใช่ default 'all' เหมือน
- * ก่อนหน้านี้ — `audience` เป็นพารามิเตอร์ ไม่ใช่ค่าคงที่ เพราะเทสต์ท้ายไฟล์ต้องการเมนูที่เหลือเป็น
- * 'all' ด้วย (เพื่อพิสูจน์ว่า activate ปฏิเสธมันจริง)
+ * `audience` แล้ว เป็น `z.enum(['all', 'members']).optional()` **ไม่มี** `.default('all')` (Task 13
+ * fix round 3 ถอดออก — การมี default กลายเป็นบั๊กเงียบที่ round 4 ปิดช่อง ดูคอมเมนต์ที่
+ * validation.ts) ไม่ส่งคีย์นี้มาแปลว่า "ไม่แก้" ไม่ใช่ "ตั้งเป็น all" — `saveMenu` เขียนมันลง patch
+ * จริงก็ต่อเมื่อถูกส่งมาเท่านั้น และ repo ของทั้งสอง adapter เขียนคอลัมน์นี้กลับ DB จริง (ดู
+ * validation.ts / menu-write.ts / repo.ts) เมนูที่สร้างผ่านฟังก์ชันนี้จึงมี `audience: 'members'`
+ * ในฐานข้อมูลจริง ไม่ใช่ default 'all' เหมือนก่อนหน้านี้ — `audience` เป็นพารามิเตอร์ ไม่ใช่ค่าคงที่
+ * เพราะเทสต์ท้ายไฟล์ต้องการเมนูที่เหลือเป็น 'all' ด้วย (เพื่อพิสูจน์ว่า activate ปฏิเสธมันจริง) —
+ * 'all' ของเมนูใหม่มาจาก default ของคอลัมน์บน content-type (content-types/rich-menu.ts) ไม่ใช่จาก
+ * schema ชั้นนี้
  */
 async function publishedMenu(
   request: APIRequestContext, token: string, channelId: string,
@@ -629,6 +633,49 @@ test.describe('audience สมาชิก', () => {
     expect.soft(collideText,
       `finding ที่ 2 (task-13-findings): ต้องถูกปฏิเสธเพราะ "ซ้ำ" ไม่ใช่เพราะ verify channel ไม่ได้ — ` +
       `ได้: ${collideText}`).toContain('already used')
+
+    // === Task 13 fix round 4 (task-13-findings-3.md) — ordinary edit ของเมนูสมาชิกที่ active
+    // อยู่จริง ผ่านเส้นทางที่ผู้ใช้จริงเดิน (real zod schema + real saveMenu + real DB) ===
+    //
+    // ครึ่งที่สองของ Critical เดิม (`.default('all')` ใน validation.ts) ไม่มีเทสต์ไหนจับได้เลย
+    // แม้แต่เทสต์ mutation-checked ของ round 3 (menu-write.test.ts) เพราะมันเรียก saveMenu ตรง ๆ
+    // ข้าม zod ไปทั้งดุ้น — ด่านนี้ยิงผ่าน HTTP จริง (PUT /line-rich-menu/menus/:id) ด้วย body
+    // รูปทรงเดียวกับที่ editor ส่งจริง (menuBody() ไม่มีคีย์ audience อยู่แล้ว) เปลี่ยนแค่ name —
+    // memberMenu ยัง active อยู่ตรงนี้ (activate รันไปแล้วข้างบน, deactivate ยังไม่รัน) ซึ่งเป็น
+    // สถานะเดียวกับความเสียหายจริงของ Critical: label ถูกรีเซ็ตเป็น all เงียบ ๆ ทั้งที่เมนูยัง live
+    // กับสมาชิกจริงอยู่ — วางไว้ก่อน deactivate โดยตั้งใจ (ดู placement note ใน task-13-findings-3.md)
+    const beforeOrdinaryEdit = await request.get(`/line-rich-menu/menus/${memberMenu.id}`, auth(token))
+    expect(beforeOrdinaryEdit.status(), await beforeOrdinaryEdit.text()).toBe(200)
+    const menuBeforeEdit = await beforeOrdinaryEdit.json()
+
+    const ordinaryEdit = await request.put(`/line-rich-menu/menus/${memberMenu.id}`, {
+      ...auth(token),
+      // เปลี่ยนแค่ name — ไม่มีคีย์ audience อยู่ในนี้เลยสักตัว เหมือน PUT body จริงของ editor
+      data: menuBody({
+        name: 'เมนูสมาชิก (แก้ชื่อแล้ว)',
+        channelId,
+        imageFileId: menuBeforeEdit.imageFileId,
+        aliasId: menuBeforeEdit.aliasId,
+      }),
+    })
+    expect(ordinaryEdit.status(), await ordinaryEdit.text()).toBe(200)
+
+    const afterOrdinaryEdit = await request.get(`/line-rich-menu/menus/${memberMenu.id}`, auth(token))
+    expect(afterOrdinaryEdit.status(), await afterOrdinaryEdit.text()).toBe(200)
+    const menuAfterEdit = await afterOrdinaryEdit.json()
+    expect(menuAfterEdit.name).toBe('เมนูสมาชิก (แก้ชื่อแล้ว)') // sanity — พิสูจน์ว่า PUT เขียนจริง
+    expect(menuAfterEdit.audience,
+      'Task 13 fix round 4: แก้เมนูสมาชิกแบบธรรมดา (ไม่ส่ง audience มาเลย) ต้องไม่รีเซ็ต audience ' +
+      'เป็น all — mutation check: คืน .default(\'all\') ใน validation.ts แล้วด่านนี้ต้องแดง')
+      .toBe('members')
+
+    // แค่ label รอดยังไม่พอ — ความเสียหายจริงของ Critical คือเมนูยัง live กับสมาชิกอยู่ทั้งที่ label
+    // ถูกรีเซ็ต ด่านนี้แยก "label รอด" ออกจาก "label รอด และยังผูกกับสมาชิกจริงอยู่"
+    const audienceAfterEdit = await request.get(`/line-rich-menu/channels/${channelId}/audience`, auth(token))
+    expect(audienceAfterEdit.status(), await audienceAfterEdit.text()).toBe(200)
+    expect((await audienceAfterEdit.json()).memberRichMenuId,
+      'channel.memberRichMenuId ต้องยังชี้ไปที่เมนูนี้อยู่ — ไม่ใช่แค่ label audience ที่รอด')
+      .toBe(memberMenu.lineRichMenuId)
 
     // ปิดสวิตช์แล้วทุกคนตกกลับไปที่ default
     const deactivated = await request.post(
