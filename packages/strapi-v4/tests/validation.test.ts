@@ -45,9 +45,26 @@ describe('menuInputSchema', () => {
     }
   })
 
-  it('จำกัดจำนวนช่องที่ 1–20 และ chatBarText ที่ 14 ตัว', () => {
-    expect(() => menuInputSchema.parse({ ...validMenu, areas: [] })).toThrow(ZodError)
+  it('จำกัดจำนวนช่องที่สูงสุด 20 และ chatBarText ที่ 14 ตัว', () => {
+    expect(() => menuInputSchema.parse({
+      ...validMenu, areas: Array.from({ length: 21 }, () => validMenu.areas[0]),
+    })).toThrow(ZodError)
     expect(() => menuInputSchema.parse({ ...validMenu, chatBarText: 'x'.repeat(15) })).toThrow(ZodError)
+  })
+
+  /**
+   * Task 20 item 1 (ui-core H2) — "Save draft" ต้องบันทึกงานที่ยังไม่เสร็จได้จริง เดิม `areas`
+   * บังคับ `min(1)` และ `action` ต้องครบทุกฟิลด์ ทำให้ create/update ปฏิเสธร่างที่ยังไม่ได้เลือก
+   * template หรือกรอก action ไม่ครบ — ปุ่มที่สอง (Save draft) จึงใช้บันทึกงานค้างไม่ได้เลยสักครั้ง
+   * ต้อง**ทำลาย guard นี้ก่อนเชื่อ**: ก่อนแก้ ทั้งสอง case ด้านล่างโยน ZodError ทั้งคู่
+   */
+  it('ยอมรับ areas ว่างเปล่า — ร่างที่ยังไม่ได้เลือก template ต้องบันทึกได้', () => {
+    expect(() => menuInputSchema.parse({ ...validMenu, areas: [] })).not.toThrow()
+  })
+
+  it('ยอมรับ action ที่กรอกไม่ครบ (text ว่าง) ในร่าง — ปุ่ม Save draft ต้องใช้ได้จริง', () => {
+    const incomplete = [{ bounds: validMenu.areas[0]!.bounds, action: { type: 'message', text: '' } }]
+    expect(() => menuInputSchema.parse({ ...validMenu, areas: incomplete })).not.toThrow()
   })
 
   it('aliasId ต้องเป็น slug ที่ LINE ยอมรับ', () => {

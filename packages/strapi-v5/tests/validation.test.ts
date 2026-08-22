@@ -58,9 +58,40 @@ describe('menuInputSchema', () => {
     expect(() => menuInputSchema.parse({ ...menu, chatBarText: 'ก'.repeat(15) })).toThrow()
   })
 
-  it('areas ต้องมี 1–20 ช่อง', () => {
-    expect(() => menuInputSchema.parse({ ...menu, areas: [] })).toThrow()
+  it('areas สูงสุด 20 ช่อง — เกินนี้ปฏิเสธ', () => {
     expect(() => menuInputSchema.parse({ ...menu, areas: Array.from({ length: 21 }, () => menu.areas[0]) })).toThrow()
+  })
+
+  /**
+   * Task 20 item 1 (ui-core H2) — "Save draft" ต้องบันทึกงานที่ยังไม่เสร็จได้จริง เดิม `areas`
+   * บังคับ `min(1)` และ `action` ต้องครบทุกฟิลด์ (ใช้ `actionSchema` เข้มเดิม) ทำให้ create/update
+   * ปฏิเสธร่างที่ยังไม่ได้เลือก template หรือกรอก action ไม่ครบ — ปุ่มที่สอง (Save draft) จึงใช้
+   * บันทึกงานค้างไม่ได้เลยสักครั้ง (ดู `RichMenuEditor.tsx` — draft ข้ามการ validate โดยเจตนา)
+   * ต้อง**ทำลาย guard นี้ก่อนเชื่อ**: ก่อนแก้ ทั้งสอง case ด้านล่างโยน ZodError ทั้งคู่
+   */
+  it('ยอมรับ areas ว่างเปล่า — ร่างที่ยังไม่ได้เลือก template ต้องบันทึกได้', () => {
+    expect(() => menuInputSchema.parse({ ...menu, areas: [] })).not.toThrow()
+  })
+
+  it('ยอมรับ action ที่กรอกไม่ครบ (text ว่าง) ในร่าง — ปุ่ม Save draft ต้องใช้ได้จริง', () => {
+    const incomplete = [{ bounds: menu.areas[0]!.bounds, action: { type: 'message', text: '' } }]
+    expect(() => menuInputSchema.parse({ ...menu, areas: incomplete })).not.toThrow()
+  })
+
+  it('ยังปฏิเสธ action ที่ผิดรูปแบบสิ้นเชิง (type ไม่รู้จัก) แม้เป็นร่าง — ผ่อนแค่ "ไม่ครบ" ไม่ใช่ผ่อนทุกอย่าง', () => {
+    const bogus = [{ bounds: menu.areas[0]!.bounds, action: { type: 'not-a-real-type', text: '' } }]
+    expect(() => menuInputSchema.parse({ ...menu, areas: bogus })).toThrow()
+  })
+
+  // v4 มีเทสต์นี้อยู่แล้ว (tests/validation.test.ts) แต่ v5 ไม่เคยมี — เพิ่มไว้เป็นคู่กัน โดยเฉพาะ
+  // ตอนนี้ที่ areas/action ผ่อนลงสำหรับร่าง (ข้างบน) เทสต์นี้คือด่านที่พิสูจน์ว่า "ผ่อนแค่ว่างได้"
+  // ไม่ใช่ "ผ่อนรูปแบบ" — scheme อันตรายต้องยังโดนปฏิเสธที่ขอบของ route เหมือนเดิมทุกประการ
+  it('ปฏิเสธ uri scheme ที่อันตราย ตั้งแต่ขอบของ route แม้ areas จะผ่อนลงสำหรับร่างแล้วก็ตาม', () => {
+    for (const uri of ['javascript:alert(1)', 'data:text/html,x', 'file:///etc/passwd']) {
+      expect(() => menuInputSchema.parse({
+        ...menu, areas: [{ bounds: menu.areas[0]!.bounds, action: { type: 'uri', uri } }],
+      }), uri).toThrow()
+    }
   })
 
   it('imageFileId ยังเป็นตัวเลข — ไฟล์ของ upload plugin ไม่ใช่ document', () => {
