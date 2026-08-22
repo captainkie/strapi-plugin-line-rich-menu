@@ -76,3 +76,57 @@ export async function linkMemberChunk(
   const nextCursor = rows.length < MAX_BULK_USER_IDS ? null : last.id
   return { processed: rows.length, nextCursor }
 }
+
+export interface UnlinkMemberChunkDeps {
+  client: Pick<LineClient, 'bulkUnlink'>
+  members: Repo<MemberRow>
+}
+
+export interface UnlinkMemberChunkInput {
+  /** id ฝั่ง LINE ที่สมาชิกถืออยู่ (`linkedRichMenuId`) ไม่ใช่ id ของแถวเมนูใน DB */
+  richMenuId: string
+  channelId: string
+}
+
+export interface UnlinkMemberChunkResult {
+  processed: number
+  /** id ของแถวสุดท้ายในชุดที่เพิ่งทำ — ผู้เรียกใช้ตรวจว่าชุดถัดไป "ขยับ" จริงไหม ดูเหตุผลข้างล่าง */
+  lastId: string | null
+}
+
+/**
+ * ตรงข้ามกับ `linkMemberChunk` ตรงที่**ไม่มี cursor และต้องไม่มี** — ไม่ใช่ความไม่สมมาตรที่ลืมทำ
+ *
+ * link เลือกจาก "สมาชิกของ channel นี้" ซึ่งเป็นชุดที่ไม่หดลงเลยระหว่างทำงาน วิ่งซ้ำโดยไม่มีที่คั่น
+ * จึงส่งซ้ำให้ทุกคนตั้งแต่คนแรก — จึงต้องจำ cursor ไว้ในแถว schedule
+ * unlink เลือกจาก "คนที่ยังถือเมนูนี้อยู่" ซึ่งเป็นชุดที่**หดเอง**ทุกแถวที่ปลดสำเร็จ เพราะ
+ * `linkedRichMenuId` ถูกล้างทันทีจนหลุดจากเงื่อนไขของ query นี้ไปเลย วิ่งซ้ำ = ทำต่อจากที่ค้าง
+ * โดยไม่ต้องจำอะไรไว้ ทั้งกรณีชุดถัดไปในติ๊กเดียวกัน และกรณี process ตายกลางทางแล้วงานถูกตั้งใหม่
+ * ทีหลัง มี cursor เมื่อไหร่คือมีสถานะที่ต้องถูกต้องเพิ่มมาอีกหนึ่งอย่างโดยไม่ได้อะไรกลับมาเลย
+ *
+ * `lastId` ไม่ใช่ cursor และห้ามเอาไปใช้เป็น cursor — มันคือสัญญาณ "ชุดนี้กับชุดที่แล้วคือแถวเดิม"
+ * ให้ผู้เรียกที่วนลูป: ถ้า repo ของ adapter ตัวใดแม็ป filter หรือ update ผิดจนแถวไม่เคยหลุดจาก
+ * query เงื่อนไขจบลูป ("ชุดว่าง") จะไม่มีวันเป็นจริง แล้ว tick จะค้างไปเรื่อย ๆ แบบไม่มี error เลย
+ */
+export async function unlinkMemberChunk(
+  deps: UnlinkMemberChunkDeps,
+  input: UnlinkMemberChunkInput,
+): Promise<UnlinkMemberChunkResult> {
+  const rows = await deps.members.findMany({
+    filters: { channelId: input.channelId, linkedRichMenuId: input.richMenuId },
+    sort: 'id:asc',
+    limit: MAX_BULK_USER_IDS,
+  })
+
+  if (rows.length === 0) return { processed: 0, lastId: null }
+
+  await deps.client.bulkUnlink(rows.map((row) => row.lineUserId))
+
+  // ล้างหลัง LINE ตอบรับเท่านั้น — ล้างก่อนแล้ว bulkUnlink ล้ม คนกลุ่มนี้จะหายไปจาก query
+  // ที่ใช้หาว่า "ใครยังถือเมนูนี้อยู่" ทั้งที่ฝั่ง LINE ยังถืออยู่จริง ไม่มีรอบไหนตามเก็บได้อีก
+  for (const row of rows) {
+    await deps.members.update(row.id, { linkedRichMenuId: null, linkedAt: null })
+  }
+
+  return { processed: rows.length, lastId: rows[rows.length - 1]!.id }
+}

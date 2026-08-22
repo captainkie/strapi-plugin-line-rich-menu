@@ -28,7 +28,8 @@ export interface Repo<T> {
 }
 
 export type MenuStatus = 'draft' | 'publishing' | 'published' | 'failed'
-export type ScheduleOp = 'set-default' | 'clear-default' | 'swap-alias' | 'link-members'
+export type ScheduleOp =
+  | 'set-default' | 'clear-default' | 'swap-alias' | 'link-members' | 'unlink-members'
 export type ScheduleState = 'pending' | 'running' | 'done' | 'failed'
 export type AuditAction =
   | 'publish' | 'set-default' | 'clear-default' | 'swap-alias' | 'delete' | 'channel-update'
@@ -125,6 +126,9 @@ export interface ScheduleRow {
    * id ของสมาชิกคนสุดท้ายที่ประมวลผลแล้ว ของงาน `link-members` — **ไม่ใช่ offset** (ดู
    * เหตุผลเต็มที่ `linkMemberChunk` ใน members.ts) งานชนิดอื่นไม่ใช้ฟิลด์นี้และปล่อยเป็น null
    * ตลอดอายุงาน ส่วน `link-members` เป็น null ก่อนเริ่ม pass แรกเท่านั้น
+   *
+   * `unlink-members` คืองานที่*ดูเหมือน*ควรมี cursor คู่กันแต่ต้องไม่มี — ชุดงานของมันหดเอง
+   * ทุกแถวที่ปลดสำเร็จ (ดู `unlinkMemberChunk`) การเติม cursor ให้ "ให้เหมือนกัน" คือการทำให้พังขึ้น
    */
   cursor: string | null
 }

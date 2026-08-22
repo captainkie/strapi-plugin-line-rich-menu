@@ -482,6 +482,19 @@ function matchesFilter(actual: unknown, want: unknown): boolean {
   return actual === want
 }
 
+/**
+ * Strapi จริงรับ relation ตอน "เขียน" เป็น `{ set: [id] }` แต่คืนตอน "อ่าน" เป็นวัตถุที่ populate
+ * แล้ว (`{ documentId }`) — ของปลอมที่เก็บสิ่งที่เขียนดิบ ๆ ไว้ตรง ๆ ทำให้แถวที่โค้ดนี้สร้างเอง
+ * อ่านกลับมาแล้วหา id ของเมนูไม่เจอ ซึ่งเป็นเส้นทางที่ deactivate พึ่งทั้งเส้น (ตั้งงาน → tick
+ * อ่านงานนั้นต่อทันทีในคำขอเดียวกัน) เทสต์ก่อนหน้าไม่เคยอ่านแถวที่ตัวเองสร้างจึงไม่เจอช่องนี้
+ */
+function populated(data: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(data).map(([key, value]) => {
+    const set = (value as { set?: unknown } | null)?.set
+    return Array.isArray(set) ? [key, { documentId: set[0] }] : [key, value]
+  }))
+}
+
 function fakeMembersStrapi(rows: Record<string, Record<string, unknown>[]> = {}) {
   const table = (uid: string) => (rows[uid] ??= [])
   const knexBuilder = (): unknown => {
@@ -542,13 +555,13 @@ function fakeMembersStrapi(rows: Record<string, Record<string, unknown>[]> = {})
       findOne: async ({ documentId }: { documentId: string }) =>
         table(uid).find((row) => row['documentId'] === documentId) ?? null,
       create: async ({ data }: { data: Record<string, unknown> }) => {
-        const row = { documentId: `doc${table(uid).length + 1}`, ...data }
+        const row = { documentId: `doc${table(uid).length + 1}`, ...populated(data) }
         table(uid).push(row)
         return row
       },
       update: async ({ documentId, data }: { documentId: string; data: Record<string, unknown> }) => {
         const row = table(uid).find((candidate) => candidate['documentId'] === documentId)!
-        Object.assign(row, data)
+        Object.assign(row, populated(data))
         return row
       },
       delete: async ({ documentId }: { documentId: string }) => {
@@ -733,6 +746,56 @@ describe('members controller — deactivate', () => {
 
     const auditRows = rows[UID.audit] ?? []
     expect(auditRows).toContainEqual(expect.objectContaining({ action: 'unlink-members', result: 'success' }))
+  })
+
+  /**
+   * หัวใจของงานนี้ — deactivate ต้อง "ตั้งงาน" ไม่ใช่ "ปลดเอง" ระบบนี้ออกแบบมาสำหรับสมาชิก
+   * เกินหมื่นคน คำขอเดียวที่วนปลดทั้งหมดคือคำขอที่ proxy timeout หรือ restart ตัดกลางทางได้
+   * แล้วไม่มีใครทำงานที่เหลือต่อ ส่วนแถวงานที่ค้างอยู่ในตาราง cron รอบถัดไปหยิบต่อได้เสมอ
+   */
+  it('ตั้งงาน unlink-members ไว้ในตาราง (cursor: null) ไม่ใช่ปลดเองในคำขอ', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '13')
+    ;(rows[UID.channel]![0] as Record<string, unknown>)['memberRichMenuId'] = 'line-rm-1'
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.member] = []
+
+    await controllers.members({ strapi }).deactivate(makeCtx({ params: { id: 'm1' } }))
+
+    // cursor: null และต้องไม่มีใครมาเติมทีหลังด้วย — งาน unlink ไม่มี cursor โดยเจตนา ชุดงานของมัน
+    // คือ "คนที่ยังถือเมนูนี้อยู่" ซึ่งหดเองทุกคนที่ปลดสำเร็จ (ดู unlinkMemberChunk ใน core)
+    expect(rows[UID.schedule]).toContainEqual(
+      expect.objectContaining({ op: 'unlink-members', cursor: null, richMenu: { documentId: 'm1' } }),
+    )
+  })
+
+  /**
+   * รอบก่อนล้มกลางทาง (LINE ล่ม) — memberRichMenuId ถูกล้างไปตั้งแต่รอบนั้นแล้วตามสเปก
+   * ("เมนูที่กดปิดต้องอ่านว่าปิด") แต่ยังมีคนถือเมนูค้างอยู่จริง ถ้าเงื่อนไขตั้งงานผูกกับ
+   * memberRichMenuId การกดปิดซ้ำจะไม่ทำอะไรเลย และไม่มีทางอื่นในหน้าจอที่ปลดคนกลุ่มนั้นได้อีก
+   */
+  it('กดปิดซ้ำหลังรอบก่อนล้ม ยังตั้งงานปลดได้ ทั้งที่ memberRichMenuId ถูกล้างไปแล้ว', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '14')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.member] = [{
+      documentId: 'mem1', channel: { documentId: channelId }, lineUserId: `U${'a'.repeat(32)}`,
+      linkedRichMenuId: 'line-rm-1', linkedAt: '2026-01-01T00:00:00.000Z',
+    }]
+
+    const calls: string[] = []
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      calls.push(String(url))
+      return new Response('{}', { status: 202 })
+    })
+
+    await controllers.members({ strapi }).deactivate(makeCtx({ params: { id: 'm1' } }))
+    fetchSpy.mockRestore()
+
+    expect(calls).toEqual(['https://api.line.me/v2/bot/richmenu/bulk/unlink'])
+    expect(rows[UID.member]![0]!['linkedRichMenuId']).toBeNull()
   })
 })
 

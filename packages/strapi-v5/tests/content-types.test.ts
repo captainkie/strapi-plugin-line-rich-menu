@@ -112,6 +112,21 @@ describe('content type ทั้งห้า', () => {
     expect(attributes['cursor']?.type).toBe('string')
   })
 
+  // ค่าที่ไม่อยู่ใน enum ถูก Strapi ปฏิเสธตอนเขียน — deactivate ตั้งงานนี้แล้วเรียก tick ต่อทันที
+  // ในคำขอเดียวกัน ถ้าค่านี้หายไปคือปุ่มปิดที่ล้มทุกครั้งบน Strapi จริง ทั้งที่เทสต์ที่ใช้ของปลอมเขียว
+  it('schedule รับ op unlink-members ด้วย — ไม่งั้น deactivate ตั้งงานไม่ได้เลย', () => {
+    expect(contentTypes['rich-menu-schedule'].schema.attributes['op']?.enum).toContain('unlink-members')
+  })
+
+  // audit เขียนจาก lifecycles (ผูก/ปลดรายคน) และจาก scheduler (งาน unlink ทั้งชุด) — enum ที่ขาด
+  // สองค่านี้ทำให้แถวถูกปฏิเสธ แล้ว persistQuietly ของ audit writer กลืน error ไว้เงียบ ๆ
+  // ประวัติจึงหายไปโดยไม่มีใครรู้ ทั้งที่โค้ดเรียกเขียนอยู่จริงทุกครั้ง
+  it('audit รับ action ของงานสมาชิกครบทั้ง link-members และ unlink-members', () => {
+    const actions = contentTypes['rich-menu-audit'].schema.attributes['action']?.enum
+    expect(actions).toContain('link-members')
+    expect(actions).toContain('unlink-members')
+  })
+
   it('line-member: channel เป็น relation required, lineUserId required, ที่เหลือ optional', () => {
     const attributes = contentTypes['line-member'].schema.attributes
     expect(attributes['channel']).toMatchObject({

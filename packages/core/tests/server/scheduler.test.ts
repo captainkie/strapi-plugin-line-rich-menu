@@ -549,3 +549,191 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     expect(lock.release).toHaveBeenCalledWith('s1', 'worker-a', 'failed', expect.any(String))
   })
 })
+
+/**
+ * 'unlink-members' คู่ตรงข้ามของ 'link-members' — วนหลาย chunk ในติ๊กเดียวเหมือนกัน แต่**ไม่มี
+ * cursor** เพราะชุดงานของมันหดเองทุกแถวที่ปลดสำเร็จ (เหตุผลเต็มอยู่ที่ `unlinkMemberChunk`)
+ * เทสต์ในนี้จึงตรวจสองอย่างที่ของ link ตรวจไม่ได้: "ไม่เขียน cursor เลยสักครั้ง" กับ "repo ที่ไม่เคย
+ * ล้างค่าให้ต้องทำให้งานล้ม ไม่ใช่วนค้าง"
+ */
+describe('tick — unlink-members วนจนหมดโดยไม่มี cursor', () => {
+  function linkedMembers(n: number, richMenuId = 'richmenu-a', channelId = '10'): MemberRow[] {
+    return Array.from({ length: n }, (_, i) => ({
+      id: `m${String(i).padStart(5, '0')}`,
+      channelId,
+      lineUserId: `U${String(i).padStart(32, '0')}`,
+      displayName: null,
+      linkedRichMenuId: richMenuId,
+      linkedAt: '2026-08-01T00:00:00.000Z',
+    }))
+  }
+
+  function memberRepoFor(rows: MemberRow[], clears = true): Repo<MemberRow> {
+    return {
+      async findMany(params) {
+        const filters = params?.filters ?? {}
+        let result = rows.filter((row) => Object.entries(filters).every(
+          ([field, want]) => (row as unknown as Record<string, unknown>)[field] === want,
+        ))
+        result = [...result].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        if (params?.limit !== undefined) result = result.slice(0, params.limit)
+        return result
+      },
+      async findOne(id) { return rows.find((row) => row.id === id) ?? null },
+      async create(data) { const row = { id: 'new', ...data } as MemberRow; rows.push(row); return row },
+      // `clears: false` เลียนแบบ repo ที่แม็ปคอลัมน์ผิดจน update ไม่โดนแถวไหนเลย — เขียนสำเร็จ
+      // ทุกครั้งแต่ค่าไม่เคยเปลี่ยน ซึ่งเป็นรูปเดียวที่ทำให้ลูป "จนกว่าชุดจะว่าง" ไม่มีวันจบ
+      async update(id, data) {
+        const index = rows.findIndex((row) => row.id === id)
+        if (clears) rows[index] = { ...rows[index]!, ...data }
+        return rows[index]!
+      },
+      async delete() {},
+    }
+  }
+
+  function unlinkHarness(options: {
+    members: MemberRow[]
+    menu?: RichMenuRow
+    wireMembers?: boolean
+    clears?: boolean
+    bulkUnlink?: (userIds: readonly string[]) => Promise<void>
+  }) {
+    const memberRows = options.members
+    const sentChunks: string[][] = []
+    const line = {
+      ...fakeLine(),
+      bulkUnlink: vi.fn(async (userIds: readonly string[]) => {
+        sentChunks.push([...userIds])
+        await options.bulkUnlink?.(userIds)
+      }),
+    }
+    const scheduleRows: ScheduleRow[] = [scheduleRow({ id: 's1', op: 'unlink-members', cursor: null })]
+    const scheduleUpdates: Partial<ScheduleRow>[] = []
+    const schedules = listRepo(scheduleRows)
+    const auditRows: AuditRow[] = []
+    const auditRepo: Repo<AuditRow> = {
+      async findMany() { return auditRows },
+      async findOne() { return null },
+      async create(data) { const row = { id: String(auditRows.length + 1), ...data } as AuditRow; auditRows.push(row); return row },
+      async update() { throw new Error('append-only') },
+      async delete() { throw new Error('append-only') },
+    }
+    let released: { state: string; error: string | null } | undefined
+    const scheduler = createScheduler({
+      schedules: {
+        ...schedules,
+        async update(id, data) { scheduleUpdates.push(data); return schedules.update(id, data) },
+      },
+      lock: {
+        claim: vi.fn(async () => true),
+        release: vi.fn(async (_id: string, _owner: string, state: 'done' | 'failed', error: string | null) => {
+          released = { state, error }
+        }),
+      },
+      ops: {
+        menus: listRepo([options.menu ?? menuRow({ id: '1', channelId: '10' })]),
+        audit: createAuditWriter({ repo: auditRepo, logger: silent }),
+        clientFor: async () => line as never,
+        ...(options.wireMembers === false
+          ? {}
+          : { members: memberRepoFor(memberRows, options.clears ?? true) }),
+      },
+      logger: silent,
+      now: () => NOW,
+      owner: 'worker-a',
+    })
+    return {
+      tick: () => scheduler.tick(),
+      sentChunks, memberRows, auditRows, scheduleUpdates,
+      released: () => released,
+    }
+  }
+
+  it('ปลดครบทุกชุดในหนึ่งติ๊ก แล้วแถวงานจบเป็น done', async () => {
+    const h = unlinkHarness({ members: linkedMembers(1001) })
+    const report = await h.tick()
+
+    expect(report).toMatchObject({ due: 1, claimed: 1, done: 1, failed: 0 })
+    expect(h.sentChunks.map((chunk) => chunk.length)).toEqual([500, 500, 1])
+    expect(h.memberRows.every((row) => row.linkedRichMenuId === null)).toBe(true)
+  })
+
+  // ด่านหลักของความไม่สมมาตรกับ link-members — ถ้ามีใครมา "แก้ให้เหมือนกัน" ภายหลัง ต้องเจอที่นี่
+  it('ไม่เขียน cursor ลงแถวงานเลยสักครั้ง ต่างจาก link-members', async () => {
+    const h = unlinkHarness({ members: linkedMembers(1001) })
+    await h.tick()
+    expect(h.scheduleUpdates).toEqual([])
+  })
+
+  it('ปลดเฉพาะคนที่ถือเมนูของงานนี้ — คนที่ถือเมนูอื่นไม่ถูกแตะ', async () => {
+    const rows = [...linkedMembers(2), ...linkedMembers(1, 'richmenu-z').map((row) => ({ ...row, id: 'm-other' }))]
+    const h = unlinkHarness({ members: rows })
+    await h.tick()
+
+    expect(h.sentChunks).toHaveLength(1)
+    expect(h.sentChunks[0]).toHaveLength(2)
+    expect(h.memberRows.find((row) => row.id === 'm-other')?.linkedRichMenuId).toBe('richmenu-z')
+  })
+
+  it('เมนูที่ยังไม่เคยขึ้น LINE — ไม่มีใครถือได้อยู่แล้ว จบเป็น done โดยไม่ยิง LINE', async () => {
+    const h = unlinkHarness({
+      members: linkedMembers(3),
+      menu: menuRow({ id: '1', channelId: '10', status: 'draft', lineRichMenuId: null }),
+    })
+    const report = await h.tick()
+
+    expect(report).toMatchObject({ done: 1, failed: 0 })
+    expect(h.sentChunks).toHaveLength(0)
+  })
+
+  it('ไม่มี ops.members แล้วมีงาน unlink-members เข้ามา → พังทันที ไม่ใช่ข้ามงานไปเงียบ ๆ', async () => {
+    const h = unlinkHarness({ members: linkedMembers(1), wireMembers: false })
+    const report = await h.tick()
+
+    expect(report).toMatchObject({ failed: 1, done: 0 })
+    expect(h.released()).toMatchObject({ state: 'failed' })
+  })
+
+  /**
+   * ไม่มี cursor แปลว่าเงื่อนไขจบลูปคือ "ชุดว่าง" อย่างเดียว — repo ที่ update ไม่เคยโดนแถวไหน
+   * (แม็ปคอลัมน์ผิด) ทำให้เงื่อนไขนั้นไม่มีวันจริง ถ้าไม่มีด่านนี้ tick จะค้างทั้ง process เงียบ ๆ
+   * ไม่มี error ให้ใครเห็น เทสต์นี้จะ "ค้างจนหมดเวลา" แทนที่จะแดง ถ้าด่านนั้นถูกถอดออก
+   */
+  it('repo ที่ไม่เคยล้าง linkedRichMenuId → งานล้ม ไม่ใช่วนไม่รู้จบ', async () => {
+    const h = unlinkHarness({ members: linkedMembers(3), clears: false })
+    const report = await h.tick()
+
+    expect(report).toMatchObject({ failed: 1 })
+    expect(h.released()).toMatchObject({ state: 'failed' })
+  })
+
+  it('เขียน audit unlink-members success พร้อมจำนวนที่ปลดได้จริง', async () => {
+    const h = unlinkHarness({ members: linkedMembers(501) })
+    await h.tick()
+
+    expect(h.auditRows).toHaveLength(1)
+    expect(h.auditRows[0]).toMatchObject({
+      action: 'unlink-members', richMenuId: 'richmenu-a', channelId: '10',
+      result: 'success', after: { unlinked: 501 },
+    })
+  })
+
+  it('LINE ล้มกลางทาง → audit failure พร้อม errorCode และงานจบเป็น failed', async () => {
+    let calls = 0
+    const h = unlinkHarness({
+      members: linkedMembers(501),
+      bulkUnlink: async () => {
+        calls += 1
+        if (calls === 2) throw new LineServerError(503)
+      },
+    })
+    const report = await h.tick()
+
+    expect(report).toMatchObject({ failed: 1 })
+    expect(h.auditRows[0]).toMatchObject({ action: 'unlink-members', result: 'failure' })
+    expect(h.auditRows[0]?.errorCode).not.toBeNull()
+    // ชุดแรกที่สำเร็จไปแล้วต้องยังถูกล้างไว้ — งานที่ตั้งใหม่ทีหลังจึงเริ่มจากคนที่เหลือเองโดยไม่ต้องมี cursor
+    expect(h.memberRows[0]?.linkedRichMenuId).toBeNull()
+  })
+})

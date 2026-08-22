@@ -1,15 +1,9 @@
-import {
-  MAX_BULK_USER_IDS, errorCodeOf, publishedMenuOrThrow,
-  type ChannelWithSecrets, type RichMenuRow,
-} from '@fosivo/line-rich-menu-core'
+import { publishedMenuOrThrow, type RichMenuRow } from '@fosivo/line-rich-menu-core'
 import { getServices, type Services } from '../container.js'
-import { guard, type AdminContext } from '../http-error.js'
+import { guard } from '../http-error.js'
 import type { StrapiV5 } from '../strapi.js'
 import { runTick } from '../tick.js'
 import { idParam } from '../validation.js'
-
-const actorOf = (ctx: AdminContext): string | null =>
-  ctx.state.user === undefined ? null : String(ctx.state.user.id)
 
 /**
  * activate และ sync ทำงานเหมือนกันทุกประการ (สเปกบอกตรง ๆ ว่า sync คือ activate ของเมนูที่
@@ -26,7 +20,7 @@ const actorOf = (ctx: AdminContext): string | null =>
 async function enqueueLinkMembers(services: Services, menu: RichMenuRow): Promise<void> {
   // สอง write นี้ (channel + schedule) ต้องไปด้วยกันหรือไม่ไปเลย — ถ้า channel ถูกตั้งเป็น
   // "มีเมนูสมาชิกแล้ว" แต่ไม่มีงาน link-members คู่กัน จะไม่มีใครถูกผูกจริงเลยสักคนทั้งที่ toggle
-  // บอกว่าเปิดอยู่ (ตรงข้ามกับ deactivate ที่ตั้งใจไม่ atomic — ดูคอมเมนต์ที่ unlinkAllMembers)
+  // บอกว่าเปิดอยู่ (ตรงข้ามกับ deactivate ที่ตั้งใจไม่ atomic — ดูคอมเมนต์ในตัว deactivate เอง)
   await services.transaction(async () => {
     await services.channels.update(menu.channelId, { memberRichMenuId: menu.lineRichMenuId })
 
@@ -48,33 +42,22 @@ async function enqueueLinkMembers(services: Services, menu: RichMenuRow): Promis
 }
 
 /**
- * ปลด LINE user ทุกคนที่ยังถือเมนูนี้อยู่ ณ ตอนนี้
+ * ตั้งงานปลดสมาชิกทุกคนที่ยังถือเมนูนี้อยู่ ให้ scheduler ทำ ไม่ใช่ทำในคำขอนี้
  *
- * ไม่มี ScheduleRow มารองรับ — `ScheduleOp` ของ core ยังไม่มี 'unlink-members' (มีแค่
- * 'link-members') และ scheduler.ts ก็ไม่มี case จัดการงานแบบนี้ ทำให้ไม่มี resumable cursor
- * แบบที่ link-members ได้ ฟังก์ชันนี้จึงวิ่งตรงในคำขอนี้เอง ไม่ผ่าน scheduler (ดูรายงาน task-9
- * สำหรับเหตุผลที่ไม่เพิ่ม ScheduleOp ใหม่ในงานนี้ — แตะ core กว้างกว่าที่ scope ของ task อนุญาต)
+ * ระบบนี้ออกแบบมาสำหรับสมาชิกเกินหมื่นคน — วนปลดในคำขอ HTTP คือยิง LINE ยี่สิบกว่าครั้งบวก
+ * อัปเดตแถวเป็นหมื่นในคำขอเดียว proxy timeout หรือ restart กลางทางทิ้งคนจำนวนที่ไม่มีใครรู้ไว้กับ
+ * เมนูที่ผู้ดูแลกดปิดไปแล้ว พร้อมกับทำให้คำขอที่จะทำงานให้จบหายไปด้วย เหตุผลเดียวกับที่ enrolment
+ * อยู่ใน scheduler ตั้งแต่ต้น
  *
- * ถึงจะไม่มี cursor แยกเก็บ แต่ก็ resume ได้เองโดยไม่ต้องมี: ทุกคนที่ unlink สำเร็จจะถูกล้าง
- * linkedRichMenuId ทันที จึงหลุดจากเงื่อนไข query ข้างล่างในรอบถัดไปเอง — ทั้งใน loop นี้เอง
- * (chunk ถัดไปของคำขอเดียวกัน) และถ้าทั้งคำขอนี้ตายกลางทาง คนที่กด deactivate ซ้ำในภายหลัง
- * ก็จะเจอเฉพาะคนที่ยังไม่ถูกปลดเท่านั้น ไม่ใช่ทั้งชุดใหม่
+ * ไม่ reuse แถวงานเดิมแบบ `enqueueLinkMembers` เพราะไม่มี cursor ให้รักษา — งาน unlink เริ่มจาก
+ * ศูนย์ได้เสมอโดยไม่ส่งซ้ำให้ใคร ชุดงานของมันคือ "คนที่ยังถืออยู่" ซึ่งหดเองทุกคนที่ปลดสำเร็จ
+ * (ดู `unlinkMemberChunk` ใน core)
  */
-async function unlinkAllMembers(services: Services, channel: ChannelWithSecrets, richMenuId: string): Promise<void> {
-  const client = services.clientFor(channel)
-  for (;;) {
-    const rows = await services.members.findMany({
-      filters: { channelId: channel.id, linkedRichMenuId: richMenuId },
-      sort: 'id:asc',
-      limit: MAX_BULK_USER_IDS,
-    })
-    if (rows.length === 0) return
-
-    await client.bulkUnlink(rows.map((row) => row.lineUserId))
-    for (const row of rows) {
-      await services.members.update(row.id, { linkedRichMenuId: null, linkedAt: null })
-    }
-  }
+async function enqueueUnlinkMembers(services: Services, menu: RichMenuRow): Promise<void> {
+  await services.schedules.create({
+    richMenuId: menu.id, runAt: new Date().toISOString(), op: 'unlink-members', state: 'pending',
+    lockedBy: null, lockedAt: null, lastError: null, cursor: null,
+  })
 }
 
 export const members = ({ strapi }: { strapi: StrapiV5 }) => {
@@ -102,33 +85,22 @@ export const members = ({ strapi }: { strapi: StrapiV5 }) => {
       const menu = await services.menus.findOne(id)
       if (menu === null) { ctx.status = 404; ctx.body = { error: { code: 'menu_not_found' } }; return }
 
-      const channel = await services.channels.withSecrets().findOne(menu.channelId)
-      // ไม่มีเมนูสมาชิกอยู่แล้ว (เคย deactivate ไปแล้ว หรือไม่เคย activate เลย) — idempotent,
-      // ไม่มีอะไรให้ unlink ทั้งฝั่ง LINE
-      if (channel.memberRichMenuId !== null) {
-        const richMenuId = channel.memberRichMenuId
-        try {
-          await unlinkAllMembers(services, channel, richMenuId)
-          await services.audit.write({
-            actorId: actorOf(ctx), action: 'unlink-members', richMenuId, channelId: channel.id,
-            before: null, after: null, result: 'success', errorCode: null,
-          })
-        } catch (error) {
-          // ปลดไม่สำเร็จ (LINE ล่ม ฯลฯ) ต้องไม่ทำให้ปุ่ม "ปิด" กดไม่ติด — memberRichMenuId
-          // ยังต้องถูกล้างต่อไปข้างล่าง เหมือนกับ unlinkDeletedMember ใน lifecycles.ts ที่กลืน
-          // error ของ LINE เสมอ ไม่ throw กลับ ผู้ใช้ที่ยังเชื่อมค้างอยู่หากันได้จาก audit log
-          // หรือกด deactivate ซ้ำได้ (ดูคอมเมนต์ที่ unlinkAllMembers — retry ต่อจากที่ค้างเองได้)
-          services.logger.error(
-            'line-rich-menu: deactivate audience — some members failed to unlink', { menuId: id, error },
-          )
-          await services.audit.write({
-            actorId: actorOf(ctx), action: 'unlink-members', richMenuId, channelId: channel.id,
-            before: null, after: null, result: 'failure', errorCode: errorCodeOf(error),
-          })
-        }
+      // ล้าง channel ก่อน และไม่ห่อรวม transaction กับการตั้งงาน (ตรงข้ามกับ activate) — เมนูที่
+      // ผู้ดูแลกดปิดต้องอ่านว่าปิดทันที ไม่ต้องรอให้ปลดใครสำเร็จสักคน ถ้าตั้งงานไม่สำเร็จหลังจากนี้
+      // toggle ที่ปิดอยู่คือคำตอบที่ถูกแล้ว และการกดปิดซ้ำจะตั้งงานใหม่ให้เอง
+      await services.channels.update(menu.channelId, { memberRichMenuId: null })
+
+      // เงื่อนไขคือ "เมนูนี้เคยขึ้น LINE ไหม" ไม่ใช่ "channel ยังชี้มาที่เมนูนี้อยู่ไหม" — ถ้าเช็ค
+      // อย่างหลัง การกดปิดซ้ำหลังรอบแรกล้มจะไม่ทำอะไรเลย เพราะ memberRichMenuId ถูกล้างไปตั้งแต่
+      // รอบแรกแล้วทั้งที่ยังมีคนถือเมนูนั้นค้างอยู่จริง — กลายเป็นสภาพที่กู้ผ่านหน้าจอไม่ได้อีกเลย
+      // ส่วนเมนูที่ไม่เคยมีใครถือ งานที่ตั้งไปก็แค่ query ที่ไม่เจอใครแล้วจบ ไม่ยิง LINE สักครั้ง
+      if (menu.lineRichMenuId !== null) {
+        await enqueueUnlinkMembers(services, menu)
+        // เรียก tick ในคำขอนี้เลยเหมือน activate — งานที่ล้มถูกบันทึกไว้ในแถวงานและ audit
+        // (scheduler กลืน error ของงานแต่ละแถวไว้เอง) ปุ่มปิดจึงไม่เคยล้มเพราะ LINE ล่ม
+        await runTick(strapi, services)
       }
 
-      await services.channels.update(menu.channelId, { memberRichMenuId: null })
       ctx.status = 204
       ctx.body = null
     }),

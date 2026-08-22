@@ -3,7 +3,7 @@ import { errorCodeOf } from './audit.js'
 import type { AuditWriter } from './audit.js'
 import { MenuNotFoundError } from './errors.js'
 import type { ScheduleLock } from './lock.js'
-import { linkMemberChunk } from './members.js'
+import { linkMemberChunk, unlinkMemberChunk } from './members.js'
 import type { LinkMemberChunkDeps, MemberRow } from './members.js'
 import { clearChannelDefault, setMenuAsDefault, swapMenuAlias } from './menu-ops.js'
 import type { LoggerLike } from './scrub.js'
@@ -26,9 +26,10 @@ export interface SchedulerOps {
   audit: AuditWriter
   clientFor(channelId: string): Promise<LineClient>
   /**
-   * optional เพราะ v4/v5 wire เข้ามาคนละ task (Task 5/6) — ตัว scheduler เองต้องรองรับ 'link-members'
-   * ตั้งแต่ task นี้ แต่ยัง "ไม่มีของจริงให้ใช้" จนกว่า adapter จะต่อสาย ถ้าไม่ระบุแล้วงาน
-   * 'link-members' เข้ามาพอดี ต้องโยน error ทันที ไม่ใช่ข้ามงานไปเงียบ ๆ (ดูเหตุผลที่ run())
+   * optional เพราะ v4/v5 wire เข้ามาคนละ task (Task 5/6) — ตัว scheduler เองต้องรองรับ
+   * 'link-members'/'unlink-members' ตั้งแต่ task นี้ แต่ยัง "ไม่มีของจริงให้ใช้" จนกว่า adapter
+   * จะต่อสาย ถ้าไม่ระบุแล้วงานสองชนิดนั้นเข้ามาพอดี ต้องโยน error ทันที ไม่ใช่ข้ามไปเงียบ ๆ
+   * (ดูเหตุผลที่ run())
    */
   members?: Repo<MemberRow>
 }
@@ -171,6 +172,54 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
           await deps.schedules.update(row.id, { cursor })
           if (cursor === null) break
         }
+        return
+      }
+      case 'unlink-members': {
+        const membersRepo = deps.ops.members
+        if (membersRepo === undefined) {
+          throw new Error(
+            'line-rich-menu: schedule op "unlink-members" requires ops.members — adapter did not wire it in',
+          )
+        }
+
+        // เมนูที่ยังไม่เคยขึ้น LINE ไม่มีทางมีใครถืออยู่ — ไม่ใช่ความผิดพลาด แค่ไม่มีงานให้ทำ
+        // (เมนูถูก unpublish ไปก่อนที่งานจะได้วิ่ง เป็นทางที่เกิดขึ้นได้จริง)
+        const lineRichMenuId = menu.lineRichMenuId
+        if (lineRichMenuId === null) return
+
+        // ไม่เขียนอะไรลงแถว schedule ระหว่างวนเลย ต่างจาก 'link-members' ข้างบน — ไม่มี cursor
+        // ให้เขียน และไม่ควรมี (เหตุผลเต็มอยู่ที่ `unlinkMemberChunk` ใน members.ts)
+        await deps.ops.audit.around(
+          {
+            actorId,
+            action: 'unlink-members',
+            richMenuId: lineRichMenuId,
+            channelId: menu.channelId,
+            before: null,
+          },
+          async () => {
+            let processed = 0
+            let previousLastId: string | null = null
+            for (;;) {
+              const result = await unlinkMemberChunk(
+                { client: ops.client, members: membersRepo },
+                { richMenuId: lineRichMenuId, channelId: menu.channelId },
+              )
+              if (result.processed === 0) return processed
+              // ชุดเดิมซ้ำแปลว่าแถวไม่เคยหลุดจาก query ที่หามันเจอ (repo แม็ป filter หรือ update
+              // ผิดคอลัมน์) เงื่อนไข "ชุดว่าง" จะไม่มีวันจริง — ปล่อยไว้คือ tick ค้างทั้ง process
+              // โดยไม่มี error ให้ใครเห็น ยอมให้งานล้มพร้อมเหตุผลดีกว่าค้างเงียบ ๆ
+              if (result.lastId === previousLastId) {
+                throw new Error(
+                  'line-rich-menu: unlink-members made no progress — members repo did not clear linkedRichMenuId',
+                )
+              }
+              previousLastId = result.lastId
+              processed += result.processed
+            }
+          },
+          (processed) => ({ unlinked: processed }),
+        )
         return
       }
     }

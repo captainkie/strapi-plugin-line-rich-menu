@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MAX_BULK_USER_IDS } from '../../src/line/client.js'
 import {
-  isLineUserId, linkMemberChunk,
+  isLineUserId, linkMemberChunk, unlinkMemberChunk,
   type LinkMemberChunkDeps, type LinkMemberChunkInput, type MemberRow,
+  type UnlinkMemberChunkDeps,
 } from '../../src/server/members.js'
 import type { ListParams, Repo } from '../../src/server/types.js'
 
@@ -199,6 +200,106 @@ describe('linkMemberChunk', () => {
     const result = await linkMemberChunk(d, { richMenuId: 'rm-1', channelId: 'c1', cursor: null })
     expect(result).toEqual({ processed: 0, nextCursor: null })
     expect(d.calls).toHaveLength(0)
+  })
+})
+
+/** สมาชิกที่ "ถือเมนูอยู่จริง" — จุดตั้งต้นของทุกเทสต์ unlink (link เริ่มจากคนที่ยังไม่ถือ) */
+function linked(n: number, richMenuId = 'rm-1', channelId = 'c1'): MemberRow[] {
+  return members(n).map((row) => ({
+    ...row, channelId, linkedRichMenuId: richMenuId, linkedAt: '2026-08-01T00:00:00.000Z',
+  }))
+}
+
+function unlinkDeps(seed: MemberRow[]): UnlinkMemberChunkDeps & {
+  rows: MemberRow[]; calls: string[][]; queries: ListParams[]
+} {
+  const rows = seed.map((row) => ({ ...row }))
+  const calls: string[][] = []
+  const queries: ListParams[] = []
+  const repo = memberRepo(rows)
+  return {
+    client: { bulkUnlink: vi.fn(async (userIds: readonly string[]) => { calls.push([...userIds]) }) },
+    members: {
+      ...repo,
+      async findMany(params) {
+        queries.push(params ?? {})
+        return repo.findMany(params)
+      },
+    },
+    rows,
+    calls,
+    queries,
+  }
+}
+
+describe('unlinkMemberChunk', () => {
+  it('ยิง bulkUnlink ชุดเดียวไม่เกินเพดาน แล้วล้าง linkedRichMenuId/linkedAt ของแถวที่ปลดแล้ว', async () => {
+    const d = unlinkDeps(linked(MAX_BULK_USER_IDS + 1))
+    const result = await unlinkMemberChunk(d, { richMenuId: 'rm-1', channelId: 'c1' })
+
+    expect(result.processed).toBe(MAX_BULK_USER_IDS)
+    expect(d.calls).toHaveLength(1)
+    expect(d.calls[0]).toHaveLength(MAX_BULK_USER_IDS)
+    expect(d.rows[0]).toMatchObject({ linkedRichMenuId: null, linkedAt: null })
+    // แถวที่ยังไม่ถึงคิว (เกินเพดาน) ต้องยังถือเมนูอยู่ ไม่ถูกล้างเหมาทั้งตาราง
+    expect(d.rows[MAX_BULK_USER_IDS]).toMatchObject({ linkedRichMenuId: 'rm-1' })
+  })
+
+  it('ปลดเฉพาะคนที่ถือเมนูนี้ใน channel นี้ — เมนูอื่นและ channel อื่นไม่ถูกแตะ', async () => {
+    const otherMenu: MemberRow = {
+      id: 'm-other-menu', channelId: 'c1', lineUserId: `U${'8'.repeat(32)}`,
+      displayName: null, linkedRichMenuId: 'rm-9', linkedAt: '2026-08-01T00:00:00.000Z',
+    }
+    const otherChannel: MemberRow = {
+      id: 'm-other-channel', channelId: 'c2', lineUserId: `U${'9'.repeat(32)}`,
+      displayName: null, linkedRichMenuId: 'rm-1', linkedAt: '2026-08-01T00:00:00.000Z',
+    }
+    const d = unlinkDeps([...linked(2), otherMenu, otherChannel])
+
+    const result = await unlinkMemberChunk(d, { richMenuId: 'rm-1', channelId: 'c1' })
+
+    expect(result.processed).toBe(2)
+    expect(d.calls[0]).not.toContain(otherMenu.lineUserId)
+    expect(d.calls[0]).not.toContain(otherChannel.lineUserId)
+    // เช็คที่ query ด้วย ไม่ใช่แค่ผลลัพธ์ — repo ของ adapter ที่เมิน filter ตัวใดตัวหนึ่งจะให้ผล
+    // ถูกโดยบังเอิญได้ถ้าข้อมูลในเทสต์บังเอิญไม่ชน (ดูคอมเมนต์บน `deps` ของ linkMemberChunk)
+    expect(d.queries[0]?.filters).toEqual({ channelId: 'c1', linkedRichMenuId: 'rm-1' })
+  })
+
+  it('วิ่งซ้ำบน repo เดิมไปต่อจากที่ค้างได้เองโดยไม่มี cursor — ไม่มี query ไหนพก idGreaterThan', async () => {
+    const d = unlinkDeps(linked(MAX_BULK_USER_IDS + 1))
+
+    const first = await unlinkMemberChunk(d, { richMenuId: 'rm-1', channelId: 'c1' })
+    const second = await unlinkMemberChunk(d, { richMenuId: 'rm-1', channelId: 'c1' })
+    const third = await unlinkMemberChunk(d, { richMenuId: 'rm-1', channelId: 'c1' })
+
+    expect([first.processed, second.processed, third.processed]).toEqual([MAX_BULK_USER_IDS, 1, 0])
+    // ชุดที่สองต้องเป็น "คนที่เหลือ" ไม่ใช่คนเดิมชุดแรกซ้ำ ทั้งที่ไม่มีใครบอกตำแหน่งให้เลย
+    expect(d.calls[1]).toEqual([d.rows[MAX_BULK_USER_IDS]!.lineUserId])
+    expect(d.queries.every((query) => query.idGreaterThan === undefined && query.start === undefined)).toBe(true)
+  })
+
+  it('bulkUnlink ล้ม → ไม่มีแถวไหนถูกล้าง คนกลุ่มนั้นยังหาเจอในรอบถัดไป', async () => {
+    const d = unlinkDeps(linked(3))
+    d.client.bulkUnlink = vi.fn(async () => { throw new Error('line down') })
+
+    await expect(unlinkMemberChunk(d, { richMenuId: 'rm-1', channelId: 'c1' })).rejects.toThrow('line down')
+    expect(d.rows.every((row) => row.linkedRichMenuId === 'rm-1')).toBe(true)
+  })
+
+  it('ไม่มีใครถือเมนูนี้แล้ว → processed 0, lastId null และไม่ยิง bulkUnlink', async () => {
+    const d = unlinkDeps(linked(2, 'rm-9'))
+    const result = await unlinkMemberChunk(d, { richMenuId: 'rm-1', channelId: 'c1' })
+    expect(result).toEqual({ processed: 0, lastId: null })
+    expect(d.calls).toHaveLength(0)
+  })
+
+  // lastId ไม่ใช่ cursor — มันคือสัญญาณให้ผู้เรียกที่วนลูป (scheduler) รู้ว่าชุดถัดไปเป็นแถวเดิมซ้ำ
+  // แปลว่า repo ไม่เคยล้างค่าให้จริง ต้องล้มงานทิ้ง ไม่ใช่วนต่อจนค้างทั้ง process
+  it('lastId คือ id ของแถวสุดท้ายในชุดที่เพิ่งทำ', async () => {
+    const d = unlinkDeps(linked(3))
+    const result = await unlinkMemberChunk(d, { richMenuId: 'rm-1', channelId: 'c1' })
+    expect(result.lastId).toBe('m00002')
   })
 })
 
