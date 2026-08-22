@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { controllers } from '../server/src/controllers/index.js'
+import { toHttpError } from '../server/src/http-error.js'
 import { admin } from '../server/src/routes/admin.js'
 import { PERMISSION } from '../server/src/permissions.js'
 import type { AdminContext } from '../server/src/http-error.js'
@@ -178,5 +179,65 @@ describe('guard แปลง error เป็น response ที่มี code �
     await controllers.menus({ strapi: fakeStrapi() }).findOne(ctx)
     expect(ctx.status).toBe(404)
     expect((ctx.body as { error: { code: string } }).error.code).toBe('menu_not_found')
+  })
+
+  /**
+   * Task 20 item 4 (strapi-v5 M2) repro ตรง ๆ จากรีวิว — `POST /menus` ด้วย `channelId` ที่ไม่มี
+   * อยู่จริงเดิมตอบ 500 `internal_error` เพราะ `documents().create` โยน `@strapi/utils` ValidationError
+   * ดิบที่ไม่มี `code` (ผ่าน relation write ของ Strapi 5 เอง) `toHttpError` จับไม่ได้ ผู้เรียกแยกไม่ออก
+   * ว่าตัวเองผิดหรือเซิร์ฟเวอร์พัง ตอนนี้ `saveMenu` เช็ค channel ก่อนเขียน จึงได้ 404 channel_not_found
+   * ที่ตรงความหมายแทน — ใช้ body ที่ผ่าน `menuInputSchema` ได้จริง (`areas: []` ผ่านได้ตั้งแต่ item 1)
+   * เพื่อพิสูจน์ว่า field อื่นทั้งหมดถูกต้อง มีแค่ channelId เท่านั้นที่เป็นปัญหา
+   */
+  it('POST /menus ด้วย channelId ที่ไม่มีอยู่จริง ตอบ 404 channel_not_found ไม่ใช่ 500 internal_error', async () => {
+    const ctx = makeCtx({
+      request: {
+        body: {
+          name: 'เมนูหลัก', channelId: 'ch-does-not-exist', size: 'large',
+          chatBarText: 'เมนู', chatBarMode: 'default', selected: true, templateKey: null,
+          areas: [], imageFileId: null, areaImages: [], aliasId: null, startAt: null, endAt: null,
+        },
+      },
+    })
+
+    await controllers.menus({ strapi: fakeStrapi() }).create(ctx)
+
+    expect(ctx.status).toBe(404)
+    expect((ctx.body as { error: { code: string } }).error.code).toBe('channel_not_found')
+  })
+})
+
+describe('toHttpError — error จาก @strapi/utils ที่ไม่มี code (Task 20 item 4, strapi-v5 M2)', () => {
+  it('แม็ป error ตาม name ของ @strapi/utils เป็นสถานะ 4xx ที่ถูกต้อง แทนที่จะเป็น 500 internal_error เสมอ', () => {
+    const cases: [{ name: string }, number, string][] = [
+      [{ name: 'ValidationError' }, 400, 'validation_failed'],
+      [{ name: 'YupValidationError' }, 400, 'validation_failed'],
+      [{ name: 'PaginationError' }, 400, 'validation_failed'],
+      [{ name: 'NotFoundError' }, 404, 'not_found'],
+      [{ name: 'ForbiddenError' }, 403, 'forbidden'],
+      [{ name: 'PolicyError' }, 403, 'forbidden'],
+      [{ name: 'UnauthorizedError' }, 401, 'unauthorized'],
+      [{ name: 'RateLimitError' }, 429, 'rate_limited'],
+      [{ name: 'PayloadTooLargeError' }, 413, 'payload_too_large'],
+    ]
+    for (const [shape, status, code] of cases) {
+      const ctx = makeCtx()
+      // ข้อความนี้ต้องไม่หลุดออกไป (สเปก §11.7) — error ของ @strapi/utils ไม่ได้ผ่านการตรวจว่า
+      // message/details ปลอดภัยจะส่งออกเหมือน ValidationError.issues ของ core
+      const error = Object.assign(new Error('upstream message that must never reach the client'), shape)
+      toHttpError(ctx, error)
+      expect(ctx.status, shape.name).toBe(status)
+      expect(ctx.body, shape.name).toEqual({ error: { code } })
+      expect(JSON.stringify(ctx.body)).not.toContain('upstream message')
+    }
+  })
+
+  // ด่านสำรองต้องไม่กลืน error ภายในจริงของเราเอง — TypeError ไม่ได้อยู่ใน STRAPI_UTILS_STATUS_BY_NAME
+  // เลยสักตัว ต้องยังเป็น 500 internal_error เหมือนก่อนแก้ ไม่งั้นบั๊กจริงจะถูกรายงานเป็น "ผู้ใช้ผิด"
+  it('error ที่ name ไม่รู้จัก (เช่น TypeError ของบั๊กภายในจริง) ยังคงเป็น 500 internal_error เหมือนเดิม', () => {
+    const ctx = makeCtx()
+    toHttpError(ctx, new TypeError('cannot read properties of undefined'))
+    expect(ctx.status).toBe(500)
+    expect(ctx.body).toEqual({ error: { code: 'internal_error' } })
   })
 })

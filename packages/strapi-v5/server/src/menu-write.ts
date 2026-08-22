@@ -82,6 +82,16 @@ export async function saveMenu(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _actorId: string | null,
 ): Promise<RichMenuRow> {
+  // Task 20 item 4 (strapi-v5 M2) — ยืนยันว่า channel มีอยู่จริง**ก่อน**ให้ `documents().create`/
+  // `update` เขียนความสัมพันธ์ `channel: { set: [channelId] }` เอง ถ้าไม่เช็คตรงนี้ ปลายทาง
+  // (transformDataIdsVisitor ของ Strapi 5) จะโยน `@strapi/utils` ValidationError ดิบที่ไม่มี `code`
+  // เข้ามาที่นี่ — `toHttpError` (ดูคอมเมนต์ที่นั่น) จับ error ที่ไม่มี code ไม่ได้เลยแม้จะเป็นเคส
+  // "ผู้ใช้ส่งของผิด" ล้วน ๆ (channelId ที่ไม่มีอยู่จริง ไม่ใช่เซิร์ฟเวอร์พัง) กลายเป็น 500
+  // `internal_error` ผู้เรียกแยกไม่ออกว่าตัวเองผิดหรือเซิร์ฟเวอร์พัง `channels.findOne` โยน
+  // `ChannelNotFoundError` (`code: 'channel_not_found'`) อยู่แล้วซึ่ง `STATUS_BY_CODE` แม็ปเป็น 404
+  // ให้เอง ไม่ต้องเพิ่ม code ใหม่ — ผลลัพธ์ (channel record) ไม่ถูกใช้ต่อ เช็คแค่ว่ามีอยู่จริง
+  await services.channels.findOne(input.channelId)
+
   await assertAliasFree(services, input, existing?.id ?? null)
 
   const patch: Partial<RichMenuRow> = {
