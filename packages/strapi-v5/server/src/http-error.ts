@@ -49,6 +49,33 @@ function issuesOf(error: ZodError): ValidationIssue[] {
   }))
 }
 
+/**
+ * Task 20 item 4 (strapi-v5 M2) — ด่านสำรองสำหรับ error ที่ `documents()`/`db.query()` ของ
+ * Strapi 5 เองโยนออกมาโดยตรง (ไม่ใช่ error ของ core หรือ zod) เช่นตอน relation เขียนหา id ที่ไม่มีอยู่
+ * จริง (`channelId` ที่ไม่ถูก resolve ไว้ก่อนใน saveMenu — ดูคอมเมนต์ที่นั่น) หรือ path อื่นที่ยังไม่
+ * ถูกไล่เจอ `@strapi/utils`'s errors.d.ts` ประกาศ subclass พวกนี้ทุกตัวด้วย `name` คงที่เฉพาะของมัน
+ * (`ValidationError`, `NotFoundError`, ...) แต่**ไม่มี** `code` เลยสักตัว (ตรวจกับซอร์สจริงที่ติดตั้ง
+ * อยู่ใน examples/v5-app/node_modules — ไม่ใช่เดาจากเอกสาร) จึงตกไปที่ `known === undefined` → 500
+ * `internal_error` เสมอ ทั้งที่ทุกตัวในนี้คือ "ผู้ใช้ส่งของผิด" ไม่ใช่ "เซิร์ฟเวอร์พัง"
+ *
+ * เช็คด้วย `error.name` ไม่ใช่ `instanceof` เพราะไม่อยาก import class จริงจาก `@strapi/utils` เข้ามา
+ * ผูก compile-time กับแพ็กเกจที่เป็น peer ของ Strapi เอง — `name` ที่นี่ไม่ชนกับ error ในตัวของ
+ * JavaScript เลยสักตัว (TypeError/RangeError/...) จึงไม่มีทางจับ error ภายในจริงของเราไปแปลงเป็น 4xx
+ * โดยไม่ตั้งใจ ไม่ส่ง `message`/`details` ของ error พวกนี้ต่อ (เหมือนกับ error อื่นทุกตัวในไฟล์นี้)
+ * เพราะรูปทรงของมันไม่ได้ผ่านการตรวจว่าปลอดภัยจะส่งออกเหมือน `ValidationError.issues` ของ core
+ */
+const STRAPI_UTILS_STATUS_BY_NAME: Record<string, { status: number; code: string }> = {
+  ValidationError: { status: 400, code: 'validation_failed' },
+  YupValidationError: { status: 400, code: 'validation_failed' },
+  PaginationError: { status: 400, code: 'validation_failed' },
+  NotFoundError: { status: 404, code: 'not_found' },
+  ForbiddenError: { status: 403, code: 'forbidden' },
+  PolicyError: { status: 403, code: 'forbidden' },
+  UnauthorizedError: { status: 401, code: 'unauthorized' },
+  RateLimitError: { status: 429, code: 'rate_limited' },
+  PayloadTooLargeError: { status: 413, code: 'payload_too_large' },
+}
+
 export function toHttpError(ctx: AdminContext, error: unknown): void {
   if (error instanceof ZodError) {
     ctx.status = 400
@@ -60,6 +87,13 @@ export function toHttpError(ctx: AdminContext, error: unknown): void {
   const known = typeof code === 'string' ? STATUS_BY_CODE[code] : undefined
 
   if (known === undefined) {
+    const name = (error as { name?: unknown } | null)?.name
+    const fallback = typeof name === 'string' ? STRAPI_UTILS_STATUS_BY_NAME[name] : undefined
+    if (fallback !== undefined) {
+      ctx.status = fallback.status
+      ctx.body = { error: { code: fallback.code } }
+      return
+    }
     ctx.status = 500
     ctx.body = { error: { code: 'internal_error' } }
     return
