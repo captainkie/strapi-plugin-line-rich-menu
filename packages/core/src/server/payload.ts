@@ -1,4 +1,4 @@
-import { validateRichMenu } from '../schema.js'
+import { DEFAULT_CHAT_BAR_TEXT, validateRichMenu } from '../schema.js'
 import { sizeNameFor } from '../templates.js'
 import type { Bounds, RichMenuPayload, RichMenuSize } from '../types.js'
 import { AliasNotPublishedError, MenuNotReadyError } from './errors.js'
@@ -9,8 +9,14 @@ import type { RichMenuRow } from './types.js'
  * `chatBarText` เป็นฟิลด์บังคับของ LINE เสมอ ส่วนโหมด default (สเปก §5.5) แปลว่า
  * "ผู้ใช้ไม่อยากตั้งเอง ให้ระบบเติมให้" — ค่าที่เติมจึงต้องไม่ขึ้นกับภาษาของ admin ที่กด save
  * ไม่งั้นเมนูเดียวกันจะได้แถบแชทคนละคำขึ้นกับว่าใครกด publish
+ *
+ * ค่าจริงย้ายไปอยู่ที่ `packages/core/src/schema.ts` แล้ว (Task 20 item 9, ui-core M2) — ที่นั่น
+ * browser-safe และถูก export ผ่าน `browser.ts` ทำให้ Preview.tsx/RichMenuEditor.tsx ฝั่ง UI
+ * import ค่าเดียวกับที่ publish จริงใช้ได้ตรง ๆ ไม่ต้องพึ่งคำแปล `chatBar.defaultLabel` ที่แอปโฮสต์
+ * ทับได้ (ดู i18n.test.ts) — export ซ้ำจากที่นี่ไว้เพื่อความเข้ากันได้ย้อนหลัง (backward compat)
+ * กับโค้ดฝั่งเซิร์ฟเวอร์ที่ import จากไฟล์นี้อยู่แล้ว ไม่ใช่แหล่งความจริงอีกชุดหนึ่ง
  */
-export const DEFAULT_CHAT_BAR_TEXT = 'Menu'
+export { DEFAULT_CHAT_BAR_TEXT }
 
 export function resolveChatBarText(menu: Pick<RichMenuRow, 'chatBarMode' | 'chatBarText'>): string {
   return menu.chatBarMode === 'custom' ? menu.chatBarText : DEFAULT_CHAT_BAR_TEXT
