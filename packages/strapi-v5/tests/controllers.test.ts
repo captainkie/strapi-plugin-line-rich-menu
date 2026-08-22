@@ -284,6 +284,41 @@ describe('menus controller > create — atomicity ของ saveMenu (Task 20 it
   })
 })
 
+/**
+ * Task 20 item 6 (strapi-v5 M3) — repro เดียวกับ item 5 (ไฟล์ที่เมนูอ้างถึงถูกลบไปจาก Media
+ * Library — `plugin('upload')` ปลอมคืน `findOne` เป็น `null` เสมอ) แต่พิสูจน์คนละเรื่อง: item 5
+ * ตรวจว่าไม่มีแถวกำพร้าเหลือค้าง ส่วนนี้ตรวจว่า status/code ที่ผู้เรียกเห็นถูกต้อง — ก่อนแก้
+ * `ImageStore.read` โยน `Error` เปล่า ไม่มี `code` เลย จึงตกไปที่ 500 `internal_error` เสมอ
+ * ทั้งที่เป็นสถานการณ์ปกติที่กู้คืนได้ (ลบไฟล์แล้วลองอัปโหลดใหม่) ไม่ใช่เซิร์ฟเวอร์พัง
+ */
+describe('menus controller > create — ไฟล์รูปที่ลบไปแล้วตอบ 409 ไม่ใช่ 500 (Task 20 item 6, strapi-v5 M3)', () => {
+  it('imageFileId ที่ upload.findOne คืน null ตอบ 409 menu_not_ready ไม่ใช่ 500 internal_error', async () => {
+    const strapi = fakeStrapi()
+    const channelCtx = makeCtx({
+      request: { body: { name: 'ร้าน', channelId: 'ch0000000000000000000001', channelAccessToken: 'a-token-long-enough' } },
+    })
+    await controllers.channels({ strapi }).create(channelCtx)
+    const channelId = (channelCtx.body as { id: string }).id
+
+    const ctx = makeCtx({
+      request: {
+        body: {
+          name: 'เมนูหลัก', channelId, size: 'large', chatBarText: '', chatBarMode: 'default',
+          selected: true, templateKey: null,
+          areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 1686 }, action: { type: 'message', text: 'hi' } }],
+          imageFileId: null, areaImages: [{ index: 0, fileId: 42 }],
+          aliasId: null, startAt: null, endAt: null,
+        },
+      },
+    })
+
+    await controllers.menus({ strapi }).create(ctx)
+
+    expect(ctx.status).toBe(409)
+    expect((ctx.body as { error: { code: string } }).error.code).toBe('menu_not_ready')
+  })
+})
+
 describe('toHttpError — error จาก @strapi/utils ที่ไม่มี code (Task 20 item 4, strapi-v5 M2)', () => {
   it('แม็ป error ตาม name ของ @strapi/utils เป็นสถานะ 4xx ที่ถูกต้อง แทนที่จะเป็น 500 internal_error เสมอ', () => {
     const cases: [{ name: string }, number, string][] = [
