@@ -44,10 +44,12 @@ export default tseslint.config(
   {
     // สคริปต์ที่รันด้วย Node ตรง ๆ ไม่ได้ผ่าน bundler — ต้องประกาศ global ของ Node เอง
     // (ไม่ดึงแพ็กเกจ `globals` เข้ามาเพื่อสิ่งนี้ ตามแนวเดียวกับบล็อก shim ด้านบน)
-    files: ['packages/strapi-v4/scripts/**/*.mjs', 'scripts/**/*.mjs'],
+    files: ['packages/strapi-v4/scripts/**/*.mjs', 'scripts/**/*.mjs', 'examples/*/scripts/**/*.mjs'],
     languageOptions: {
       sourceType: 'module',
-      globals: { process: 'readonly', console: 'readonly', URL: 'readonly', Buffer: 'readonly' },
+      // `fetch` เป็น global จริงตั้งแต่ Node 18 — demo-restrict.mjs คุยกับ admin API ด้วยมันตรง ๆ
+      // แทนที่จะลาก dependency เข้ามาในสคริปต์ปฏิบัติการที่ควรรันได้ด้วย node เปล่า ๆ
+      globals: { process: 'readonly', console: 'readonly', URL: 'readonly', Buffer: 'readonly', fetch: 'readonly' },
     },
   },
   {
