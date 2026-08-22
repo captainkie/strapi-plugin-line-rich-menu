@@ -143,7 +143,9 @@ describe('เมทาดาทาที่ต้องมีก่อนปล�
     expect(pkg.private).not.toBe(true)
   })
 
-  it('สัญญาอนุญาตเป็น AGPL-3.0-only ตรงกับที่ LICENSE ในแพ็กเกจเป็น', () => {
-    expect(pkg.license).toBe('AGPL-3.0-only')
+  // Task 22 item 2 — relicense จาก AGPL-3.0 + commercial ไปเป็น Apache-2.0 เดี่ยว ต้องแดงถ้ามี
+  // ใครใส่ AGPL-3.0-only กลับเข้ามา (สตริงเดิมเป๊ะ ไม่ใช่แค่ "ไม่ตรงกับที่คาด")
+  it('สัญญาอนุญาตเป็น Apache-2.0 ตรงกับที่ LICENSE ในแพ็กเกจเป็น', () => {
+    expect(pkg.license).toBe('Apache-2.0')
   })
 })

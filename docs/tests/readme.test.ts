@@ -25,11 +25,14 @@ describe('README — สิ่งที่ผู้ใช้เห็นก่�
     }
   })
 
-  it('อธิบายสัญญาอนุญาตคู่ AGPL-3.0 + commercial และลิงก์ไปทั้งสองไฟล์', () => {
-    expect(readme).toContain('AGPL-3.0')
+  // Task 22 item 2 — dual AGPL + commercial ไปแล้ว เหลือ Apache-2.0 เดี่ยว ต้องแดงถ้ามีใครเขียน
+  // AGPL หรือ "commercial licence" กลับเข้ามาในหน้านี้ (เช่น copy-paste จาก README เก่าตอน merge)
+  it('อธิบายสัญญาอนุญาต Apache-2.0 ตัวเดียว ลิงก์ไป LICENSE และ THIRD_PARTY_NOTICES.md', () => {
+    expect(readme).toContain('Apache-2.0')
     expect(readme).toMatch(/\(LICENSE\)/)
-    expect(readme).toMatch(/\(COMMERCIAL-LICENSE\.md\)/)
-    expect(readme).toMatch(/commercial licen[cs]e/i)
+    expect(readme).toMatch(/\(THIRD_PARTY_NOTICES\.md\)/)
+    expect(readme).not.toMatch(/AGPL/i)
+    expect(readme).not.toMatch(/commercial licen[cs]e/i)
   })
 
   it('มีส่วนรับบริจาค', () => {

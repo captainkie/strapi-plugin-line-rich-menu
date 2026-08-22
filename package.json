@@ -47,5 +47,5 @@
       "typed-rest-client>qs": "^6.15.3"
     }
   },
-  "license": "AGPL-3.0-only"
+  "license": "Apache-2.0"
 }

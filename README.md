@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/captainkie/strapi-plugin-line-rich-menu/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/captainkie/strapi-plugin-line-rich-menu/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="./LICENSE"><img alt="License: AGPL v3" src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg"></a>
+  <a href="./LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache%202.0-blue.svg"></a>
   <img alt="Strapi" src="https://img.shields.io/badge/Strapi-4%20%7C%205-4945ff">
   <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D20.15-brightgreen">
   <a href="https://github.com/sponsors/captainkie"><img alt="Sponsor" src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-ff69b4"></a>
@@ -147,26 +147,24 @@ than by reading the code.
 
 ## Licence
 
-Dual-licensed.
+**[Apache-2.0](LICENSE).** Self-host it, embed it in a closed-source product, ship it inside
+a hosted Strapi you offer to others without publishing your changes — all granted by default,
+no separate commercial terms needed. §3 of the licence also grants you an explicit patent
+licence from every contributor, which this plugin's previous licence did not.
 
-- **[AGPL-3.0](LICENSE)** by default. Self-host it, modify it, ship it — but if you run a
-  modified version as a network service, the people using that service get its source.
-  A Strapi instance is network software, so the AGPL's network clause is the operative one
-  here rather than a distribution question.
-- **[Commercial](COMMERCIAL-LICENSE.md)** if you need to embed it in a closed-source
-  product, run it inside a hosted Strapi you offer to others without publishing your
-  changes, or ship it to a client as part of a closed deliverable.
+The plugin bundles the real LINE app icon to identify the integration it provides — see
+**[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)** for that trademark's owner and terms;
+it is not covered by the Apache-2.0 grant above.
 
 Contact **Fosivo Labs Co., Ltd.** — <https://fosivo.com>
 
 ## Support this work
 
-This plugin is free under the AGPL and will stay that way. If it saved you a week, you can
+This plugin is free under Apache-2.0 and will stay that way. If it saved you a week, you can
 say thanks:
 
 - [GitHub Sponsors](https://github.com/sponsors/captainkie)
 - [Buy Me a Coffee](https://buymeacoffee.com/captainkiez)
-- Or buy a [commercial licence](COMMERCIAL-LICENSE.md) — that funds it directly
 
 Bug reports and reproductions are worth as much as money and take less of it.
 

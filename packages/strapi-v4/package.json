@@ -2,7 +2,7 @@
   "name": "strapi-plugin-line-rich-menu-v4",
   "version": "0.0.0",
   "description": "LINE rich menu builder for Strapi 4.25.x \u2014 a bridge while you migrate to Strapi 5",
-  "license": "AGPL-3.0-only",
+  "license": "Apache-2.0",
   "author": "Fosivo Labs Co., Ltd. <https://fosivo.com>",
   "homepage": "https://github.com/captainkie/strapi-plugin-line-rich-menu#readme",
   "bugs": { "url": "https://github.com/captainkie/strapi-plugin-line-rich-menu/issues" },
@@ -22,7 +22,6 @@
     "strapi-server.js",
     "strapi-admin.js",
     "LICENSE",
-    "COMMERCIAL-LICENSE.md",
     "THIRD_PARTY_NOTICES.md",
     "README.md"
   ],

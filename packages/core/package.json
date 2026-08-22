@@ -23,8 +23,7 @@
   },
   "files": [
     "dist",
-    "LICENSE",
-    "COMMERCIAL-LICENSE.md"
+    "LICENSE"
   ],
   "sideEffects": false,
   "scripts": {
@@ -35,5 +34,5 @@
     "zod": "^3.23.8",
     "sharp": "^0.35.3"
   },
-  "license": "AGPL-3.0-only"
+  "license": "Apache-2.0"
 }

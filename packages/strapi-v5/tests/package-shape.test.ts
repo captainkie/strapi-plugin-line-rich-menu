@@ -73,8 +73,12 @@ describe('รูปทรงของแพ็กเกจที่ Strapi 5 ต
     }
   })
 
-  it('files ที่จะถูกปล่อยขึ้น npm มี dist และสัญญาอนุญาตทั้งสองฉบับ', () => {
-    expect(pkg.files).toEqual(expect.arrayContaining(['dist', 'LICENSE', 'COMMERCIAL-LICENSE.md']))
+  // Task 22 item 2 — dual AGPL + commercial ไปแล้ว เหลือ LICENSE ฉบับเดียว (Apache-2.0) บวกกับ
+  // THIRD_PARTY_NOTICES.md ที่ item 1 เพิ่มมาสำหรับโลโก้ LINE — COMMERCIAL-LICENSE.md ต้องไม่มี
+  // อยู่ในนี้อีกต่อไป ไม่ใช่แค่ "ไม่ถูกเช็ค" เฉยๆ
+  it('files ที่จะถูกปล่อยขึ้น npm มี dist, LICENSE และ THIRD_PARTY_NOTICES.md — ไม่มี COMMERCIAL-LICENSE.md หลงเหลือ', () => {
+    expect(pkg.files).toEqual(expect.arrayContaining(['dist', 'LICENSE', 'THIRD_PARTY_NOTICES.md']))
+    expect(pkg.files).not.toContain('COMMERCIAL-LICENSE.md')
   })
 })
 
@@ -176,7 +180,9 @@ describe('เมทาดาทาที่ต้องมีก่อนปล�
     expect(pkg.private).not.toBe(true)
   })
 
-  it('สัญญาอนุญาตเป็น AGPL-3.0-only ตรงกับที่ LICENSE ในแพ็กเกจเป็น', () => {
-    expect(pkg.license).toBe('AGPL-3.0-only')
+  // Task 22 item 2 — relicense จาก AGPL-3.0 + commercial ไปเป็น Apache-2.0 เดี่ยว ต้องแดงถ้ามี
+  // ใครใส่ AGPL-3.0-only กลับเข้ามา (สตริงเดิมเป๊ะ ไม่ใช่แค่ "ไม่ตรงกับที่คาด")
+  it('สัญญาอนุญาตเป็น Apache-2.0 ตรงกับที่ LICENSE ในแพ็กเกจเป็น', () => {
+    expect(pkg.license).toBe('Apache-2.0')
   })
 })
