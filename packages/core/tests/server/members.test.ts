@@ -23,6 +23,11 @@ function members(n: number): MemberRow[] {
  * เลียนแบบ adapter จริง (Task 5/6) เท่าที่ linkMemberChunk ต้องใช้: `filters.channelId` เทียบเท่า
  * ตรง ๆ และ `idGreaterThan` คือ keyset — เทียบด้วย string compare ตรง ๆ เพราะ id ในเทสต์นี้
  * (`m00000`..`m0NNNN`) มีความยาวเท่ากันทุกตัว ลำดับ string จึงตรงกับลำดับตัวเลขพอดี
+ *
+ * ตั้งใจไม่รองรับ `start` (offset) เลย — ถ้าใครเพิ่มให้ทีหลัง (เช่นเพื่อเทสต์อื่น) ต้องกลับไปดู
+ * เทสต์ "ลบสมาชิกระหว่างงานวิ่ง..." ด้านล่างใหม่ทันที เพราะตอนนี้เทสต์นั้นจับบั๊ก offset ได้
+ * ส่วนหนึ่งจาก mock ไม่รู้จัก `start` (เสิร์ฟหน้าแรกซ้ำ) การเติม `start` เข้าไปโดยไม่เช็ค query shape
+ * คู่กัน (ดู `queries` ใน `deps`) จะทำให้เทสต์นั้นจับบั๊กจริงไม่ได้อีกต่อไปแบบไม่มีใครรู้ตัว
  */
 function memberRepo(rows: MemberRow[]): Repo<MemberRow> {
   return {
@@ -53,9 +58,16 @@ function memberRepo(rows: MemberRow[]): Repo<MemberRow> {
   }
 }
 
-/** deps ปกติ — `calls` เก็บ ids ของทุกครั้งที่ bulkLink ถูกเรียก เรียงตามลำดับที่เรียกจริง */
-function deps(seed: MemberRow[]): LinkMemberChunkDeps & { calls: string[][] } {
+/**
+ * deps ปกติ — `calls` เก็บ ids ของทุกครั้งที่ bulkLink ถูกเรียก, `queries` เก็บ ListParams
+ * ที่ `findMany` ได้รับจริง เรียงตามลำดับที่เรียก ทั้งคู่ใช้ยืนยัน "เรียกยังไง" ไม่ใช่แค่ "ได้อะไรกลับมา"
+ * — คนละอย่างกัน: mock ที่ไม่สมบูรณ์ (เช่นไม่รู้จัก `start`) ยังทำให้ assertion บนผลลัพธ์ผ่านได้
+ * ทั้งที่ query ที่ยิงจริงผิด (ดูคอมเมนต์บน `memberRepo`)
+ */
+function deps(seed: MemberRow[]): LinkMemberChunkDeps & { calls: string[][]; queries: ListParams[] } {
   const calls: string[][] = []
+  const queries: ListParams[] = []
+  const repo = memberRepo([...seed])
   const client = {
     bulkLink: vi.fn(async (_richMenuId: string, userIds: readonly string[]) => {
       calls.push([...userIds])
@@ -63,9 +75,16 @@ function deps(seed: MemberRow[]): LinkMemberChunkDeps & { calls: string[][] } {
   }
   return {
     client,
-    members: memberRepo([...seed]),
+    members: {
+      ...repo,
+      async findMany(params) {
+        queries.push(params ?? {})
+        return repo.findMany(params)
+      },
+    },
     now: () => FIXED_NOW,
     calls,
+    queries,
   }
 }
 
@@ -147,6 +166,12 @@ describe('linkMemberChunk', () => {
     seen.push(...idsSentBy(d2))
     const expected = shrunk.map((m) => m.lineUserId)
     expect(expected.every((u) => seen.includes(u))).toBe(true)
+
+    // ยืนยันกลไก ไม่ใช่แค่ผลลัพธ์ — assertion บนสุดผ่านได้แม้ code ถูกเขียนใหม่เป็น offset paging
+    // ถ้า mock ดันไม่รองรับ `start` (มันไม่รองรับจริง ๆ ในไฟล์นี้) เพราะงั้น "start ไม่ถูกส่งเลย และ
+    // idGreaterThan ถูกส่งด้วยค่าที่ถูกต้อง" ต้องเช็คตรง ๆ ที่ query ไม่ใช่เดาจากผลลัพธ์ที่ได้กลับมา
+    expect(d2.queries[0]).toMatchObject({ idGreaterThan: first.nextCursor })
+    expect(d2.queries[0]).not.toHaveProperty('start')
   })
 
   it('บันทึก linkedRichMenuId/linkedAt ให้ทุกคนที่ส่งสำเร็จ', async () => {
