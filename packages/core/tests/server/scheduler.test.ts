@@ -389,6 +389,7 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
   async function tickWith(options: {
     members: number
     op: 'link-members'
+    menu?: RichMenuRow
     onScheduleUpdate?: (data: Partial<ScheduleRow>) => void
     startCursor?: string | null
     failOnChunk?: number
@@ -400,17 +401,26 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     queries: ListParams[]
     /** cursor ที่ค้างอยู่บนแถว schedule หลัง tick จบ (ไม่ว่า done หรือ failed) */
     cursorPersisted: string | null
+    /**
+     * richMenuId ที่ `bulkLink` ได้รับจริงในแต่ละชุด — ของปลอมเดิมรับเป็น `_richMenuId` แล้วทิ้ง
+     * ทำให้ "ส่ง id ของแถวในฐานข้อมูลไปให้ LINE" ผ่านทุกเทสต์มาตลอด ต้องเก็บไว้ถึงจะถามได้
+     */
+    linkTargets: string[]
+    /** แถวสมาชิกหลัง tick — ค่า `linkedRichMenuId` ที่ประทับลงไปคือสิ่งที่ unlink ใช้หาคนทีหลัง */
+    memberRows: MemberRow[]
   }> {
     const memberRows = membersFor(options.members)
     const memberRepo = memberRepoFor(memberRows)
     const sentChunks: string[][] = []
+    const linkTargets: string[] = []
     const queries: ListParams[] = []
     let bulkLinkCalls = 0
 
     const line = {
       ...fakeLine(),
-      bulkLink: vi.fn(async (_richMenuId: string, userIds: readonly string[]) => {
+      bulkLink: vi.fn(async (richMenuId: string, userIds: readonly string[]) => {
         bulkLinkCalls += 1
+        linkTargets.push(richMenuId)
         if (options.failOnChunk === bulkLinkCalls) throw new LineServerError(503)
         sentChunks.push([...userIds])
       }),
@@ -459,7 +469,7 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
       schedules,
       lock,
       ops: {
-        menus: listRepo([menuRow({ id: '1', channelId: '10' })]),
+        menus: listRepo([options.menu ?? menuRow({ id: '1', channelId: '10' })]),
         audit: createAuditWriter({ repo: auditRepo, logger: silent }),
         clientFor: async () => line as never,
         // ห่อ findMany ไว้บันทึก query ทุกครั้งที่ยิงจริง — เหมือน `deps()` ใน members.test.ts:
@@ -478,7 +488,10 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     })
 
     const report = await scheduler.tick()
-    return { report, sentChunks, released, queries, cursorPersisted: scheduleRows[0]!.cursor }
+    return {
+      report, sentChunks, released, queries, linkTargets, memberRows,
+      cursorPersisted: scheduleRows[0]!.cursor,
+    }
   }
 
   it('งาน link-members เดินครบทุกชุดในหนึ่ง tick', async () => {
@@ -517,6 +530,30 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     expect(report.failed).toBe(1)
     expect(released).toMatchObject({ state: 'failed' })
     expect(cursorPersisted).toBe('m00499')
+  })
+
+  /**
+   * แถว schedule ชี้เมนูด้วย id ของฐานข้อมูล ('1') ส่วน LINE รู้จักเมนูเดียวกันด้วย id ของมันเอง
+   * ('richmenu-a') — ค่าที่ต้องเดินทางไปถึง bulkLink และไปประทับบน linkedRichMenuId คือของ LINE
+   * เพราะฝั่ง unlink เลือกคนจาก `linkedRichMenuId = menu.lineRichMenuId` ถ้าสองฝั่งใช้คนละค่า
+   * งานปลดจะไม่แมตช์ใครที่งานผูกทำไว้เลยสักคน และ LINE เองก็ปฏิเสธ id ที่ตัวเองไม่เคยออก
+   */
+  it('ส่ง lineRichMenuId ของเมนูให้ LINE และประทับค่าเดียวกันลงแถวสมาชิก ไม่ใช่ id ของแถวในฐานข้อมูล', async () => {
+    const { linkTargets, memberRows } = await tickWith({ members: 3, op: 'link-members' })
+
+    expect(linkTargets).toEqual(['richmenu-a'])
+    expect(memberRows.map((row) => row.linkedRichMenuId)).toEqual(['richmenu-a', 'richmenu-a', 'richmenu-a'])
+  })
+
+  it('เมนูถูก unpublish ไปแล้ว (lineRichMenuId เป็น null) → ไม่ยิง LINE เลย และงานจบเป็น done', async () => {
+    const { report, linkTargets, memberRows } = await tickWith({
+      members: 3, op: 'link-members',
+      menu: menuRow({ id: '1', channelId: '10', status: 'draft', lineRichMenuId: null }),
+    })
+
+    expect(report).toMatchObject({ done: 1, failed: 0 })
+    expect(linkTargets).toEqual([])
+    expect(memberRows.every((row) => row.linkedRichMenuId === null)).toBe(true)
   })
 
   it('ไม่มี ops.members แล้วมีงาน link-members เข้ามา → พังทันที ไม่ใช่ข้ามงานไปเงียบ ๆ', async () => {
@@ -713,6 +750,8 @@ describe('tick — unlink-members วนจนหมดโดยไม่มี 
     await h.tick()
 
     expect(h.auditRows).toHaveLength(1)
+    // richMenuId ที่ปักไว้ตรงนี้คือ id ฝั่ง LINE ('richmenu-a') ไม่ใช่ id ของแถวเมนู ('1') —
+    // ตั้งใจตามธรรมเนียมของงานระดับสมาชิก เหตุผลเต็มอยู่ที่ AuditRow.richMenuId ใน types.ts
     expect(h.auditRows[0]).toMatchObject({
       action: 'unlink-members', richMenuId: 'richmenu-a', channelId: '10',
       result: 'success', after: { unlinked: 501 },

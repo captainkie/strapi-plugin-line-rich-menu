@@ -137,6 +137,16 @@ export interface AuditRow {
   id: string
   actorId: string | null
   action: AuditAction
+  /**
+   * ความหมายขึ้นกับ `action` และนั่นตั้งใจ ไม่ใช่ความไม่สม่ำเสมอที่หลุดมา:
+   * - งานระดับเมนู (`publish`/`set-default`/`swap-alias`/`delete`) เก็บ **id ของแถวเมนูใน
+   *   ฐานข้อมูลเรา** เพราะสิ่งที่ถูกกระทำคือแถวนั้น หน้าจอต้องลิงก์กลับไปหามันได้ และเมนูที่
+   *   publish ไม่ผ่านก็ยังไม่มี id ฝั่ง LINE ให้เก็บด้วยซ้ำ (`clear-default` เป็น null เพราะเป็น
+   *   งานระดับ channel ไม่ผูกกับเมนูตัวใดตัวหนึ่ง)
+   * - งานระดับสมาชิก (`link-members`/`unlink-members`) เก็บ **id ฝั่ง LINE** เพราะคำถามหลัง
+   *   เกิดเหตุคือ "ตอนนี้ใครยังถือเมนูตัวไหนอยู่" ซึ่งเทียบกับคอลัมน์ `linkedRichMenuId` ของแถว
+   *   สมาชิกตรง ๆ ค่าที่บันทึกไว้จึงต้องเป็นค่าเดียวกับในคอลัมน์นั้น ไม่ใช่ค่าที่ต้องแปลงอีกทอด
+   */
   richMenuId: string | null
   channelId: string
   before: unknown

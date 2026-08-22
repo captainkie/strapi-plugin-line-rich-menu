@@ -114,7 +114,10 @@ describe('runTick', () => {
         update: async () => undefined,
       },
       lock: { claim: async () => true, release: async () => undefined },
-      menus: { findOne: async (id: string) => (id === 'm1' ? { channelId: 'ch1' } : null) },
+      // เมนูของจริงมี lineRichMenuId เสมอเมื่อ publish แล้ว — ของปลอมเดิมไม่มีฟิลด์นี้ ทำให้
+      // เทสต์นี้ปักค่า 'm1' (id ของแถวในฐานข้อมูล) ไว้เป็นสิ่งที่ส่งให้ LINE ซึ่งเป็นบั๊กจริงใน
+      // scheduler ไม่ใช่พฤติกรรมที่ต้องการ — สิ่งที่ต้องเดินทางไปถึง bulkLink คือ id ที่ LINE ออกให้
+      menus: { findOne: async (id: string) => (id === 'm1' ? { channelId: 'ch1', lineRichMenuId: 'line-rm-1' } : null) },
       members: {
         findMany: async () => memberRows,
         update: async (id: string, patch: unknown) => { updateCalls.push({ id, patch }) },
@@ -127,7 +130,7 @@ describe('runTick', () => {
     const report = await runTick(strapi, services as never)
 
     expect(report).toMatchObject({ due: 1, claimed: 1, done: 1, failed: 0 })
-    expect(bulkLinkCalls).toEqual([{ richMenuId: 'm1', userIds: [`U${'a'.repeat(32)}`] }])
+    expect(bulkLinkCalls).toEqual([{ richMenuId: 'line-rm-1', userIds: [`U${'a'.repeat(32)}`] }])
     expect(updateCalls).toHaveLength(1)
   })
 })

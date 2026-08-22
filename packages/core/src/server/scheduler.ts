@@ -153,6 +153,15 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
           )
         }
 
+        // id ที่ LINE ออกให้ ไม่ใช่ id ของแถวเมนูในฐานข้อมูลเรา — เดิมตรงนี้ส่ง `row.richMenuId`
+        // (ตัวเดียวกับที่ใช้ `menus.findOne` บรรทัดบน) ซึ่งพังสองชั้น: LINE ปฏิเสธ id ที่ตัวเอง
+        // ไม่เคยออก และค่าเดียวกันนั้นถูกประทับลง `linkedRichMenuId` ของสมาชิกทุกคน ทำให้ฝั่ง
+        // unlink ที่เลือกคนจาก `linkedRichMenuId = menu.lineRichMenuId` หาไม่เจอสักคน ของปลอมใน
+        // เทสต์รับพารามิเตอร์นี้เป็น `_richMenuId` แล้วทิ้งทุกตัว บั๊กจึงอยู่รอดมาสามรอบรีวิว
+        const lineRichMenuId = menu.lineRichMenuId
+        // เมนูถูก unpublish หลังงานถูกตั้ง — ไม่มี id ให้ผูกใครได้ เหมือน case 'unlink-members'
+        if (lineRichMenuId === null) return
+
         const chunkDeps: LinkMemberChunkDeps = { client: ops.client, members: membersRepo, now: deps.now }
         let cursor = row.cursor
 
@@ -163,7 +172,7 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
         // ว่าเคยส่งไปแล้ว — ไม่ใช่แค่ช้า แต่เป็นบั๊กที่ตรวจไม่ออกจนกว่าจะมีคนสังเกตว่าโดนส่งซ้ำ
         for (;;) {
           const result = await linkMemberChunk(chunkDeps, {
-            richMenuId: row.richMenuId,
+            richMenuId: lineRichMenuId,
             channelId: menu.channelId,
             cursor,
           })
@@ -193,6 +202,7 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
           {
             actorId,
             action: 'unlink-members',
+            // id ฝั่ง LINE ไม่ใช่ id ของแถวเมนู — ธรรมเนียมของงานระดับสมาชิก (ดู AuditRow.richMenuId)
             richMenuId: lineRichMenuId,
             channelId: menu.channelId,
             before: null,
