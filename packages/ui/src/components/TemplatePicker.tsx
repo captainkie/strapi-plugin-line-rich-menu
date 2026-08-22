@@ -1,13 +1,25 @@
 import { useState } from 'react'
 import {
   SIZE_LADDER, TEMPLATES, canvasSizeChanged, renderTemplateSvg,
-  type RichMenuSizeName, type TemplateDef,
+  type RichMenuSize, type RichMenuSizeName, type TemplateDef,
 } from '@fosivo/line-rich-menu-core/browser'
 import { usePort } from '../port.js'
 import { LINE_GREEN, LINE_SELECTED_TINT } from '../styles.js'
 
 export interface TemplatePickerProps {
   currentKey: string | null
+  /**
+   * ขนาดผืนผ้าใบปัจจุบัน**จริง** — มาจาก `draft.bounds`/`draft.sizeName` ของ RichMenuEditor
+   * โดยตรง (`null` เมื่อ `bounds` ว่างเปล่า ยังไม่เคยเลือกอะไรเลย) ไม่ใช่ค่าที่ derive จาก
+   * `currentKey` เอง — ตั้งใจแยกออกจาก `currentKey` (ยังใช้แค่ไฮไลต์ปุ่มที่ "เลือกอยู่" ในตาราง)
+   * เพราะโหมดปรับผังเอง (`moveBounds`/`addArea`/`removeArea` ใน RichMenuEditor.tsx) เคลียร์
+   * `templateKey` เป็น `null` ทันทีที่ผู้ใช้แก้ผัง ทั้งที่ `bounds`/`sizeName` (ขนาดผืนผ้าใบจริง)
+   * ยังอยู่ — ถ้า willDropImage ยัง derive จาก currentKey ผังที่ปรับเองจะอ่านเป็น "ยังไม่มี
+   * ผืนผ้าใบ" (currentKey === null) เสมอ ทำให้เปลี่ยนไป template ขนาดเดิมเป๊ะแล้วถูกเตือน/ทิ้งรูป
+   * ทั้งที่ขนาดไม่ได้เปลี่ยนจริง — ต้องเป็น expression เดียวกับที่ RichMenuEditor.tsx ใช้ตัดสิน
+   * `prevSize` ใน `applyTemplate` เป๊ะ ไม่งั้นสองที่นี้จะตอบไม่ตรงกันอีก
+   */
+  currentSize: RichMenuSize | null
   /** ผู้ใช้ตั้ง action ไว้แล้วหรือยัง — ถ้าตั้งแล้วการเปลี่ยน template จะทิ้งมันไป */
   hasConfiguredActions: boolean
   /** มีรูปอัปโหลดไว้แล้วหรือยัง — ถ้ามีและ template ใหม่เปลี่ยนขนาดผืนผ้าใบ รูปเดิมจะไม่พอดีอีกต่อไป (สเปก §5.6.3) */
@@ -33,7 +45,7 @@ function sizesLabel(name: RichMenuSizeName): string {
  * ที่เขาเดินจากไปแล้ว — คลิกเดียวทิ้งงานทั้งหมด การ mount ใหม่ทุกครั้งคือสิ่งที่ทำให้ state สดเสมอ
  */
 export function TemplatePicker({
-  currentKey, hasConfiguredActions, hasImage, onApply, onClose,
+  currentKey, currentSize, hasConfiguredActions, hasImage, onApply, onClose,
 }: TemplatePickerProps) {
   const { ui, t, theme } = usePort()
   const [selected, setSelected] = useState<string | null>(currentKey)
@@ -43,9 +55,9 @@ export function TemplatePicker({
   // ต่างจาก action ตรงที่ถ้าขนาดเท่าเดิม รูปยังใช้ต่อได้ ไม่ต้องเสียของเดิม
   //
   // ต้องถามผ่าน canvasSizeChanged ของ core เท่านั้น — ที่นี่กับ RichMenuEditor ต้องตอบคำถามนี้
-  // ตรงกันเสมอ ไม่งั้นจะเตือนโดยไม่ทิ้ง หรือ (แย่กว่า) ทิ้งโดยไม่เตือน
+  // ตรงกันเสมอ ไม่งั้นจะเตือนโดยไม่ทิ้ง หรือ (แย่กว่า) ทิ้งโดยไม่เตือน `currentSize` มาจาก prop
+  // (ขนาดผืนผ้าใบจริงของ draft) ไม่ใช่ derive จาก currentKey เอง — ดูคอมเมนต์เต็มที่ props ด้านบน
   const nextSize = selected === null ? null : TEMPLATES[selected]?.size ?? null
-  const currentSize = currentKey === null ? null : TEMPLATES[currentKey]?.size ?? null
   const willDropImage = hasImage && nextSize !== null && canvasSizeChanged(currentSize, nextSize)
 
   const apply = () => {
