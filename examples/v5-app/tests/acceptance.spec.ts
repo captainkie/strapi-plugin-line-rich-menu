@@ -218,13 +218,30 @@ test.describe('เส้นทางหลัก', () => {
     const rows = await list.json()
     expect(rows).toHaveLength(1)
     // ทั้งค่า ไม่ใช่ objectContaining — ฟิลด์ที่หายไปคือ regression ที่เทสต์นี้มีไว้จับ (S4)
-    expect({ ...rows[0], updatedAt: typeof rows[0].updatedAt }).toEqual({
+    // `imageUrl` เป็นชื่อไฟล์ที่ upload provider ตั้งเอง (มีแฮชต่อท้าย) จึงเทียบด้วยชนิดเหมือน
+    // `updatedAt` — และการเทียบชนิดที่นี่มีความหมายจริง ไม่ใช่การยอมแพ้: `null` เป็น `'object'`
+    // ด่านนี้จึงแดงทันทีถ้าเมนูที่มีรูปกลับได้ `imageUrl: null` ซึ่งเป็นรูปแบบที่หน้ารายการพังพอดี
+    expect({
+      ...rows[0],
+      updatedAt: typeof rows[0].updatedAt,
+      imageUrl: typeof rows[0].imageUrl,
+    }).toEqual({
       id: menu.id,
       title: 'เมนูหลัก',
       status: 'published',
       channelId,
       aliasId: 'main',
       updatedAt: 'string',
+      // ห้าฟิลด์ล่างนี้คือสิ่งที่หน้ารายการแบบ LINE วาดออกมา — ภาพย่อ (size + areas),
+      // คอลัมน์ action (areas) และคอลัมน์ช่วงเวลา ถ้าหายไปหน้าจอจะว่างโดยไม่มีอะไรพัง
+      size: 'large',
+      areas: [{
+        bounds: { x: 0, y: 0, width: 2500, height: 1686 },
+        action: { type: 'message', text: 'สวัสดี' },
+      }],
+      imageUrl: 'string',
+      startAt: null,
+      endAt: null,
     })
   })
 
