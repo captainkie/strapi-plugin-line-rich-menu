@@ -457,3 +457,383 @@ describe('menus controller > find — DTO ที่หน้ารายกา�
     expect(ctx.body).toMatchObject({ imageUrl: '/uploads/main.png' })
   })
 })
+
+/**
+ * Task 9 — activate/deactivate/sync/audience/verify
+ *
+ * `fakeStrapi()` ที่ใช้ทั้งไฟล์ด้านบนมี `documents().findMany` ที่**เมิน filters ทั้งหมด**
+ * (คืนทั้งตารางเสมอ) — เทสต์เดิมไม่เคยพึ่งพฤติกรรม filter จริงเพราะไม่มีตัวไหนพา schedule/member
+ * ผ่าน scheduler ทั้งเป็น ๆ งานนี้ต้อง (1) หาแถว link-members ที่ state:'failed' ของเมนูที่ระบุ
+ * โดยเฉพาะ (ไม่ใช่แถวแรกในตารางเฉย ๆ) และ (2) ให้ scheduler จริงของ core คัด pending/running
+ * ถูกต้อง — ต้อง fake ที่ filter จริง ไม่ใช่ตัวเดิม จึงแยก fakeMembersStrapi ไว้ต่างหาก
+ * (knex ของ lock แยกเป็นอีกก้อนหนึ่งเหมือน container.test.ts — ไม่แตะ `rows` เดียวกับ documents()
+ * เจตนา เพราะ lock query จริงยิงผ่าน raw knex คนละทางกับ document service สิ่งที่เทสต์พวกนี้
+ * ตรวจคือผลลัพธ์ของ documents() table ไม่ใช่ internal ของ lock ซึ่ง container.test.ts คุมอยู่แล้ว)
+ */
+function matchesFilter(actual: unknown, want: unknown): boolean {
+  if (want !== null && typeof want === 'object' && !Array.isArray(want)) {
+    const spec = want as Record<string, unknown>
+    if ('documentId' in spec) {
+      return (actual as Record<string, unknown> | null | undefined)?.['documentId'] === spec['documentId']
+    }
+    if ('$gt' in spec) return typeof actual === 'string' && actual > String(spec['$gt'])
+    return false
+  }
+  return actual === want
+}
+
+function fakeMembersStrapi(rows: Record<string, Record<string, unknown>[]> = {}) {
+  const table = (uid: string) => (rows[uid] ??= [])
+  const knexBuilder = (): unknown => {
+    const builder = {
+      where() { return builder },
+      whereIn() { return builder },
+      andWhere(group: (b: unknown) => void) {
+        group({ whereNull: () => ({ orWhere: () => undefined }) })
+        return builder
+      },
+      async update() { return 1 },
+    }
+    return builder
+  }
+
+  return {
+    log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    config: {
+      get: <T>(path: string, fallback?: T) =>
+        (path === 'server.app.keys' ? (['app-key-one-that-is-long-enough'] as unknown as T) : (fallback as T)),
+    },
+    dirs: { static: { public: '/tmp' } },
+    plugin: (name: string) =>
+      (name === 'upload'
+        ? { service: () => ({ findOne: async () => null, upload: async () => [{ id: 900 }] }) }
+        : { service: () => ({}), contentType: () => ({}) }),
+    db: {
+      connection: () => knexBuilder(),
+      transaction: async <T>(fn: () => Promise<T>): Promise<T> => {
+        const snapshot = Object.fromEntries(
+          Object.entries(rows).map(([uid, entries]) => [uid, entries.map((row) => ({ ...row }))]),
+        )
+        try {
+          return await fn()
+        } catch (error) {
+          for (const uid of Object.keys(rows)) delete rows[uid]
+          Object.assign(rows, snapshot)
+          throw error
+        }
+      },
+    },
+    cron: { add: vi.fn() },
+    admin: { services: { permission: { actionProvider: { registerMany: async () => {} } } } },
+    documents: (uid: string) => ({
+      findMany: async (params?: { filters?: Record<string, unknown>; sort?: string; limit?: number }) => {
+        let result = table(uid).filter((row) =>
+          Object.entries(params?.filters ?? {}).every(([key, want]) => matchesFilter(row[key], want)))
+        if (params?.sort !== undefined) {
+          const [field, dir] = params.sort.split(':')
+          result = [...result].sort((a, b) => {
+            const av = String(a[field!] ?? '')
+            const bv = String(b[field!] ?? '')
+            return dir === 'desc' ? (av < bv ? 1 : -1) : (av > bv ? 1 : -1)
+          })
+        }
+        return params?.limit === undefined ? result : result.slice(0, params.limit)
+      },
+      findOne: async ({ documentId }: { documentId: string }) =>
+        table(uid).find((row) => row['documentId'] === documentId) ?? null,
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { documentId: `doc${table(uid).length + 1}`, ...data }
+        table(uid).push(row)
+        return row
+      },
+      update: async ({ documentId, data }: { documentId: string; data: Record<string, unknown> }) => {
+        const row = table(uid).find((candidate) => candidate['documentId'] === documentId)!
+        Object.assign(row, data)
+        return row
+      },
+      delete: async ({ documentId }: { documentId: string }) => {
+        rows[uid] = table(uid).filter((row) => row['documentId'] !== documentId)
+        return { documentId }
+      },
+    }),
+  } as unknown as StrapiV5
+}
+
+/** สร้าง channel จริงผ่าน controller เพื่อให้ token ถูกปิดผนึกจริง — withSecrets().findOne ต้องถอดได้ */
+async function seedAudienceChannel(strapi: StrapiV5, suffix: string): Promise<string> {
+  const ctx = makeCtx({
+    request: { body: { name: 'ร้าน', channelId: `ch000000000000000000${suffix}`, channelAccessToken: 'a-token-long-enough-1234' } },
+  })
+  await controllers.channels({ strapi }).create(ctx)
+  return (ctx.body as { id: string }).id
+}
+
+function audienceMenuFixture(id: string, channelId: string, over: Record<string, unknown> = {}) {
+  return {
+    documentId: id, name: 'เมนูสมาชิก', size: 'large', chatBarText: '', chatBarMode: 'default',
+    selected: true, templateKey: null, areas: [], areaImages: [],
+    status: 'draft', lineRichMenuId: null, channel: { documentId: channelId },
+    updatedAt: '2026-01-01T00:00:00.000Z', ...over,
+  }
+}
+
+describe('members controller — activate / sync', () => {
+  it('activate ต้องการเมนูที่ publish แล้ว — draft ตอบ 409 ไม่ใช่ 500', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '01')
+    rows[UID.menu] = [audienceMenuFixture('m-draft', channelId)]
+
+    const ctx = makeCtx({ params: { id: 'm-draft' } })
+    await controllers.members({ strapi }).activate(ctx)
+
+    expect(ctx.status).toBe(409)
+    expect(ctx.body).toMatchObject({ error: { code: 'menu_not_ready' } })
+  })
+
+  it('activate ตั้ง memberRichMenuId ของ channel และสร้างงาน link-members', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '02')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.schedule] = []
+    // ไม่มีสมาชิกเลย — linkMemberChunk คืนทันทีโดยไม่มี network call จริงเกิดขึ้นระหว่าง runTick
+    rows[UID.member] = []
+
+    const ctx = makeCtx({ params: { id: 'm1' } })
+    await controllers.members({ strapi }).activate(ctx)
+
+    const channelRow = () => rows[UID.channel]!.find((r) => r['documentId'] === channelId)!
+    const scheduleRows = () => rows[UID.schedule]!
+
+    expect(channelRow()['memberRichMenuId']).toBe('line-rm-1')
+    expect(scheduleRows()).toContainEqual(expect.objectContaining({ op: 'link-members', cursor: null }))
+  })
+
+  /**
+   * ตาม ruling ของ task-4/9 ledger — งานที่ตายกลางทาง (exception ระหว่างวิ่ง ไม่ใช่ crash)
+   * ปล่อยแถวเป็น 'failed' พร้อม cursor ที่ทำไปแล้ว กดปุ่มซ้ำต้อง "ไปต่อ" ไม่ใช่ "เริ่มใหม่"
+   * เทสต์นี้คือด่านที่พิสูจน์ข้อนั้นโดยตรง ไม่ใช่แค่ผลลัพธ์ปลายทางเดียวกันโดยบังเอิญ
+   */
+  it('activate ใช้แถว link-members ที่ failed เดิมซ้ำ พร้อม cursor เดิม — ไม่สร้างแถวใหม่ cursor:null', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '03')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.schedule] = [{
+      documentId: 'sched1', richMenu: { documentId: 'm1' }, op: 'link-members', state: 'failed',
+      cursor: 'm00499', runAt: '2020-01-01T00:00:00.000Z', lockedBy: null, lockedAt: null,
+      lastError: 'line_server_error',
+    }]
+    rows[UID.member] = []
+
+    const ctx = makeCtx({ params: { id: 'm1' } })
+    await controllers.members({ strapi }).activate(ctx)
+
+    const linkRows = rows[UID.schedule]!.filter((r) => r['op'] === 'link-members')
+    expect(linkRows).toHaveLength(1)
+    expect(linkRows[0]).toMatchObject({ documentId: 'sched1', cursor: 'm00499', state: 'pending' })
+  })
+
+  it('sync ทำงานเหมือน activate ทุกประการ — เมนูที่ active อยู่แล้วก็ยังตั้ง memberRichMenuId ได้', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '04')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.schedule] = []
+    rows[UID.member] = []
+
+    const ctx = makeCtx({ params: { id: 'm1' } })
+    await controllers.members({ strapi }).sync(ctx)
+
+    const channelRow = rows[UID.channel]!.find((r) => r['documentId'] === channelId)!
+    expect(channelRow['memberRichMenuId']).toBe('line-rm-1')
+  })
+})
+
+describe('members controller — deactivate', () => {
+  it('deactivate ล้าง memberRichMenuId', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '10')
+    ;(rows[UID.channel]![0] as Record<string, unknown>)['memberRichMenuId'] = 'line-rm-1'
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.member] = []
+
+    const ctx = makeCtx({ params: { id: 'm1' } })
+    await controllers.members({ strapi }).deactivate(ctx)
+
+    const channelRow = rows[UID.channel]!.find((r) => r['documentId'] === channelId)!
+    expect(channelRow['memberRichMenuId']).toBeNull()
+  })
+
+  it('เมนูไม่มีอยู่จริงตอบ 404 menu_not_found', async () => {
+    const strapi = fakeMembersStrapi({})
+    const ctx = makeCtx({ params: { id: 'nope' } })
+    await controllers.members({ strapi }).deactivate(ctx)
+    expect(ctx.status).toBe(404)
+  })
+
+  it('memberRichMenuId เป็น null อยู่แล้ว (ปิดไปแล้ว) — สำเร็จโดยไม่ยิง LINE เลย', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '11')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const ctx = makeCtx({ params: { id: 'm1' } })
+    await controllers.members({ strapi }).deactivate(ctx)
+
+    expect(ctx.status).toBe(204)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+
+  /**
+   * ต้องพิสูจน์สองอย่างพร้อมกัน — ใครที่ยัง linked อยู่กับเมนูนี้ถูกปลดจริง (ไม่ใช่แค่ channel
+   * ถูกล้าง) และคนที่ linked กับเมนูอื่นอยู่ (line-rm-9) ต้องไม่ถูกแตะเลย — เดียวกับที่ Task 3
+   * เคยจับได้ว่า mock ตัวหนึ่งเคย "unlink ด้วยการล้างทั้งก้อน" ผิดความหมายของ bulk/unlink
+   */
+  it('ปลด LINE user ทุกคนที่ยัง linked กับเมนูนี้ ไม่แตะคนที่ linked กับเมนูอื่น', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '12')
+    ;(rows[UID.channel]![0] as Record<string, unknown>)['memberRichMenuId'] = 'line-rm-1'
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.member] = [
+      { documentId: 'mem1', channel: { documentId: channelId }, lineUserId: `U${'a'.repeat(32)}`, linkedRichMenuId: 'line-rm-1', linkedAt: '2026-01-01T00:00:00.000Z' },
+      { documentId: 'mem2', channel: { documentId: channelId }, lineUserId: `U${'b'.repeat(32)}`, linkedRichMenuId: 'line-rm-1', linkedAt: '2026-01-01T00:00:00.000Z' },
+      { documentId: 'mem3', channel: { documentId: channelId }, lineUserId: `U${'c'.repeat(32)}`, linkedRichMenuId: 'line-rm-9', linkedAt: '2026-01-01T00:00:00.000Z' },
+    ]
+
+    const calls: { url: string; body: string }[] = []
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      calls.push({ url: String(url), body: init?.body === undefined ? '' : String(init.body) })
+      return new Response('{}', { status: 202 })
+    })
+
+    const ctx = makeCtx({ params: { id: 'm1' } })
+    await controllers.members({ strapi }).deactivate(ctx)
+    fetchSpy.mockRestore()
+
+    expect(ctx.status).toBe(204)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://api.line.me/v2/bot/richmenu/bulk/unlink')
+    expect((JSON.parse(calls[0]!.body) as { userIds: string[] }).userIds.sort()).toEqual(
+      [`U${'a'.repeat(32)}`, `U${'b'.repeat(32)}`].sort(),
+    )
+
+    const byId = (id: string) => rows[UID.member]!.find((m) => m['documentId'] === id)!
+    expect(byId('mem1')['linkedRichMenuId']).toBeNull()
+    expect(byId('mem2')['linkedRichMenuId']).toBeNull()
+    expect(byId('mem3')['linkedRichMenuId']).toBe('line-rm-9')
+
+    const channelRow = rows[UID.channel]!.find((r) => r['documentId'] === channelId)!
+    expect(channelRow['memberRichMenuId']).toBeNull()
+
+    const auditRows = rows[UID.audit] ?? []
+    expect(auditRows).toContainEqual(expect.objectContaining({ action: 'unlink-members', result: 'success' }))
+  })
+})
+
+describe('members controller — audience', () => {
+  it('audience คืนทั้ง default ของ LINE และเมนูของสมาชิก', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '20')
+    ;(rows[UID.channel]![0] as Record<string, unknown>)['memberRichMenuId'] = 'line-rm-1'
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ richMenuId: 'line-rm-9' }), { status: 200 }))
+    const ctx = makeCtx({ params: { id: channelId } })
+    await controllers.members({ strapi }).audience(ctx)
+
+    expect(ctx.body).toEqual({ defaultRichMenuId: 'line-rm-9', memberRichMenuId: 'line-rm-1' })
+    fetchSpy.mockRestore()
+  })
+
+  it('channel ไม่มีเมนูสมาชิกเลย — memberRichMenuId เป็น null', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '21')
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('{}', { status: 404 }))
+    const ctx = makeCtx({ params: { id: channelId } })
+    await controllers.members({ strapi }).audience(ctx)
+
+    expect(ctx.body).toEqual({ defaultRichMenuId: null, memberRichMenuId: null })
+    fetchSpy.mockRestore()
+  })
+})
+
+describe('members controller — verify', () => {
+  it('verify คืน richMenuId ที่ user ถืออยู่จริงจาก LINE ด้วยการเรียกครั้งเดียว', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '30')
+    rows[UID.member] = [{
+      documentId: 'mem1', channel: { documentId: channelId }, lineUserId: `U${'a'.repeat(32)}`,
+      linkedRichMenuId: null, linkedAt: null,
+    }]
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ richMenuId: 'line-rm-1' }), { status: 200 }))
+    const ctx = makeCtx({ params: { id: 'mem1' } })
+    await controllers.members({ strapi }).verify(ctx)
+
+    expect(ctx.body).toEqual({ richMenuId: 'line-rm-1' })
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    fetchSpy.mockRestore()
+  })
+
+  it('user ไม่ได้ผูกเมนูไหนบน LINE เลย (404 จาก LINE) — คืน richMenuId: null ไม่ใช่โยน', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '31')
+    rows[UID.member] = [{
+      documentId: 'mem1', channel: { documentId: channelId }, lineUserId: `U${'a'.repeat(32)}`,
+      linkedRichMenuId: null, linkedAt: null,
+    }]
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 404 }))
+    const ctx = makeCtx({ params: { id: 'mem1' } })
+    await controllers.members({ strapi }).verify(ctx)
+    fetchSpy.mockRestore()
+
+    expect(ctx.body).toEqual({ richMenuId: null })
+  })
+
+  it('member ไม่มีอยู่จริงตอบ 404 member_not_found', async () => {
+    const strapi = fakeMembersStrapi({})
+    const ctx = makeCtx({ params: { id: 'nope' } })
+    await controllers.members({ strapi }).verify(ctx)
+    expect(ctx.status).toBe(404)
+    expect((ctx.body as { error: { code: string } }).error.code).toBe('member_not_found')
+  })
+})
+
+/**
+ * สเปก §11.4 — เทสต์นี้ล้อกับ `route ทุกเส้น` ด้านบนแต่เจาะจงเส้นใหม่ 5 เส้นของ task นี้เพื่อ
+ * ให้ regression ที่แคบกว่าอ่านชัดกว่า "หนึ่งใน N เส้นทั้งหมดผิด"
+ *
+ * `expect(route, ...).toBeDefined()` ต้องมาก่อนเช็ค policy เสมอ — ไม่งั้นถ้าเผลอลบ route ออกจาก
+ * ตารางไปทั้งแถว `.find()` จะคืน undefined แล้ว `route!.config` ข้างล่างจะ throw เป็น TypeError
+ * ที่อ่านไม่ออกว่าจริง ๆ แล้ว "route หายไป" ไม่ใช่ "permission ผิด" — ยืนยันจริงว่าด่านนี้จับ route
+ * ที่หายไปได้ (ไม่ใช่แค่ permission ผิด) ด้วยการลบ path หนึ่งออกจาก `admin.routes` ชั่วคราวแล้ว
+ * รันเทสต์นี้แยก ดูรายงาน task-9 สำหรับผลจริง
+ */
+describe('members controller — เส้นใหม่ทั้งหมดต้องการสิทธิ์ publish (สเปก §11.4)', () => {
+  it('ทุกเส้นใหม่ต้องการสิทธิ์ publish', () => {
+    const paths = [
+      '/menus/:id/audience/activate', '/menus/:id/audience/deactivate',
+      '/menus/:id/audience/sync', '/channels/:id/audience', '/members/:id/verify',
+    ]
+    for (const path of paths) {
+      const route = admin.routes.find((r) => r.path === path)
+      expect(route, `${path} ไม่มีใน route table`).toBeDefined()
+      const policies = route!.config.policies as { name: string; config: { actions: string[] } }[]
+      expect(policies[0]!.config.actions).toEqual([PERMISSION.publish])
+    }
+  })
+})
