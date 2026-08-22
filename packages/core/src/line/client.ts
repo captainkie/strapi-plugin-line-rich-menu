@@ -192,7 +192,11 @@ export class LineClient {
     })
   }
 
+  /** เพดานเดียวกับ bulkLink — LINE ระบุไว้ตรง ๆ ว่า bulk/unlink ก็รับสูงสุด 500 userId เท่ากัน */
   async bulkUnlink(userIds: readonly string[]): Promise<void> {
+    if (userIds.length > MAX_BULK_USER_IDS) {
+      throw new Error(`bulk unlink accepts at most ${MAX_BULK_USER_IDS} user ids`)
+    }
     await this.#send({
       method: 'POST',
       url: endpoints.bulkUnlink(this.#base),
@@ -223,9 +227,15 @@ export class LineClient {
    * batch จริงมีโควตาแค่ 3 คำขอ/ชั่วโมงต่อ account — resumeRequestKey ให้ปลอดภัยเวลาต้องยิงซ้ำ
    * (เช่น timeout ไม่รู้ผล) โดยไม่เสียโควตาซ้ำสอง
    *
-   * LINE ไม่ส่ง request id มาใน body — มันมาทาง header `x-line-request-id` เท่านั้น
-   * ถ้า header ไม่มี (เช่น mock บางตัวไม่ได้ตั้งไว้) คืน null แทนที่จะโยน เพราะ progress/batch
-   * เป็นการ poll แบบ on-demand อยู่แล้ว ไม่มี request id ก็แค่ poll ไม่ได้ ไม่ใช่ความล้มเหลวของ batch เอง
+   * request id อ่านจาก response header `x-line-request-id` — **ไม่ใช่ข้อเท็จจริงที่ยืนยันแล้ว**
+   * LINE reference ของ POST .../richmenu/batch ไม่เคยบอกรูป response ตรง ๆ ว่า request id (ที่
+   * progress/batch ต้องใช้ไปโพล) มาจากไหน สิ่งที่มีคือ narrowcast progress API ตัวอื่นที่ LINE
+   * เอกสารไว้ชัดเจนว่าอ่าน request id จาก header เดียวกันนี้ — นี่คือการตีความที่มีหลักฐานสนับสนุน
+   * ดีที่สุดเท่าที่หาได้ ไม่ใช่สเปกที่ระบุตรงสำหรับ endpoint นี้
+   *
+   * เพราะไม่ verified: ผู้เรียกห้ามถือ progress เป็นเงื่อนไขความสำเร็จของ batch เอง — request id
+   * ที่เป็น null (header หายไป) ต้องแปลว่า "โพลไม่ได้" เท่านั้น ไม่ใช่ "batch ล้มเหลว" ปฏิบัติการที่ใช้
+   * batch (เช่น unlink-all ของ Task 12) ต้องถือว่าสำเร็จได้แม้อ่าน progress ไม่ได้เลย
    */
   async batchControl(operations: BatchOperation[], resumeRequestKey: string): Promise<string | null> {
     const res = await this.#send({

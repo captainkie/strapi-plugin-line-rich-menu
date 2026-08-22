@@ -192,6 +192,13 @@ describe('LineClient เมนูสำหรับสมาชิก (bulk/batc
     await expect(client.bulkLink('rm-1', tooMany)).rejects.toThrow(/500/)
   })
 
+  // ขอบเขตพอดี 500 ต้องผ่าน — กันการเผลอเขียน >= แทน > ตอนเช็คเพดาน
+  it('bulkLink รับ 500 userId พอดีได้ ไม่ปฏิเสธที่ขอบเขต', async () => {
+    const client = clientWith(async () => new Response('{}', { status: 202 }))
+    const exactly500 = Array.from({ length: 500 }, (_, i) => `U${i}`)
+    await expect(client.bulkLink('rm-1', exactly500)).resolves.toBeUndefined()
+  })
+
   it('bulkUnlink ยิง POST /v2/bot/richmenu/bulk/unlink พร้อม userIds', async () => {
     const calls: { url: string; body: unknown }[] = []
     const client = clientWith(async (url, init) => {
@@ -201,6 +208,13 @@ describe('LineClient เมนูสำหรับสมาชิก (bulk/batc
     await client.bulkUnlink(['U1', 'U2'])
     expect(calls[0]!.url).toBe('https://api.line.me/v2/bot/richmenu/bulk/unlink')
     expect(calls[0]!.body).toEqual({ userIds: ['U1', 'U2'] })
+  })
+
+  // LINE ระบุไว้ตรง ๆ ว่า bulk/unlink รับสูงสุด 500 userId เท่ากับ bulk/link — เพดานเดียวกัน
+  it('bulkUnlink ปฏิเสธเกิน 500 ก่อนยิง เหมือน bulkLink', async () => {
+    const client = clientWith(async () => new Response('{}', { status: 202 }))
+    const tooMany = Array.from({ length: 501 }, (_, i) => `U${i}`)
+    await expect(client.bulkUnlink(tooMany)).rejects.toThrow(/500/)
   })
 
   it('getUserRichMenu คืน null เมื่อ LINE ตอบ 404 ไม่ใช่โยน', async () => {
