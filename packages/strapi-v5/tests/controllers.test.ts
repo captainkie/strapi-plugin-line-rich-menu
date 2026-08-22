@@ -21,6 +21,22 @@ function makeCtx(over: Partial<AdminContext> = {}): AdminContext {
 /** route table ไม่ต้องการ strapi จริง — controller factory ถูกเรียกเพื่อดูว่ามีเมธอดอยู่เท่านั้น */
 const strapi = {} as StrapiV5
 
+// Task 20 item 3 (strapi-v5 H1) — v4 มี `deepContains` + สองแอสเสิร์ชันนี้อยู่แล้วใน
+// tests/controllers.test.ts (บรรทัด 34, 118, 129-130) แต่ v5 ไม่มีเลยสักบรรทัด: ไม่มีเทสต์ไหนใน
+// v5 ตรวจ response body ของ channels เลยแม้แต่ตัวเดียว ทั้งที่ `toRow` ของ `createChannelRepo`
+// (repo.ts) อ่าน channelAccessToken/channelSecret ทุกครั้งที่อ่านแถว — สิ่งเดียวที่กันไม่ให้มันหลุด
+// ออกไปคือ `toChannelRecord` ใน packages/core ซึ่งเป็นฟังก์ชันร่วมกับ v4 แปลว่า regression ใน
+// ฟังก์ชันร่วมนี้ตัวเดียวกัน มองไม่เห็นจาก v5 เลย ต่อให้ v4 แดงก็ตาม (พิสูจน์จริงในคอมมิตนี้ — ดูข้อความ
+// commit สำหรับผล red/green ตอนปลูก leak ทดสอบใน toChannelRecord)
+const TOKEN = 'aBcDeFgH1234567890-channel-access-token-WXYZ'
+
+function deepContains(value: unknown, needle: string): boolean {
+  if (typeof value === 'string') return value.includes(needle)
+  if (Array.isArray(value)) return value.some((v) => deepContains(v, needle))
+  if (value !== null && typeof value === 'object') return Object.values(value).some((v) => deepContains(v, needle))
+  return false
+}
+
 describe('route ทุกเส้น (สเปก §11.4)', () => {
   it('เป็น type: admin ทั้งชุด ไม่มีข้อยกเว้น', () => {
     expect(admin.type).toBe('admin')
@@ -102,6 +118,34 @@ function fakeStrapi(rows: Record<string, Record<string, unknown>[]> = {}) {
     }),
   } as unknown as StrapiV5
 }
+
+describe('channels controller', () => {
+  it('สร้าง channel แล้วคืน DTO ที่ไม่มี token ไม่ว่าจะซอกไหน', async () => {
+    const context = makeCtx({
+      request: { body: { name: 'ร้าน', channelId: 'ch0000000000000000000001', channelAccessToken: TOKEN } },
+    })
+
+    await controllers.channels({ strapi: fakeStrapi() }).create(context)
+
+    expect(context.body).toMatchObject({ name: 'ร้าน', accessTokenPreview: '••••••••WXYZ' })
+    expect(deepContains(context.body, TOKEN)).toBe(false)
+  })
+
+  it('list ไม่มี token และไม่มี ciphertext', async () => {
+    const strapi = fakeStrapi()
+    await controllers.channels({ strapi }).create(makeCtx({
+      request: { body: { name: 'ร้าน', channelId: 'ch0000000000000000000001', channelAccessToken: TOKEN } },
+    }))
+
+    const context = makeCtx()
+    await controllers.channels({ strapi }).find(context)
+
+    expect(deepContains(context.body, TOKEN)).toBe(false)
+    // 'v1.' คือ prefix ของ envelope ciphertext (ดู packages/core/src/crypto.ts) — หลุดออกมาก็แปลว่า
+    // ciphertext ทั้งก้อนโดนส่งออกไปดิบ ๆ ไม่ใช่แค่ plaintext ของ token เอง
+    expect(deepContains(context.body, 'v1.')).toBe(false)
+  })
+})
 
 describe('guard แปลง error เป็น response ที่มี code เสมอ', () => {
   it('ZodError กลายเป็น 400 validation_failed พร้อม issues ไม่ใช่ 500 เปล่า ๆ', async () => {
