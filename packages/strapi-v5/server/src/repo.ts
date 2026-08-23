@@ -45,6 +45,26 @@ const fileIdOf = (value: unknown): number | null => {
 const orNull = <T>(value: unknown): T | null => (value === undefined || value === null ? null : value as T)
 
 /**
+ * `null` ที่เก็บอยู่จริงในคอลัมน์ `audience` ต้องอ่านออกมาเป็น `'all'`
+ *
+ * `default: 'all'` ในสคีมา (content-types/rich-menu.ts) **ไม่เคย** กลายเป็น DEFAULT ของฐานข้อมูล —
+ * Strapi ใส่ค่านั้นให้ตอน *สร้างแถว* ผ่าน entity/document service เท่านั้น คอลัมน์จริงเป็น
+ * `varchar(255)` ที่ nullable และไม่มี default ทั้งบน SQLite และ PostgreSQL 16 (วัดจากแอปที่
+ * อัปเกรดจริงทั้งสี่ขา — task-15-report.md §"Step 2" มี DDL ที่ introspect มาแปะไว้) แถวที่มีอยู่
+ * **ก่อน** คอลัมน์นี้ถูกเพิ่ม จึงถือ `NULL` ตลอดไป ไม่มีอะไรมาเติมให้
+ *
+ * `RichMenuRow['audience']` ประกาศว่าเป็น `'all' | 'members'` เท่านั้น การ cast ตรง ๆ จึงเป็น
+ * คำโกหกที่ขอบ: `null` เดินทะลุ type ที่บอกว่ามันเป็นไปไม่ได้ แล้วไปโผล่อีกสามชั้นถัดไปเป็น
+ * `400 validation_failed` บนฟิลด์ที่ผู้ใช้ไม่ได้แตะ (`z.enum([...]).optional()` ปฏิเสธ `null` —
+ * optional ไม่ใช่ nullable) แปลที่นี่ ซึ่งเป็นจุดเดียวที่ยังรู้ว่าค่านี้เพิ่งออกมาจากฐานข้อมูล
+ *
+ * คู่กับ backfill ตอนบูต (bootstrap.ts) ไม่ใช่แทนกัน: backfill ซ่อมแถวที่มีอยู่แล้วให้จบไปทีเดียว
+ * ส่วนตัวนี้ครอบแถวที่มาถึง *หลัง* บูต — restore, dump เก่า, หรือเครื่องมืออื่นที่เขียนตารางตรง ๆ
+ */
+const audienceOrAll = (value: unknown): RichMenuRow['audience'] =>
+  value === null || value === undefined ? 'all' : value as RichMenuRow['audience']
+
+/**
  * ตัวช่วยประกาศ repo หนึ่งตัว — คู่ขนานกับ `define` ใน packages/strapi-v4/src/server/repo.ts
  * ต่างกันแค่ว่า id เดินทางใน object พารามิเตอร์แทนที่จะเป็น argument ตัวที่สอง และไม่มี
  * `Number()` ที่ไหนเลย เพราะ `documentId` เป็นสตริงอยู่แล้วทั้งขาเข้าและขาออก (สเปก §6.2)
@@ -168,9 +188,9 @@ export function createMenuRepo(strapi: StrapiV5): Repo<RichMenuRow> {
         // `publishedAt` ในชั้น service คือคอลัมน์ `linePublishedAt` — ชื่อเดิมถูก Strapi จองไว้
         publishedAt: orNull<string>(entity['linePublishedAt']),
         lastError: orNull<string>(entity['lastError']),
-        // required + default 'all' ในสคีมา (content-types/rich-menu.ts) — ไม่ต้อง orNull เหมือน
-        // ฟิลด์ enum บังคับตัวอื่น (status, size, chatBarMode) ที่ cast ตรง ๆ ข้างบน
-        audience: entity['audience'] as RichMenuRow['audience'],
+        // ไม่ cast ตรง ๆ เหมือนฟิลด์ enum บังคับตัวอื่น (status, size, chatBarMode) ข้างบน —
+        // ดูเหตุผลเต็มที่ `audienceOrAll` ด้านบน: `required: true` กับ `default: 'all'` ไม่เคยถึง DDL
+        audience: audienceOrAll(entity['audience']),
         // Strapi เขียน updatedAt ให้เอง — `toData` จึงไม่มีทางเขียนกลับ และไม่ควรมี
         updatedAt: (entity['updatedAt'] as string | undefined) ?? '',
       }

@@ -95,6 +95,9 @@ const menuEntity = {
   lineRichMenuId: 'richmenu-a',
   linePublishedAt: '2026-08-20T00:00:00.000Z',
   lastError: null,
+  // 'members' ไม่ใช่ 'all' โดยตั้งใจ — Task 16 ทำให้ `toRow` แปลง null/undefined เป็น 'all'
+  // ถ้าฟิกซ์เจอร์ตัวนี้เป็น 'all' ด้วย เทสต์ข้างล่างจะเขียวเท่ากันไม่ว่าการแปลงนั้นจะกลืนค่าจริงทิ้งหรือไม่
+  audience: 'members',
   updatedAt: '2026-08-20T09:00:00.000Z',
 }
 
@@ -223,6 +226,7 @@ describe('menu repo', () => {
       lineRichMenuId: 'richmenu-a',
       publishedAt: '2026-08-20T00:00:00.000Z',
       lastError: null,
+      audience: 'members',
       updatedAt: '2026-08-20T09:00:00.000Z',
     })
   })
@@ -363,6 +367,9 @@ describe('menu repo', () => {
       areas: [], areaImages: [], imageFileId: null, normalizedFileId: null,
       normalizedMime: null, normalizedSize: null, aliasId: null,
       lineRichMenuId: null, publishedAt: null, lastError: null, templateKey: null,
+      // ค่าที่หายไปของคอลัมน์นี้ไม่ได้กลายเป็น null เหมือนตัวอื่นในบรรทัดบน — มันกลายเป็น 'all'
+      // (Task 16, `audienceOrAll` ใน repo.ts) เพราะ `RichMenuRow['audience']` ไม่มี null อยู่ในชนิด
+      audience: 'all',
       updatedAt: '',
     })
   })
@@ -860,5 +867,40 @@ describe('ImageStore', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 503 }))
     await expect(createImageStore(strapi).read(9)).rejects.toMatchObject({ code: 'menu_not_ready', reason: 'no_image' })
     fetchSpy.mockRestore()
+  })
+})
+
+/**
+ * Task 16 — แถวที่มีอยู่ก่อนคอลัมน์ `audience` ถูกเพิ่มเข้าตาราง ถือ `NULL` ตลอดไป
+ *
+ * `default: 'all'` บน content-type ไม่เคยกลายเป็น DEFAULT ของฐานข้อมูล Strapi ใส่ค่านั้นให้ตอน
+ * *สร้างแถว* เท่านั้น (วัดบน SQLite และ PostgreSQL 16 ทั้ง Strapi 4 และ 5 — task-15-report.md
+ * §"Step 2") เทสต์อื่นทั้งไฟล์ป้อน entity ที่ `audience` ถูกต้องอยู่แล้ว จึงไม่มีตัวไหนแตะเส้นนี้เลย
+ *
+ * นี่คือครึ่งขาอ่านของคู่ที่อีกครึ่งคือ `backfillLegacyAudience` (tests/bootstrap.test.ts) —
+ * คนละไฟล์ คนละของปลอม โดยตั้งใจ ตัวไหนพังต้องแดงคนละดวง ไม่ใช่ให้อีกตัวปิดให้
+ */
+describe('createMenuRepo — audience ของแถวที่เก่ากว่าคอลัมน์', () => {
+  const legacyEntity = (audience: unknown) => ({
+    documentId: 'mn0000000000000000000009', id: 7, name: 'เมนูเก่า',
+    channel: { documentId: 'ch0000000000000000000001', id: 10 },
+    size: 'large', chatBarText: 'x', chatBarMode: 'default', selected: true,
+    status: 'published', audience,
+  })
+
+  it("แถวที่ audience เป็น null อ่านออกมาเป็น 'all' ไม่ใช่ null ที่หลุดผ่าน type ที่บอกว่าเป็นไปไม่ได้", async () => {
+    const { strapi } = fakeStrapi({ findOne: legacyEntity(null) })
+    expect((await createMenuRepo(strapi).findOne('mn0000000000000000000009'))!.audience).toBe('all')
+  })
+
+  it('ขา findMany ต้องแปลงด้วย — หน้ารายการอ่านผ่านทางนี้ ไม่ใช่ findOne', async () => {
+    const { strapi } = fakeStrapi({ findMany: [legacyEntity(null), legacyEntity('members')] })
+    const rows = await createMenuRepo(strapi).findMany()
+    expect(rows.map((row) => row.audience)).toEqual(['all', 'members'])
+  })
+
+  it("'members' ต้องไม่ถูกกลืนเป็น 'all' ระหว่างทาง — การแปลงนี้ครอบแค่ค่าที่ไม่มี", async () => {
+    const { strapi } = fakeStrapi({ findOne: legacyEntity('members') })
+    expect((await createMenuRepo(strapi).findOne('mn0000000000000000000009'))!.audience).toBe('members')
   })
 })

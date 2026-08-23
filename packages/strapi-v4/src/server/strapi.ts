@@ -33,6 +33,22 @@ export interface LifecycleEvent {
   state?: Record<string, unknown>
 }
 
+/**
+ * Query Engine เท่าที่ adapter นี้ใช้จริง — v4 มี `strapi.db.query(uid)` ตัวเดียวกับ v5 เป๊ะ
+ * (`@strapi/database` แพ็กเกจเดียวกัน) แต่จนถึงตอนนี้ยังไม่มีใครในฝั่ง v4 ต้องใช้มันเลย
+ * ชั้น repo ทั้งชั้นเดินผ่าน `entityService` ซึ่งพูดทีละแถวเสมอ
+ *
+ * `updateMany` คืนจำนวนแถวที่ **ถูกแก้จริง** (`{ count }` มาจาก knex `.update()` ตรง ๆ ใน
+ * entity-manager) ไม่ใช่จำนวนแถวที่ where ตรง — ดู `backfillLegacyAudience` ใน bootstrap.ts
+ * ว่าทำไมตัวเลขนั้นถึงเป็นสิ่งเดียวที่แยก "ซ่อมไปแล้วสามแถว" ออกจาก "ไม่เจออะไรเลย" ได้
+ */
+export interface DbQuery {
+  updateMany(params: {
+    where: Record<string, unknown>
+    data: Record<string, unknown>
+  }): Promise<{ count: number }>
+}
+
 export type LifecycleSubscriber = {
   models: string[]
   beforeCreate?(event: LifecycleEvent): Promise<void>
@@ -55,6 +71,8 @@ export interface StrapiV4 {
   }
   db: {
     connection: unknown
+    /** Task 16 — `bootstrap.ts` ใช้ตัวนี้ backfill คอลัมน์ audience ของแถวที่มีมาก่อนคอลัมน์ */
+    query(uid: string): DbQuery
     /** Task 8 — `lifecycles.ts` ใช้ตัวนี้ผูก link/unlink สมาชิกเข้ากับ create/delete ของ line-member */
     lifecycles: { subscribe(subscriber: LifecycleSubscriber): void }
   }

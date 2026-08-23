@@ -35,6 +35,19 @@ export interface DocumentsApi {
 /** Query Engine เท่าที่ adapter นี้ใช้จริง — ดูเหตุผลที่ต้องมีมันเลยที่ `StrapiV5.db.query` */
 export interface DbQuery {
   findOne(params: { where: Record<string, unknown> }): Promise<unknown>
+  /**
+   * Task 16 — ชั้นเดียวที่แก้ได้ทีละหลายแถวโดยไม่ต้องอ่านมาก่อน `documents()` ไม่มีอะไรเทียบเท่าเลย
+   * (มีแต่ `update({ documentId })` ทีละใบ) และการวนอ่านทั้งตารางตอนบูตเพื่อซ่อมคอลัมน์เดียวคือ
+   * ราคาที่จ่ายทุกครั้งที่บูต ต่อให้ไม่มีอะไรต้องซ่อมเลย — ดู `backfillLegacyAudience` ใน bootstrap.ts
+   *
+   * คืนจำนวนแถวที่ **ถูกแก้จริง** (`{ count }` มาจาก knex `.update()` ตรง ๆ ใน entity-manager ของ
+   * `@strapi/database`) ไม่ใช่จำนวนแถวที่ where ตรง ซึ่งเป็นตัวเลขเดียวที่บอกได้ว่า backfill
+   * ทำงานหรือแค่ไม่เจออะไร
+   */
+  updateMany(params: {
+    where: Record<string, unknown>
+    data: Record<string, unknown>
+  }): Promise<{ count: number }>
 }
 
 /**

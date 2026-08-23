@@ -77,6 +77,9 @@ const menuEntity = {
   lineRichMenuId: 'richmenu-a',
   linePublishedAt: '2026-08-20T00:00:00.000Z',
   lastError: null,
+  // 'members' ไม่ใช่ 'all' โดยตั้งใจ — Task 16 ทำให้ `toRow` แปลง null/undefined เป็น 'all'
+  // ถ้าฟิกซ์เจอร์ตัวนี้เป็น 'all' ด้วย เทสต์ข้างล่างจะเขียวเท่ากันไม่ว่าการแปลงนั้นจะกลืนค่าจริงทิ้งหรือไม่
+  audience: 'members',
   updatedAt: '2026-08-20T09:00:00.000Z',
 }
 
@@ -142,6 +145,7 @@ describe('createMenuRepo', () => {
       lineRichMenuId: 'richmenu-a',
       publishedAt: '2026-08-20T00:00:00.000Z',
       lastError: null,
+      audience: 'members',
       updatedAt: '2026-08-20T09:00:00.000Z',
     })
   })
@@ -469,5 +473,38 @@ describe('round trip: ช่วงเวลาแสดงผล (startAt/endAt)
     expect(await readDisplayPeriod(schedules, '8')).toEqual({
       startAt: '2026-10-01T00:00:00.000Z', endAt: '2026-10-31T00:00:00.000Z',
     })
+  })
+})
+
+/**
+ * Task 16 — แถวที่มีอยู่ก่อนคอลัมน์ `audience` ถูกเพิ่มเข้าตาราง ถือ `NULL` ตลอดไป
+ *
+ * `default: 'all'` บน content-type ไม่เคยกลายเป็น DEFAULT ของฐานข้อมูล Strapi ใส่ค่านั้นให้ตอน
+ * *สร้างแถว* เท่านั้น (วัดบน SQLite และ PostgreSQL 16 ทั้ง Strapi 4 และ 5 — task-15-report.md
+ * §"Step 2") เทสต์อื่นทั้งไฟล์ป้อน entity ที่ `audience` ถูกต้องอยู่แล้ว จึงไม่มีตัวไหนแตะเส้นนี้เลย
+ *
+ * นี่คือครึ่งขาอ่านของคู่ที่อีกครึ่งคือ `backfillLegacyAudience` (tests/bootstrap.test.ts) —
+ * คนละไฟล์ คนละของปลอม โดยตั้งใจ ตัวไหนพังต้องแดงคนละดวง ไม่ใช่ให้อีกตัวปิดให้
+ */
+describe('createMenuRepo — audience ของแถวที่เก่ากว่าคอลัมน์', () => {
+  const legacyEntity = (audience: unknown) => ({
+    id: 7, name: 'เมนูเก่า', channel: { id: 10 }, size: 'large', chatBarText: 'x',
+    chatBarMode: 'default', selected: true, status: 'published', audience,
+  })
+
+  it("แถวที่ audience เป็น null อ่านออกมาเป็น 'all' ไม่ใช่ null ที่หลุดผ่าน type ที่บอกว่าเป็นไปไม่ได้", async () => {
+    const { strapi } = fakeStrapi({ findOne: legacyEntity(null) })
+    expect((await createMenuRepo(strapi).findOne('7'))!.audience).toBe('all')
+  })
+
+  it('ขา findMany ต้องแปลงด้วย — หน้ารายการอ่านผ่านทางนี้ ไม่ใช่ findOne', async () => {
+    const { strapi } = fakeStrapi({ findMany: [legacyEntity(null), legacyEntity('members')] })
+    const rows = await createMenuRepo(strapi).findMany()
+    expect(rows.map((row) => row.audience)).toEqual(['all', 'members'])
+  })
+
+  it("'members' ต้องไม่ถูกกลืนเป็น 'all' ระหว่างทาง — การแปลงนี้ครอบแค่ค่าที่ไม่มี", async () => {
+    const { strapi } = fakeStrapi({ findOne: legacyEntity('members') })
+    expect((await createMenuRepo(strapi).findOne('7'))!.audience).toBe('members')
   })
 })
