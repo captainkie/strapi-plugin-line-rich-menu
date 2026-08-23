@@ -260,11 +260,14 @@ instant they accept the request, and there is no way to ask afterwards whether a
 actually received the change. Saying "delivered" would be reporting something this plugin has no
 way to check.
 
-You can check one member at a time, though: each **LINE member** row has a **Verify** action that
-calls `GET /v2/bot/user/{userId}/richmenu` for that person and shows which menu LINE says they are
-currently holding. It is a spot check rather than a report, because that endpoint only ever answers
-for one user per call — there is no bulk version of *reading back* what happened, only of asking
-LINE to make it happen.
+You can check one member at a time, though, from outside Content Manager: `GET /members/:id/verify`
+calls LINE's `GET /v2/bot/user/{userId}/richmenu` for that person and returns which menu LINE says
+they are currently holding. There is no button for this anywhere in the admin — Content Manager's
+generic screen is the only UI this feature has for members (see
+[Creating members](#creating-members) above) — so reaching this endpoint means calling it directly,
+with the `publish` permission. It is a spot check rather than a report, because that endpoint only
+ever answers for one user per call — there is no bulk version of *reading back* what happened, only
+of asking LINE to make it happen.
 
 ### Unlink everyone, at most three times an hour
 
