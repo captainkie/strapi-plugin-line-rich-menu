@@ -915,3 +915,178 @@ test.describe('audience สมาชิก', () => {
     expect(response.status(), await response.text()).toBe(400)
   })
 })
+
+/**
+ * ===================== Task 16 — แถวที่มีอยู่ก่อนคอลัมน์ `audience` =====================
+ *
+ * ด่านนี้เป็นด่านเดียวในไฟล์ที่ **ไม่ได้** เริ่มจากแถวที่ Strapi สร้างให้ และนั่นคือทั้งหมดของมัน
+ *
+ * `default: 'all'` บน content-type ไม่เคยกลายเป็น DEFAULT ของฐานข้อมูล — Strapi ใส่ค่านั้นให้ตอน
+ * *สร้างแถว* ผ่าน document/entity service เท่านั้น (คอลัมน์จริงคือ varchar nullable ไม่มี default
+ * ทั้งบน SQLite และ PostgreSQL 16 — task-15-report.md §"Step 2") ทุกเทสต์ที่เหลือในรีโปนี้เขียนแถว
+ * ผ่านเส้นทางนั้นเสมอ จึงได้ 'all' มาฟรีทุกครั้ง และ **ไม่มีตัวไหนแตะข้อบกพร่องนี้ได้เลยโดยโครงสร้าง**
+ * — สิบสามงานกับหกรอบรีวิวผ่านมันไปด้วยเหตุผลนี้ข้อเดียว
+ *
+ * ด่านนี้จึงเขียนคอลัมน์ให้เป็น NULL ตรง ๆ ผ่านไดรเวอร์ฐานข้อมูล ข้าม document service ทั้งดุ้น
+ * ซึ่งเป็นรูปทรงเดียวกับแถวของแอปที่อัปเกรดมาจาก 1.0.0 เป๊ะ ๆ แล้วถามสองคำถามที่ผู้ใช้ถามจริง:
+ * เปิดดูแล้วเห็นอะไร และกด Save แล้วผ่านไหม
+ */
+
+/**
+ * ค่าเดียวกับที่ config/database.js อ่าน — ต้องเป็นชุดเดียวกับที่โปรเซส Strapi บูตมา ไม่งั้นด่านนี้
+ * จะไปเขียนฐานข้อมูลคนละใบกับที่ API ตอบมา แล้วแดงด้วยเหตุผลที่ไม่เกี่ยวกับปลั๊กอินเลย
+ */
+const DATABASE_CLIENT = process.env['DATABASE_CLIENT'] ?? 'sqlite'
+
+/** ผิวขั้นต่ำของ better-sqlite3 เท่าที่ใช้จริง — แพ็กเกจนี้ไม่มี type ของตัวเองมาให้ */
+interface SqliteStatement {
+  reader: boolean
+  run(...params: unknown[]): unknown
+  all(...params: unknown[]): unknown[]
+}
+interface SqliteDatabase {
+  prepare(statement: string): SqliteStatement
+  close(): void
+}
+
+/**
+ * ยิง SQL ตรง ๆ ด้วยไดรเวอร์ตัวเดียวกับที่แอปประกาศไว้ใน dependencies (better-sqlite3 / pg)
+ * ไม่ใช่ knex ที่ติดมาแบบ transitive กับ @strapi/database — ตัวหลังหายไปได้เงียบ ๆ วันที่ Strapi
+ * เปลี่ยนกราฟ dependency ของตัวเอง แล้วด่านนี้จะพังด้วยเหตุผลที่ไม่ใช่ของมัน
+ *
+ * `?` เป็น placeholder กลาง แล้วแปลงเป็น `$1, $2, …` ให้ pg ตอนยิง — สองไดรเวอร์นี้ใช้คนละสำนวน
+ */
+async function runSql(statement: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+  if (DATABASE_CLIENT === 'postgres') {
+    const { Client } = await import('pg')
+    const client = new Client((() => {
+      // ตรงกับ config/database.js ของแอปนี้ ซึ่งรับได้ทั้ง DATABASE_URL เดี่ยว ๆ (Neon/Render)
+      // และชุด HOST/PORT/NAME/USERNAME/PASSWORD ที่ matrix ของ CI ใช้
+      const url = process.env['DATABASE_URL']
+      return url === undefined || url === ''
+        ? {
+            host: process.env['DATABASE_HOST'] ?? '127.0.0.1',
+            port: Number(process.env['DATABASE_PORT'] ?? '5432'),
+            database: process.env['DATABASE_NAME'] ?? 'strapi',
+            user: process.env['DATABASE_USERNAME'] ?? 'strapi',
+            password: process.env['DATABASE_PASSWORD'] ?? 'strapi',
+          }
+        : { connectionString: url, ssl: process.env['DATABASE_SSL'] !== 'false' }
+    })())
+    await client.connect()
+    try {
+      let placeholder = 0
+      const result = await client.query(statement.replace(/\?/g, () => `$${++placeholder}`), params)
+      return result.rows as Record<string, unknown>[]
+    } finally {
+      await client.end()
+    }
+  }
+
+  const loaded = await import('better-sqlite3')
+  // better-sqlite3 เป็น CommonJS ล้วน — Playwright แปลงไฟล์นี้เป็น CJS แล้วห่อด้วย interop ตัวจริง
+  // จึงอยู่ที่ `.default` ส่วนตัวโมดูลเองเป็น fallback ให้ runtime ที่ไม่ได้ห่อ
+  const Database = ((loaded as { default?: unknown }).default ?? loaded) as new (file: string) => SqliteDatabase
+  // path เดียวกับ config/database.js — ไฟล์เดียวกับที่ Strapi เปิดอยู่จริง
+  const database = new Database(join(__dirname, '..', process.env['DATABASE_FILENAME'] ?? '.tmp/data.db'))
+  try {
+    const prepared = database.prepare(statement)
+    if (!prepared.reader) {
+      prepared.run(...params)
+      return []
+    }
+    return prepared.all(...params) as Record<string, unknown>[]
+  } finally {
+    database.close()
+  }
+}
+
+/** ค่าดิบในคอลัมน์ ไม่ผ่าน repo/API — จุดเดียวที่แยก "แถวถูกซ่อมแล้ว" ออกจาก "ขาอ่านกลบให้" ได้ */
+async function storedAudience(menuId: string): Promise<unknown> {
+  const rows = await runSql(
+    'SELECT audience FROM rich_menus WHERE document_id = ?', [menuId])
+  expect(rows.length, `ต้องเจอแถวเมนู ${menuId} ในตาราง rich_menus พอดีหนึ่งแถว`).toBe(1)
+  return rows[0]!['audience']
+}
+
+/** ทำให้แถวกลับไปมีรูปทรงของก่อนอัปเกรด — เขียน NULL ตรง ๆ ข้าม document service ที่เติม default ให้ */
+async function makeAudienceLegacyNull(menuId: string): Promise<void> {
+  await runSql('UPDATE rich_menus SET audience = NULL WHERE document_id = ?', [menuId])
+  // ถ้า UPDATE ไม่โดนแถวไหนเลย (ชื่อคอลัมน์คีย์ผิด, ฐานข้อมูลคนละใบ) ทุก assertion ที่เหลือจะเขียว
+  // เพราะแถวยังเป็น 'all' อยู่แล้ว — ด่านนี้คือสิ่งเดียวที่กันไม่ให้เทสต์ทั้งชุดเขียวโดยไม่ได้ทดสอบอะไร
+  expect(await storedAudience(menuId),
+    'แถวต้องเป็น NULL จริง ๆ ก่อนเริ่มถาม ไม่งั้นด่านที่เหลือเขียวฟรี').toBeNull()
+}
+
+test.describe('audience ของเมนูที่มีอยู่ก่อนคอลัมน์ (อัปเกรดจาก 1.0.0)', () => {
+  test('เมนูที่ audience เป็น NULL ในฐานข้อมูล อ่านได้เป็น all และ save จาก editor ผ่าน', async ({ request }) => {
+    const token = await login(request, ADMIN)
+    const channelId = (await theChannel(request, token)).id
+    const fileId = await uploadImage(request, token, 'legacy-audience.jpg')
+
+    const created = await request.post('/line-rich-menu/menus', {
+      ...auth(token),
+      data: menuBody({
+        name: 'เมนูที่สร้างไว้ตั้งแต่ 1.0.0', channelId, imageFileId: fileId, aliasId: 'legacy-audience',
+      }),
+    })
+    expect(created.status(), await created.text()).toBe(201)
+    const menuId = (await created.json()).id as string
+
+    await makeAudienceLegacyNull(menuId)
+
+    // 1) ขาอ่านของหน้า editor — เดิมได้ null กลับมา แล้ว radio group วาดออกมาโดยไม่มีตัวไหนถูกเลือก
+    const detailResponse = await request.get(`/line-rich-menu/menus/${menuId}`, auth(token))
+    expect(detailResponse.status(), await detailResponse.text()).toBe(200)
+    const detail = await detailResponse.json()
+    expect(detail.audience,
+      'แถวที่เก่ากว่าคอลัมน์ต้องอ่านได้เป็น all — mutation check: ถอด `audienceOrAll` ใน repo.ts ' +
+      'ออกแล้วด่านนี้ต้องแดงด้วย null').toBe('all')
+
+    // 2) ขาอ่านของหน้ารายการ — คนละเส้นทางกับ findOne และเป็นเส้นที่วาดคอลัมน์ Audience
+    const listResponse = await request.get('/line-rich-menu/menus', auth(token))
+    expect(listResponse.status(), await listResponse.text()).toBe(200)
+    const listed = (await listResponse.json() as { id: string; audience: string }[])
+      .find((row) => row.id === menuId)
+    expect(listed, 'เมนูต้องยังอยู่ในรายการ').toBeDefined()
+    expect(listed!.audience,
+      "หน้ารายการวาด t(`audience.${menu.audience}`) — null พาไปที่คีย์ audience.null ที่ไม่มีอยู่จริง")
+      .toBe('all')
+
+    // 3) ความเสียหายที่ผู้ใช้เจอจริง: กด Save เมนูเก่าโดยแก้แค่ชื่อ
+    //
+    // body ตรงนี้เป็นรูปทรงของ Editor.tsx เป๊ะ ๆ — **ส่ง `audience: detail.audience` มาด้วยเสมอ**
+    // (ตั้งแต่ Task 14b item 1) ซึ่งเป็นเหตุผลที่ข้อบกพร่องนี้กลายเป็น 400: `menuInputSchema` เป็น
+    // `z.enum([...]).optional()` ซึ่งปฏิเสธ `null` — optional ไม่ใช่ nullable ผู้ใช้จึงบันทึกไม่ได้
+    // ด้วย error บนฟิลด์ที่ตัวเองไม่ได้แตะ ต้องยืนยัน 200 ไม่ใช่แค่ค่าที่อ่านได้ เพราะ 400 นี่แหละ
+    // คืออาการที่คนใช้งานจริงเจอ
+    const editorSave = await request.put(`/line-rich-menu/menus/${menuId}`, {
+      ...auth(token),
+      data: {
+        name: 'เมนูที่สร้างไว้ตั้งแต่ 1.0.0 (แก้ชื่อแล้ว)',
+        channelId: detail.channelId,
+        size: detail.size,
+        chatBarText: detail.chatBarText,
+        chatBarMode: detail.chatBarMode,
+        selected: detail.selected,
+        templateKey: detail.templateKey,
+        audience: detail.audience,
+        areas: detail.areas,
+        imageFileId: detail.imageFileId,
+        areaImages: [],
+        aliasId: detail.aliasId,
+        startAt: detail.startAt ?? null,
+        endAt: detail.endAt ?? null,
+      },
+    })
+    expect(editorSave.status(),
+      `การกด Save เมนูเก่าโดยแก้แค่ชื่อ ต้องได้ 200 ไม่ใช่ 400 validation_failed บน audience: ` +
+      `${await editorSave.text()}`).toBe(200)
+    expect((await editorSave.json()).name).toBe('เมนูที่สร้างไว้ตั้งแต่ 1.0.0 (แก้ชื่อแล้ว)')
+
+    // 4) แถวถูกซ่อมจริงในฐานข้อมูล ไม่ใช่แค่ถูกกลบตอนอ่าน — ถ้ายังเป็น NULL แปลว่าขาเขียนไม่เคยเห็น
+    // ค่าที่ขาอ่านแปลงให้เลย แล้วเครื่องมืออื่นที่อ่านตารางตรง ๆ ยังเจอค่าที่ model บอกว่าเป็นไปไม่ได้
+    expect(await storedAudience(menuId),
+      'หลังบันทึก คอลัมน์ต้องถือสตริง all จริง ไม่ใช่ NULL ที่ขาอ่านกลบไว้').toBe('all')
+  })
+})
