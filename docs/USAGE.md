@@ -188,6 +188,16 @@ If you drive the API directly instead, `POST`/`PUT /line-rich-menu/menus` accept
 `"all"` or `"members"`. Leaving the key out of the body means *unchanged* — never *reset to
 `all`* — so a partial update from a script cannot quietly demote a members menu.
 
+Menus that already existed before you upgraded to this version are set to Everyone once, on the
+first boot after the upgrade, and the plugin says how many it changed:
+
+```
+info: line-rich-menu: audience backfill updated 12 pre-existing rich menu row(s) to 'all'
+```
+
+Every boot after that reports `0`. The line is not a warning — it is there so "nothing needed
+repairing" and "the repair never ran" cannot look the same in your logs.
+
 #### Turning a live members menu back to Everyone
 
 Once a menu is switched on for members, changing its audience back to Everyone is refused with
@@ -290,6 +300,14 @@ Reconcile only reads, apart from the delete you explicitly press. Requires `publ
 **"Could not save" with no field marked.** The server rejected the whole payload. Every field-level
 problem marks its own field, so a bare toast means the shape was wrong — usually a menu with no
 areas at all.
+
+**"Could not save" on a menu you have not touched since upgrading**, with the audience field
+marked. The one-time repair described under
+[Setting a menu's audience](#setting-a-menus-audience) did not finish — look for
+`line-rich-menu: audience backfill failed` in the boot log, which names the cause. Boot is never
+blocked by it, and the next boot tries again. To unblock a single menu in the meantime, pick either
+Audience option in the editor and save; that writes a real value and the menu is healthy from then
+on.
 
 **"Could not save" on a menu that is switched on for members.** If the only thing you changed was
 the audience — Members back to Everyone — the server refused it with `menu_active_for_members`,
