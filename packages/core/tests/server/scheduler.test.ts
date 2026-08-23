@@ -175,6 +175,44 @@ describe('tick', () => {
     expect(auditRows[0]).toMatchObject({ action: 'set-default', actorId: null, result: 'success' })
   })
 
+  /**
+   * Task 17 / final review BLOCKER — ด่านชั้นสุดท้ายของ `set-default`
+   *
+   * ทางเขียนถูกปิดแล้ว (`assertDisplayPeriodAllowed` ใน `saveMenu` ไม่ให้เมนูสมาชิกมีช่วงเวลา
+   * แสดงผลตั้งแต่แรก) แต่ฐานข้อมูลที่อัปเกรดมาจากก่อนหน้านั้นมีแถว `set-default` ของเมนูสมาชิก
+   * ค้างอยู่ได้จริง — ถ้า scheduler ไม่มีด่านของตัวเอง แถวเหล่านั้นจะยัดเมนูสมาชิกให้ผู้ติดตาม
+   * ทุกคนตามเวลาที่ตั้งไว้ โดยไม่มีใครกดอะไรเลย
+   *
+   * ต้องล้มเป็นงาน failed พร้อม code ที่อ่านออก **และไม่ยิง LINE เลย** — ไม่ใช่ทำให้ tick ทั้งรอบ
+   * ล้ม (งานของเมนูอื่นในรอบเดียวกันต้องเดินต่อ) และไม่ใช่เงียบ ๆ ข้ามไป
+   */
+  it('แถว set-default ที่ค้างอยู่ของเมนูสมาชิก → failed ด้วย menu_not_all_audience และไม่แตะ LINE', async () => {
+    const { scheduler, lock, line } = harness(
+      [scheduleRow({ id: 's1', op: 'set-default' })],
+      [menuRow({ audience: 'members' })],
+    )
+
+    const report = await scheduler.tick()
+
+    expect(report).toEqual({ due: 1, claimed: 1, done: 0, failed: 1 })
+    expect(lock.release).toHaveBeenCalledWith('s1', 'worker-a', 'failed', 'menu_not_all_audience')
+    expect(line.setDefault).not.toHaveBeenCalled()
+  })
+
+  // คู่ที่พิสูจน์ว่าด่านข้างบนเป็นยาม ไม่ใช่การปิด op นี้ทิ้ง — เมนูของทุกคนยังตั้ง default ตามเวลาได้
+  it('แถวเดียวกันบนเมนู audience: all → done และตั้ง default จริง', async () => {
+    const { scheduler, lock, line } = harness(
+      [scheduleRow({ id: 's1', op: 'set-default' })],
+      [menuRow({ audience: 'all' })],
+    )
+
+    const report = await scheduler.tick()
+
+    expect(report).toEqual({ due: 1, claimed: 1, done: 1, failed: 0 })
+    expect(lock.release).toHaveBeenCalledWith('s1', 'worker-a', 'done', null)
+    expect(line.setDefault).toHaveBeenCalledWith('richmenu-a')
+  })
+
   it('ไม่มีเมนูตาม id ที่ schedule ชี้ → งานนั้น failed ไม่ใช่รันด้วย channel ของใครก็ได้', async () => {
     const { scheduler, lock, clientFor } = harness([scheduleRow({ richMenuId: 'ไม่มีจริง' })], [menuRow()])
     const report = await scheduler.tick()
