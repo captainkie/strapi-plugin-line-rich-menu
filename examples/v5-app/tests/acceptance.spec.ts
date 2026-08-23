@@ -1039,7 +1039,10 @@ test.describe('audience ของเมนูที่มีอยู่ก่�
     const detailResponse = await request.get(`/line-rich-menu/menus/${menuId}`, auth(token))
     expect(detailResponse.status(), await detailResponse.text()).toBe(200)
     const detail = await detailResponse.json()
-    expect(detail.audience,
+    // สองด่านขาอ่านนี้เป็น `expect.soft` โดยตั้งใจ ไม่ใช่เพราะมันสำคัญน้อยกว่า — ถ้าเป็นด่านแข็ง
+    // เทสต์จะหยุดตรงนี้ตอนการแปลงพัง แล้วด่านที่สำคัญที่สุดของไฟล์นี้ (PUT ต้องได้ 200 ไม่ใช่ 400)
+    // จะไม่เคยถูกรันเลยในรอบที่มันควรแดง — mutation check จะเห็นแค่อาการเดียวจากสามอาการ
+    expect.soft(detail.audience,
       'แถวที่เก่ากว่าคอลัมน์ต้องอ่านได้เป็น all — mutation check: ถอด `audienceOrAll` ใน repo.ts ' +
       'ออกแล้วด่านนี้ต้องแดงด้วย null').toBe('all')
 
@@ -1049,7 +1052,7 @@ test.describe('audience ของเมนูที่มีอยู่ก่�
     const listed = (await listResponse.json() as { id: string; audience: string }[])
       .find((row) => row.id === menuId)
     expect(listed, 'เมนูต้องยังอยู่ในรายการ').toBeDefined()
-    expect(listed!.audience,
+    expect.soft(listed!.audience,
       "หน้ารายการวาด t(`audience.${menu.audience}`) — null พาไปที่คีย์ audience.null ที่ไม่มีอยู่จริง")
       .toBe('all')
 
