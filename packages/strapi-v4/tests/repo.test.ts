@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { RichMenuRow } from '@fosivo/line-rich-menu-core'
 import { richMenu } from '../src/server/content-types/rich-menu.js'
 import { UID } from '../src/server/content-types/index.js'
+import type { ContentTypeSchema } from '../src/server/content-types/schema.js'
 import { readDisplayPeriod, writeDisplayPeriod } from '../src/server/menu-write.js'
 import {
-  createAuditRepo, createChannelRepo, createMemberRepo, createMenuRepo, createScheduleRepo,
+  audienceValuesOf, createAuditRepo, createChannelRepo, createMemberRepo, createMenuRepo,
+  createScheduleRepo,
 } from '../src/server/repo.js'
 import type { StrapiV4 } from '../src/server/strapi.js'
 
@@ -543,5 +546,45 @@ describe('createMenuRepo — audience ของแถวที่เก่าก
   it("สตริงที่ไม่ใช่ enum เช่น 'Members' ต้องกลายเป็น 'all' ไม่ใช่เดินทะลุ cast ที่ไม่ได้เช็ค", async () => {
     const { strapi } = fakeStrapi({ findOne: legacyEntity('Members') })
     expect((await createMenuRepo(strapi).findOne('7'))!.audience).toBe('all')
+  })
+})
+
+/**
+ * Task 16 fix round 2 — พิสูจน์ว่า fallback ตอนอ่าน `enum` ของ `audience` จากสคีมาไม่ได้เลย
+ * (attribute หายไปทั้งตัว หรือมีอยู่แต่ไม่มี `enum`) ไม่ทำให้ `'members'` ถูกปฏิเสธเงียบ ๆ เหมือนที่
+ * `?? []` เดิมเคยทำ — ครอบ `audienceValuesOf` ตรง ๆ ไม่ผ่าน `createMenuRepo`/`fakeStrapi` เพราะ
+ * `AUDIENCE_VALUES` ระดับโมดูลใน repo.ts ผูกกับ `richMenu.schema` จริงตายตัวตั้งแต่โหลดไฟล์ —
+ * ไม่มีทางสับเปลี่ยนสคีมาที่ `createMenuRepo` เห็นได้จากเทสต์เลย `audienceValuesOf` ที่ export
+ * มาคือจุดเดียวที่ยัดสคีมาปลอมเข้าไปพิสูจน์เส้นทาง fallback ได้จริง
+ *
+ * `audienceOrAllUsing` จำลองตรรกะของ `audienceOrAll` ใน repo.ts ทุกตัวอักษร (`typeof value ===
+ * 'string' && values.includes(value) ? value : 'all'`) — ใช้ผลลัพธ์จริงจาก `audienceValuesOf`
+ * ไม่ใช่ชุดค่าที่เทสต์เขียนเองแยกต่างหาก เพื่อพิสูจน์ว่าเส้นทางที่ `audienceOrAll` จริงจะเดินเมื่อ
+ * สคีมาพังแบบนี้ ให้ผลลัพธ์แบบเดียวกับที่เทสต์นี้ตรวจ
+ */
+describe('audienceValuesOf — fallback ตอนอ่าน enum ของ audience จากสคีมาไม่ได้', () => {
+  const audienceOrAllUsing = (values: readonly RichMenuRow['audience'][], value: unknown) =>
+    typeof value === 'string' && values.includes(value as RichMenuRow['audience']) ? value : 'all'
+
+  it("สคีมาที่ไม่มี attribute 'audience' เลย ต้องยังให้ 'members' รอดผ่าน audienceOrAll ไม่ใช่กลายเป็นชุดว่าง", () => {
+    const schema: ContentTypeSchema = {
+      kind: 'collectionType',
+      collectionName: 'rich_menus',
+      info: { singularName: 'rich-menu', pluralName: 'rich-menus', displayName: 'Rich menu' },
+      attributes: { name: { type: 'string', required: true } },
+    }
+    const values = audienceValuesOf(schema)
+    expect(audienceOrAllUsing(values, 'members')).toBe('members')
+  })
+
+  it("attribute 'audience' ที่ไม่มี key 'enum' ต้องยังให้ 'members' รอดผ่าน audienceOrAll ไม่ใช่กลายเป็นชุดว่าง", () => {
+    const schema: ContentTypeSchema = {
+      kind: 'collectionType',
+      collectionName: 'rich_menus',
+      info: { singularName: 'rich-menu', pluralName: 'rich-menus', displayName: 'Rich menu' },
+      attributes: { audience: { type: 'enumeration', required: true, default: 'all' } },
+    }
+    const values = audienceValuesOf(schema)
+    expect(audienceOrAllUsing(values, 'members')).toBe('members')
   })
 })

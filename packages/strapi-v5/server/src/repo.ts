@@ -6,6 +6,7 @@ import type {
 } from '@fosivo/line-rich-menu-core'
 import { MenuNotReadyError } from '@fosivo/line-rich-menu-core'
 import { richMenu } from './content-types/rich-menu.js'
+import type { ContentTypeSchema } from './content-types/schema.js'
 import { UID } from './content-types/index.js'
 import type { DocumentParams, StrapiV5 } from './strapi.js'
 
@@ -60,8 +61,44 @@ const orNull = <T>(value: unknown): T | null => (value === undefined || value ==
  * ตัวที่สามในอนาคตให้กลายเป็น `'all'` เงียบ ๆ ซึ่งสำหรับเมนูที่เล็งไปกลุ่มย่อยหมายถึงมันไปโผล่ให้
  * ทุกคนเห็นแทน — อันตรายกว่าการตกเป็น `'all'` เพราะไม่รู้จักค่านั้นเยอะ อ่านจาก `enum` ของสคีมา
  * ทำให้ค่าที่ประกาศเพิ่มถูกยอมรับทันทีที่ถูกประกาศ ไม่มีที่ที่สองให้ต้องจำแก้คู่กัน
+ *
+ * Task 16 fix round 2 — เดิม fallback ตอนอ่าน enum ไม่ได้คือ `?? []` ตรง ๆ ถ้า attribute
+ * `audience` หรือ `enum` ของมันหายไปจากสคีมาเมื่อไหร่ (ไฟล์ content-type ถูกแก้พัง, ถูกลบทิ้งผิด)
+ * `AUDIENCE_VALUES` จะกลายเป็น `[]` แล้ว `.includes()` จะปฏิเสธทุกค่าเสมอ — รวมถึง `'members'` ด้วย
+ * เมนูสมาชิกที่ยังลิงก์อยู่กับสมาชิกจริงใน LINE จะถูกอ่านเป็น `'all'` เงียบ ๆ นี่คือดีเฟกต์คลาสเดียวกับ
+ * ที่สามรอบแก้ก่อนหน้าของ branch นี้พยายามกำจัด (ดูคอมเมนต์ด้านบน) — fallback เดิม fail open ไปสู่
+ * ค่าที่อันตรายที่สุดแทนที่จะ fail ไปสู่ชุดที่รู้ว่าปลอดภัย จึงย้าย fallback ไปเป็น `KNOWN_AUDIENCE_VALUES`
+ * ด้านล่างแทน — คงพฤติกรรมเดิมไว้ทุกกรณีที่สคีมาอ่านได้ปกติ ต่างกันแค่กรณีอ่านไม่ได้เท่านั้น
  */
-const AUDIENCE_VALUES: readonly string[] = richMenu.schema.attributes['audience']?.enum ?? []
+
+/**
+ * ชุดค่าที่รู้จักแน่ ๆ ตอนเขียนโค้ดนี้ — ใช้เป็น fallback เท่านั้นเมื่ออ่าน `enum` จากสคีมาจริงไม่ได้
+ * ไม่ใช่ทางหลัก ทางหลักยังคงเป็นการอ่านจาก `richMenu.schema.attributes['audience']?.enum` เหมือนเดิม
+ * (ดูเหตุผลที่คอมเมนต์ด้านบน) เพื่อให้ค่า audience ตัวที่สามในอนาคตยังถูกยอมรับทันทีที่ถูกประกาศ
+ * ไม่มีที่ที่สองให้ต้องจำแก้คู่กัน — ตัวนี้ครอบแค่กรณีที่สคีมาเองอ่านไม่ได้
+ *
+ * typed ตรงกับ `RichMenuRow['audience']` ไม่ใช่ `readonly string[]` เหมือน enum ดิบจากสคีมา —
+ * fallback จึงพิมพ์ผิดหรือหลุดจากสองค่าที่ core ประกาศไว้ไม่ได้เลยตอน compile time ต่างจากค่าที่อ่าน
+ * จากสคีมาซึ่งมาจาก object ที่ index ด้วย string ทั่วไป (ดู attributes: Record<string, AttributeSchema>
+ * ใน schema.ts) TypeScript เลย narrow ให้เป็น literal union ไม่ได้
+ */
+const KNOWN_AUDIENCE_VALUES: readonly RichMenuRow['audience'][] = ['all', 'members']
+
+/**
+ * แยกเป็นฟังก์ชัน export เพื่อให้เทสต์ป้อนสคีมาปลอมที่ไม่มี `audience` attribute หรือมีแต่ไม่มี
+ * `enum` ได้ตรง ๆ (repo.test.ts, "enum หาย/attribute หาย") โดยไม่ต้องไปแก้
+ * content-types/rich-menu.ts จริงให้พัง — พารามิเตอร์มีค่า default เป็นสคีมาจริงเสมอ ดังนั้นทุกจุด
+ * ที่เรียกแบบไม่ส่ง argument (เช่น `AUDIENCE_VALUES` ด้านล่าง) จะยังอ่านจากประกาศจริงเหมือนเดิม
+ * ทุกประการ — ฟังก์ชันนี้ไม่ได้กลายเป็นแหล่งความจริงใหม่ แค่ทำให้ fallback ทดสอบได้
+ */
+export function audienceValuesOf(schema: ContentTypeSchema = richMenu.schema): readonly RichMenuRow['audience'][] {
+  const declared = schema.attributes['audience']?.enum
+  return declared !== undefined && declared.length > 0
+    ? declared as RichMenuRow['audience'][]
+    : KNOWN_AUDIENCE_VALUES
+}
+
+const AUDIENCE_VALUES: readonly string[] = audienceValuesOf()
 
 /**
  * `null`/`undefined` หรือสตริงที่ไม่อยู่ใน `enum` ที่ประกาศไว้จริง ต้องอ่านออกมาเป็น `'all'`
