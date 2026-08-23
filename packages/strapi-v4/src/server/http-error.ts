@@ -1,5 +1,7 @@
 import { ZodError } from 'zod'
 import { ValidationError, type ValidationIssue } from '@fosivo/line-rich-menu-core'
+import { getServices } from './container.js'
+import type { StrapiV4 } from './strapi.js'
 
 export interface AdminContext {
   request: { body: unknown }
@@ -105,8 +107,24 @@ export function toHttpError(ctx: AdminContext, error: unknown): void {
     : { error: { code } }
 }
 
-/** ห่อ handler ทุกตัวให้ error กลายเป็น response ที่มี code เสมอ ไม่ใช่ 500 เปล่า ๆ ของ koa */
+/**
+ * ห่อ handler ทุกตัวให้ error กลายเป็น response ที่มี code เสมอ ไม่ใช่ 500 เปล่า ๆ ของ koa
+ *
+ * Task 20 item 6 — เดิม catch ที่นี่ไม่ log อะไรเลย ต่างจาก strapi-v5 ที่ log 500 ทุกตัวผ่าน
+ * scrubbed logger อยู่แล้ว ทั้งที่ branch นี้เพิ่งต่อหกเส้นทางใหม่ที่ผูก/ปลดสมาชิก LINE จริงเข้ากับยาม
+ * ตัวนี้ (controllers/members.ts) — อะแดปเตอร์เดียวไม่มีร่องรอยอะไรเหลือให้ operator เลยสำหรับพื้นผิว
+ * ที่ผลลัพธ์แพงที่สุดของทั้งโปรดักต์ log เฉพาะตอนที่ยังตกไปที่ `known === undefined` (500) เท่านั้น
+ * ไม่ log error ที่ตอบเป็นรหัสรู้จักแล้ว (400/404/409/...) เพราะนั่นคือ input ของผู้ใช้ที่ถูกปฏิเสธ
+ * ถูกต้องแล้ว ไม่ใช่ความผิดปกติที่ operator ต้องรู้ — คู่ขนานกับ strapi-v5/server/src/http-error.ts เป๊ะ
+ *
+ * ใช้ `getServices(strapi).logger` (scrubbed ผ่าน `createScrubbedLogger`) — ช่องเดียวกับที่
+ * `tick.ts` ใช้อยู่แล้ว ไม่ใช่ `strapi.log` ดิบที่ไม่ผ่านการ scrub เลย ห่อด้วย try/catch อีกชั้น
+ * เพราะ `getServices` เองมีสิทธิ์ throw ได้ (เช่น encryption key ยังตั้งไม่เสร็จ — `resolveEncryptionKey`
+ * ในบูตแรกสุด) — ที่นี่ fallback ไปที่ `strapi.log.error` ดิบ (ไม่ scrub) เฉพาะตอนที่ scrubbed logger
+ * ประกอบไม่ได้จริง ๆ ดีกว่าไม่ log อะไรเลย
+ */
 export function guard(
+  strapi: StrapiV4,
   handler: (ctx: AdminContext) => Promise<void>,
 ): (ctx: AdminContext) => Promise<void> {
   return async (ctx) => {
@@ -114,6 +132,13 @@ export function guard(
       await handler(ctx)
     } catch (error) {
       toHttpError(ctx, error)
+      if (ctx.status === 500) {
+        try {
+          getServices(strapi).logger.error('line-rich-menu: unhandled error in admin route', { error })
+        } catch {
+          strapi.log.error('line-rich-menu: unhandled error in admin route (scrubbed logger unavailable)', error)
+        }
+      }
     }
   }
 }
