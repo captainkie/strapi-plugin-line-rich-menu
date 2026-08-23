@@ -340,6 +340,16 @@ test.describe('RBAC — role ที่ไม่มีสิทธิ์ต้อ
     // เส้นนี้ตกไปจากตารางของ v4 — มันมีอยู่จริงทั้งใน routes/admin.ts และ packages/ui/src/api.ts
     ['DELETE', `/line-rich-menu/channels/${DOC_ID}/orphans/rich-menu-does-not-exist`],
     ['POST', '/line-rich-menu/schedules/tick'],
+    // Task 20 item 7 (final-tests-findings.md M2) — หกเส้นทางใหม่ของงานสมาชิก (routes/admin.ts) ไม่
+    // เคยถูกใส่ในตารางนี้เลยสักเส้น มีแค่ `activate` ที่ได้เทสต์ 403 เฉพาะกิจแยกไว้ท้ายไฟล์ (role READER
+    // ไม่ใช่ AUTHOR ที่ไม่มีสิทธิ์อะไรเลย) — ที่เหลืออีกห้าเส้นไม่เคยถูกพิสูจน์ว่า 403 มาจาก policy จริง
+    // บน adapter นี้เลย ใส่ทั้งหกเส้นเข้าตารางนี้เพื่อความสมมาตรกับเส้นทางเก่าทุกเส้นข้างบน
+    ['POST', `/line-rich-menu/menus/${DOC_ID}/audience/activate`],
+    ['POST', `/line-rich-menu/menus/${DOC_ID}/audience/deactivate`],
+    ['POST', `/line-rich-menu/menus/${DOC_ID}/audience/sync`],
+    ['POST', `/line-rich-menu/menus/${DOC_ID}/audience/unlink-all`],
+    ['GET', `/line-rich-menu/channels/${DOC_ID}/audience`],
+    ['GET', `/line-rich-menu/members/${DOC_ID}/verify`],
   ]
 
   // GET กับ DELETE ห้ามแนบ body — Playwright ปฏิเสธคำขอที่มี `data` บนสองเมธอดนี้
@@ -408,6 +418,15 @@ test.describe('RBAC — role ที่มีแค่ read', () => {
     ['publish', 'GET', `/line-rich-menu/channels/${DOC_ID}/reconcile`],
     ['publish', 'DELETE', `/line-rich-menu/channels/${DOC_ID}/orphans/rich-menu-does-not-exist`],
     ['publish', 'POST', '/line-rich-menu/schedules/tick'],
+    // Task 20 item 7 (final-tests-findings.md M2) — คู่ขนานกับหกเส้นที่เพิ่มเข้า `guarded` ข้างบน
+    // แต่ตรวจมุมกลับ: role ที่มี read แล้วต้องการ publish เพิ่ม ไม่ใช่ role ที่ไม่มีสิทธิ์อะไรเลย
+    // ทั้งหกเส้นต้องการ PERMISSION.publish เหมือนกันหมด (routes/admin.ts)
+    ['publish', 'POST', `/line-rich-menu/menus/${DOC_ID}/audience/activate`],
+    ['publish', 'POST', `/line-rich-menu/menus/${DOC_ID}/audience/deactivate`],
+    ['publish', 'POST', `/line-rich-menu/menus/${DOC_ID}/audience/sync`],
+    ['publish', 'POST', `/line-rich-menu/menus/${DOC_ID}/audience/unlink-all`],
+    ['publish', 'GET', `/line-rich-menu/channels/${DOC_ID}/audience`],
+    ['publish', 'GET', `/line-rich-menu/members/${DOC_ID}/verify`],
   ]
 
   for (const [permission, method, path] of forbidden) {
