@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { MenuNotReadyError } from '@fosivo/line-rich-menu-core'
+import { richMenu } from '../server/src/content-types/rich-menu.js'
 import { UID } from '../server/src/content-types/index.js'
 import {
   createAuditRepo, createChannelRepo, createImageStore, createMemberRepo, createMenuRepo,
@@ -902,5 +903,40 @@ describe('createMenuRepo — audience ของแถวที่เก่าก
   it("'members' ต้องไม่ถูกกลืนเป็น 'all' ระหว่างทาง — การแปลงนี้ครอบแค่ค่าที่ไม่มี", async () => {
     const { strapi } = fakeStrapi({ findOne: legacyEntity('members') })
     expect((await createMenuRepo(strapi).findOne('mn0000000000000000000009'))!.audience).toBe('members')
+  })
+
+  /**
+   * Task 16 fix round 1 — ตัวจริงของด่านนี้ เดินตาม `enum` ที่ประกาศไว้ใน content-types/rich-menu.ts
+   * ตรง ๆ แทนที่จะเขียนรายการ `['all', 'members']` ซ้ำไว้ในเทสต์เอง เพื่อผูกเทสต์นี้เข้ากับ
+   * ประกาศจริงของสคีมา — วันที่มีคนเพิ่มค่า audience ตัวที่สามเข้าไปใน `enum` เทสต์ข้อนี้จะเดิน
+   * ทดสอบค่าใหม่นั้นเองโดยไม่ต้องมีใครมาแก้ไฟล์เทสต์เพิ่ม ถ้า `audienceOrAll` ยังไม่รู้จักค่านั้น
+   * (เช่นเพราะยังเขียนเช็คแบบฮาร์ดโค้ดอยู่) เทสต์นี้จะแดงเอง
+   */
+  const declaredAudienceValues = richMenu.schema.attributes['audience']?.enum ?? []
+
+  it('enum ของ audience ต้องประกาศไว้จริง ไม่ใช่ชุดว่าง — กันเทสต์ข้างล่างเขียวเปล่าเพราะไม่มีอะไรให้วน', () => {
+    expect(declaredAudienceValues.length).toBeGreaterThan(0)
+  })
+
+  it.each(declaredAudienceValues)(
+    "ค่าที่ประกาศไว้ใน enum ('%s') ต้องรอดผ่าน audienceOrAll มาไม่เปลี่ยน",
+    async (value) => {
+      const { strapi } = fakeStrapi({ findOne: legacyEntity(value) })
+      expect((await createMenuRepo(strapi).findOne('mn0000000000000000000009'))!.audience).toBe(value)
+    },
+  )
+
+  // ตั้งชื่อเคสนี้ไว้ตรง ๆ ตามที่ finding ข้อ 2 ขอ — เดิม undefined ถูกพิสูจน์แค่แอบแฝงผ่าน
+  // whole-row toEqual ของเทสต์ตัวอื่นในไฟล์นี้ (บรรทัด ~370) ไม่มีเทสต์ไหนตั้งชื่อพฤติกรรมนี้ตรง ๆ
+  it("audience ที่เป็น undefined อ่านออกมาเป็น 'all' เหมือน null", async () => {
+    const { strapi } = fakeStrapi({ findOne: legacyEntity(undefined) })
+    expect((await createMenuRepo(strapi).findOne('mn0000000000000000000009'))!.audience).toBe('all')
+  })
+
+  // ตัวแทนของแถวที่มาจาก restore/dump เก่า/เครื่องมืออื่นที่เขียนตารางตรง ๆ — Strapi ไม่สร้าง CHECK
+  // constraint ให้คอลัมน์ enumeration เลย คอลัมน์นี้จึงรับสตริงอะไรก็ได้จริง ๆ ไม่ใช่แค่ทางทฤษฎี
+  it("สตริงที่ไม่ใช่ enum เช่น 'Members' ต้องกลายเป็น 'all' ไม่ใช่เดินทะลุ cast ที่ไม่ได้เช็ค", async () => {
+    const { strapi } = fakeStrapi({ findOne: legacyEntity('Members') })
+    expect((await createMenuRepo(strapi).findOne('mn0000000000000000000009'))!.audience).toBe('all')
   })
 })

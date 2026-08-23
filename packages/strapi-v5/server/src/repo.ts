@@ -5,6 +5,7 @@ import type {
   AuditRow, ChannelRow, ImageStore, ListParams, MemberRow, Repo, RichMenuRow, ScheduleRow,
 } from '@fosivo/line-rich-menu-core'
 import { MenuNotReadyError } from '@fosivo/line-rich-menu-core'
+import { richMenu } from './content-types/rich-menu.js'
 import { UID } from './content-types/index.js'
 import type { DocumentParams, StrapiV5 } from './strapi.js'
 
@@ -45,24 +46,43 @@ const fileIdOf = (value: unknown): number | null => {
 const orNull = <T>(value: unknown): T | null => (value === undefined || value === null ? null : value as T)
 
 /**
- * `null` ที่เก็บอยู่จริงในคอลัมน์ `audience` ต้องอ่านออกมาเป็น `'all'`
+ * ค่าที่ยอมรับได้ของคอลัมน์ `audience` — อ่านจาก `enum` ที่ content-type ประกาศไว้จริง
+ * (content-types/rich-menu.ts) ไม่ใช่เขียนรายการซ้ำมือที่นี่อีกที่
  *
- * `default: 'all'` ในสคีมา (content-types/rich-menu.ts) **ไม่เคย** กลายเป็น DEFAULT ของฐานข้อมูล —
- * Strapi ใส่ค่านั้นให้ตอน *สร้างแถว* ผ่าน entity/document service เท่านั้น คอลัมน์จริงเป็น
- * `varchar(255)` ที่ nullable และไม่มี default ทั้งบน SQLite และ PostgreSQL 16 (วัดจากแอปที่
- * อัปเกรดจริงทั้งสี่ขา — task-15-report.md §"Step 2" มี DDL ที่ introspect มาแปะไว้) แถวที่มีอยู่
- * **ก่อน** คอลัมน์นี้ถูกเพิ่ม จึงถือ `NULL` ตลอดไป ไม่มีอะไรมาเติมให้
+ * Task 16 fix round 1 — เดิม `audienceOrAll` เช็คแค่ `null`/`undefined` แล้วปล่อยทุกค่าที่เหลือ
+ * ผ่าน cast ตรง ๆ ทั้งที่ตัวคอมเมนต์ของฟังก์ชันเองบอกว่าครอบค่าจาก "restore, dump เก่า, หรือ
+ * เครื่องมืออื่นที่เขียนตารางตรง ๆ" ด้วย — Strapi ไม่สร้าง CHECK constraint ให้คอลัมน์
+ * enumeration เลยสักที่ (วัดจริงใน task-15-report.md) คอลัมน์นี้จึงเก็บสตริงอะไรก็ได้ เช่น
+ * `'Members'` ซึ่งจะเดินทะลุ cast ที่ไม่ได้เช็คไปโผล่เป็น `400 validation_failed` เหมือนเดิม
+ * ทุกประการกับที่ `null` เคยทำ — แก้บั๊กเดิมได้ครึ่งเดียวไม่ใช่ทั้งหมด
  *
- * `RichMenuRow['audience']` ประกาศว่าเป็น `'all' | 'members'` เท่านั้น การ cast ตรง ๆ จึงเป็น
- * คำโกหกที่ขอบ: `null` เดินทะลุ type ที่บอกว่ามันเป็นไปไม่ได้ แล้วไปโผล่อีกสามชั้นถัดไปเป็น
- * `400 validation_failed` บนฟิลด์ที่ผู้ใช้ไม่ได้แตะ (`z.enum([...]).optional()` ปฏิเสธ `null` —
- * optional ไม่ใช่ nullable) แปลที่นี่ ซึ่งเป็นจุดเดียวที่ยังรู้ว่าค่านี้เพิ่งออกมาจากฐานข้อมูล
+ * ตั้งใจไม่เขียน `value === 'members' ? 'members' : 'all'` แทน: วิธีนั้นจะกลืนค่า audience
+ * ตัวที่สามในอนาคตให้กลายเป็น `'all'` เงียบ ๆ ซึ่งสำหรับเมนูที่เล็งไปกลุ่มย่อยหมายถึงมันไปโผล่ให้
+ * ทุกคนเห็นแทน — อันตรายกว่าการตกเป็น `'all'` เพราะไม่รู้จักค่านั้นเยอะ อ่านจาก `enum` ของสคีมา
+ * ทำให้ค่าที่ประกาศเพิ่มถูกยอมรับทันทีที่ถูกประกาศ ไม่มีที่ที่สองให้ต้องจำแก้คู่กัน
+ */
+const AUDIENCE_VALUES: readonly string[] = richMenu.schema.attributes['audience']?.enum ?? []
+
+/**
+ * `null`/`undefined` หรือสตริงที่ไม่อยู่ใน `enum` ที่ประกาศไว้จริง ต้องอ่านออกมาเป็น `'all'`
+ *
+ * `default: 'all'` ในสคีมา **ไม่เคย** กลายเป็น DEFAULT ของฐานข้อมูล — Strapi ใส่ค่านั้นให้ตอน
+ * *สร้างแถว* ผ่าน entity/document service เท่านั้น คอลัมน์จริงเป็น `varchar(255)` ที่ nullable
+ * และไม่มี default ทั้งบน SQLite และ PostgreSQL 16 (วัดจากแอปที่อัปเกรดจริงทั้งสี่ขา —
+ * task-15-report.md §"Step 2" มี DDL ที่ introspect มาแปะไว้) แถวที่มีอยู่ **ก่อน** คอลัมน์นี้
+ * ถูกเพิ่ม จึงถือ `NULL` ตลอดไป ไม่มีอะไรมาเติมให้
+ *
+ * `RichMenuRow['audience']` ประกาศว่าเป็น `'all' | 'members'` เท่านั้น การ cast ตรง ๆ โดยไม่เช็ค
+ * อะไรเลยจึงเป็นคำโกหกที่ขอบ: ค่าอะไรก็ได้เดินทะลุ type ที่บอกว่ามันเป็นไปไม่ได้ แล้วไปโผล่อีกสาม
+ * ชั้นถัดไปเป็น `400 validation_failed` บนฟิลด์ที่ผู้ใช้ไม่ได้แตะ (`z.enum([...]).optional()`
+ * ปฏิเสธ `null` — optional ไม่ใช่ nullable) แปลที่นี่ ซึ่งเป็นจุดเดียวที่ยังรู้ว่าค่านี้เพิ่งออกมา
+ * จากฐานข้อมูล — ตอนนี้ cast มี `.includes()` ค้ำอยู่ ไม่ใช่ยอมให้ผ่านเฉยๆ
  *
  * คู่กับ backfill ตอนบูต (bootstrap.ts) ไม่ใช่แทนกัน: backfill ซ่อมแถวที่มีอยู่แล้วให้จบไปทีเดียว
  * ส่วนตัวนี้ครอบแถวที่มาถึง *หลัง* บูต — restore, dump เก่า, หรือเครื่องมืออื่นที่เขียนตารางตรง ๆ
  */
 const audienceOrAll = (value: unknown): RichMenuRow['audience'] =>
-  value === null || value === undefined ? 'all' : value as RichMenuRow['audience']
+  typeof value === 'string' && AUDIENCE_VALUES.includes(value) ? value as RichMenuRow['audience'] : 'all'
 
 /**
  * ตัวช่วยประกาศ repo หนึ่งตัว — คู่ขนานกับ `define` ใน packages/strapi-v4/src/server/repo.ts
