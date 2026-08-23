@@ -5,6 +5,7 @@ import type { Step } from '../publish/machine.js'
 import { errorCodeOf, type AuditWriter } from './audit.js'
 import { capturePriorState, restorePriorState } from './compensation.js'
 import { MenuNotFoundError, MenuNotReadyError, PublishAlreadyRunningError } from './errors.js'
+import { assertAllAudience, assertNotChannelMemberMenu } from './menu-ops.js'
 import type { ImageStore } from './images.js'
 import { buildPayload, publishedAliasesOf } from './payload.js'
 import type { RateLimiter } from './rate-limit.js'
@@ -42,6 +43,18 @@ export interface PublishRequest {
   menuId: string
   actorId: string | null
   setAsDefault: boolean
+  /**
+   * Task 17 / final review H1 — `channel.memberRichMenuId` ของ channel ที่เมนูนี้สังกัดอยู่ ณ ตอนนี้
+   *
+   * required ไม่ใช่ optional โดยตั้งใจ: publish ต้องรู้ให้ได้ว่าเมนูตัวนี้เป็นเมนูสมาชิกที่ live อยู่
+   * หรือเปล่า และ adapter ตัวที่สามในอนาคตที่ลืมส่งค่านี้ต้องคอมไพล์ไม่ผ่านทันที ไม่ใช่เงียบแล้ว
+   * ปล่อยให้ publish ซ้ำทิ้งสมาชิกทั้งหมดไว้กับเมนูที่เพิ่งถูกลบ (ดู `assertNotChannelMemberMenu`)
+   *
+   * ส่งเป็นค่าดิบแทนที่จะให้ core ไปอ่าน channel เอง เพราะ controller ของทั้งสอง adapter อ่าน
+   * channel ตัวเดียวกันนี้อยู่แล้วเพื่อเอา access token มาประกอบ client — การให้ core อ่านซ้ำคือ
+   * query เพิ่มหนึ่งครั้งต่อ publish หนึ่งครั้งโดยไม่ได้ข้อเท็จจริงอะไรใหม่เลย
+   */
+  memberRichMenuId: string | null
 }
 
 export interface PublishOutcome {
@@ -67,6 +80,24 @@ export async function publishMenu(deps: PublishDeps, request: PublishRequest): P
   if (menu.normalizedFileId === null || menu.normalizedMime === null) {
     throw new MenuNotReadyError('no_image')
   }
+
+  // Task 17 / final review H1 — publish ซ้ำบนเมนูที่เป็นเมนูสมาชิกของ channel อยู่ตอนนี้ ทำลาย
+  // ทุกลิงก์ที่มีอยู่แล้วทิ้ง pointer ไว้ชี้ id ที่ถูกลบ (เหตุผลเต็มที่ `assertNotChannelMemberMenu`
+  // และ `MenuActiveForMembersError`) — ปฏิเสธ ไม่ใช่ซ่อมให้เอง: ทางที่ใช้ได้จริงคือปิดสวิตช์
+  // (ปลดทุกคน) → publish → เปิดใหม่ ซึ่งเป็นสิ่งที่ต้องเกิดอยู่ดีเพราะ LINE ออก id ใหม่ทุกครั้ง
+  //
+  // มาก่อนด่าน setAsDefault ข้างล่างโดยตั้งใจ: เมนูสมาชิกที่ live อยู่และถูกขอ `setAsDefault: true`
+  // ผิดทั้งสองข้อพร้อมกัน แต่ข้อความที่ช่วยได้จริงคือตัวที่บอก **ขั้นแรกของทางที่เดินได้** — ปิด
+  // สวิตช์ก่อน (เปลี่ยน audience ตอนนี้ก็ถูก `assertAudienceChangeAllowed` ปฏิเสธอยู่ดี)
+  assertNotChannelMemberMenu({
+    menu, memberRichMenuId: request.memberRichMenuId, operation: 'publish',
+  })
+
+  // Task 17 / final review BLOCKER — `setAsDefault` คือการทำให้เมนูนี้เป็น default ของบัญชี ซึ่ง
+  // ผู้ติดตาม **ทุกคน** เห็น ไม่ใช่แค่สมาชิก เมนูที่ประกาศตัวว่าเป็นของสมาชิกจึงถูกตั้งเป็น default
+  // ไม่ได้ (ดู `assertAllAudience`) ตรวจเฉพาะตอนที่ถูกขอจริง — publish ธรรมดาที่ไม่ตั้ง default
+  // เป็นเส้นทางปกติของเมนูสมาชิกและต้องผ่านได้เสมอ
+  if (request.setAsDefault) assertAllAudience(menu)
 
   // I4 — status: 'publishing' ที่ยังไม่หมดอายุคือหลักฐานว่ามี publish ของเมนูนี้ทำงานอยู่จริง
   // (หรืออย่างน้อยก็ยังไม่นานพอจะฟันธงว่ามันตายไปแล้ว) เช็คนี้อยู่นอก audit.around ด้วยเหตุผล

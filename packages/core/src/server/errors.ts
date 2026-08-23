@@ -68,6 +68,22 @@ export class MenuNotMembersAudienceError extends CoreError {
 }
 
 /**
+ * ปฏิบัติการที่ถูกปฏิเสธเพราะเมนูนั้น "เป็นเมนูสมาชิกของ channel อยู่ตอนนี้" — ทั้งสามตัวมีทางแก้
+ * เดียวกันเป๊ะ (ปิดสวิตช์สมาชิกก่อน) จึงใช้ error ตัวเดียว code เดียว ต่างกันแค่ท่อนท้ายของข้อความ
+ * ที่บอกว่ากำลังปฏิเสธ *อะไร* อยู่
+ *
+ * required ไม่ใช่ optional ที่มี default — ตัวที่สี่ในอนาคตต้องถูกบังคับให้เลือกคำของตัวเอง
+ * ไม่ใช่เงียบ ๆ ไปได้ข้อความของ 'audience' ที่บอกวิธีแก้ผิดเรื่อง
+ */
+export type MemberMenuOperation = 'audience' | 'publish' | 'delete'
+
+const MEMBER_MENU_REMEDY: Record<MemberMenuOperation, string> = {
+  audience: "changing its audience away from 'members'",
+  publish: 'publishing it again',
+  delete: 'deleting it',
+}
+
+/**
  * Task 14b item 3 — เมนูนี้กำลังเป็นเมนูสมาชิกของ channel อยู่ (`channel.memberRichMenuId` ชี้มาที่
  * `lineRichMenuId` ของมัน) การเปลี่ยน `audience` ออกจาก `'members'` ตอนนี้จะพาไปลงที่สถานะเดียวกับ
  * ที่ `MenuNotMembersAudienceError` ข้างบนมีไว้กันไม่ให้เกิด แต่มาทางประตูใหม่: แถวถูก label ว่า
@@ -79,13 +95,96 @@ export class MenuNotMembersAudienceError extends CoreError {
  * เงียบ ๆ (นั่นคือการตัดสินใจแทนผู้ใช้ว่าสมาชิกหลายหมื่นคนควรถูกปลดเมนู) แต่ปฏิเสธแล้วบอกให้ปิด
  * สวิตช์สมาชิกก่อน — 409 เหมือน `MenuNotMembersAudienceError` (ทั้งคู่คือ "เมนูนี้ยังทำสิ่งที่ขอ
  * ไม่ได้" ไม่ใช่ "คำขอผิดรูปแบบ") แต่คนละ code เพราะแก้คนละวิธี
+ *
+ * **Task 17 ขยายมาคุมอีกสองประตูที่พาไปลงสถานะเดียวกัน** (final review H1/H2) โดยไม่เพิ่ม code ใหม่
+ * เพราะข้อเท็จจริงและทางแก้เป็นอันเดียวกันทั้งสามทาง:
+ *
+ * - `publish` ซ้ำบนเมนูที่เป็นเมนูสมาชิกอยู่ — publish สร้างเมนูใหม่บน LINE (id ใหม่เสมอ) เขียน id
+ *   ใหม่ลงแถว แล้วลบตัวเก่าทิ้ง ไม่มีใครอัปเดต `channel.memberRichMenuId` ตาม สมาชิกทุกคนจึงหลุด
+ *   จากเมนูที่ถูกลบ ขณะที่ pointer ยังชี้ id ที่ไม่มีอยู่แล้ว สวิตช์อ่านว่า "ปิด"
+ *   `assertAudienceChangeAllowed` เริ่ม return early (pointer ไม่ตรงแล้ว) และ `linkNewMember`
+ *   แจกเมนูที่ถูกลบให้สมาชิกใหม่ต่อไป — ไม่ใช่การหลบเลี่ยง: LINE ออก id ใหม่ทุก publish สมาชิก
+ *   ทุกคนต้องถูกผูกใหม่อยู่แล้วไม่ว่าทางไหน เลือกได้แค่ว่าต้นทุนนั้นจะมองเห็นหรือถูกซ่อน
+ * - `delete` แถวเมนูที่เป็นเมนูสมาชิกอยู่ — `deactivate` เริ่มด้วย `menus.findOne(id)` แล้ว 404
+ *   pointer จึงกลับเป็น null ผ่านผลิตภัณฑ์ไม่ได้อีกเลย
  */
 export class MenuActiveForMembersError extends CoreError {
   readonly code = 'menu_active_for_members'
-  constructor(readonly menuId: string) {
+  constructor(readonly menuId: string, readonly operation: MemberMenuOperation) {
     super(
       `rich menu ${menuId} is currently the channel's member menu; `
-      + "turn the members toggle off before changing its audience away from 'members'",
+      + `turn the members toggle off before ${MEMBER_MENU_REMEDY[operation]}`,
+    )
+  }
+}
+
+/**
+ * Task 17 / final review BLOCKER — ด้านกลับของ `MenuNotMembersAudienceError` ข้างบนแบบตรงตัว:
+ * ที่นั่นกัน "เมนูป้าย all ถูกทำให้ live สำหรับสมาชิก" ที่นี่กัน "เมนูป้าย members ถูกทำให้ live
+ * สำหรับทุกคน" ก่อนมีตัวนี้ ครึ่งหลังไม่มียามเลยสักด่าน ทั้งที่มันคือเส้นทาง**บังคับ**: สวิตช์
+ * สมาชิกทำงานได้ต่อเมื่อเมนู publish แล้ว และปุ่ม publish เดียวที่มีใน editor ส่ง
+ * `setAsDefault: true` ตายตัว — เมนูสมาชิกทุกตัวจึงถูกยัดให้ผู้ติดตามทุกคนก่อนจะได้เป็นของสมาชิก
+ *
+ * ครอบสามประตูเดียวกันทั้งหมด: `publishMenu` ที่ `setAsDefault: true`, `POST /menus/:id/default`
+ * และ op `set-default` ของ scheduler (ซึ่งเป็นตัวที่ `writeDisplayPeriod` เคยตั้งไว้ให้เมนูสมาชิก
+ * ได้ — ดู `MenuDisplayPeriodNotAllowedError` ข้างล่าง) ยามที่ชั้น scheduler ยังจำเป็นแม้ทางเขียน
+ * ปิดแล้ว เพราะฐานข้อมูลที่อัปเกรดมาอาจมีแถว `set-default` ของเมนูสมาชิกค้างอยู่แล้วจริง ๆ
+ *
+ * 409 ไม่ใช่ 400 ด้วยเหตุผลเดียวกับพี่น้องของมัน — "เมนูนี้ยังทำสิ่งที่ขอไม่ได้" ไม่ใช่ "คำขอผิดรูป"
+ */
+export class MenuNotAllAudienceError extends CoreError {
+  readonly code = 'menu_not_all_audience'
+  constructor(readonly menuId: string) {
+    super(
+      `rich menu ${menuId} is not audience:'all'; making it the account default would show it to `
+      + "every follower — change its audience to 'all' first",
+    )
+  }
+}
+
+/**
+ * Task 17 / deferred item 3 — ย้ายเมนูที่เคยขึ้น LINE แล้วไปอยู่ channel อื่นไม่ได้
+ *
+ * `saveMenu` เขียน `channelId` จาก input ตรง ๆ ทุกครั้ง การย้ายเมนูสมาชิกที่ยัง live อยู่ไป channel
+ * อื่นโดยคง `audience: 'members'` ไว้ จึงข้าม `assertAudienceChangeAllowed` ทั้งด่าน (มัน return
+ * early ที่ `next === 'members'` ก่อนจะได้อ่าน channel ด้วยซ้ำ) ผลคือ pointer ของ channel ต้นทาง
+ * ยังชี้เมนูที่ย้ายไปแล้ว ส่วน `deactivate` ไปอ่าน channel ปลายทางแทน — ล้างของต้นทางไม่ได้อีกเลย
+ * สถานะเดียวกับการลบแถวทิ้ง (H2) เป๊ะ ๆ
+ *
+ * เงื่อนไขคือ `lineRichMenuId !== null` ไม่ใช่ `status === 'published'` — ข้อเท็จจริงที่ทำให้การ
+ * ย้ายไม่มีความหมายคือ "มีเมนูตัวจริงอยู่บนบัญชี LINE ของ channel เดิม" ซึ่งเป็นจริงกับแถว
+ * `publishing`/`failed` ที่ถือ id ค้างไว้ด้วย ไม่ใช่แค่แถวที่ status เป็น published พอดี
+ */
+export class MenuChannelLockedError extends CoreError {
+  readonly code = 'menu_channel_locked'
+  constructor(readonly menuId: string) {
+    super(
+      `rich menu ${menuId} already exists on its channel's LINE account; `
+      + 'it cannot be moved to another channel',
+    )
+  }
+}
+
+/**
+ * Task 17 item 5 — ช่วงเวลาแสดงผลบนเมนูสมาชิก
+ *
+ * `writeDisplayPeriod` แปลง `startAt`/`endAt` เป็นแถว `set-default`/`clear-default` โดยไม่ดู
+ * `audience` เลย เมนูสมาชิกที่มีช่วงเวลาแสดงผลจึงถูกยัดให้ผู้ติดตามทุกคนเมื่อถึงเวลาเริ่ม —
+ * ประตูที่สองของ BLOCKER เดียวกันกับ `MenuNotAllAudienceError` แต่มาแบบตั้งเวลาไว้ล่วงหน้า
+ *
+ * **ไม่**แปลงมันเป็นการตั้งเวลา `link-members`/`unlink-members` แทนในงานนี้: การทำแบบนั้นต้องย้าย
+ * pointer `memberRichMenuId` ตามไปด้วยเพื่อรักษาสมการสามฝ่าย ซึ่งเป็น semantics ใหม่ของ scheduler
+ * ทั้งชุด ต้องออกแบบเป็นงานของตัวเอง ไม่ใช่แถมมาในรอบแก้บั๊ก (บันทึกเป็น follow-up ไว้แล้ว)
+ *
+ * ไม่พก menuId เหมือน error ตัวอื่นในไฟล์นี้ เพราะด่านนี้ทำงานตอน **create** ได้ด้วย ซึ่งยังไม่มี
+ * แถวและยังไม่มี id ให้อ้าง — ผู้เรียกรู้อยู่แล้วว่าตัวเองเพิ่งส่งเมนูตัวไหนมา
+ */
+export class MenuDisplayPeriodNotAllowedError extends CoreError {
+  readonly code = 'menu_display_period_not_allowed'
+  constructor() {
+    super(
+      "a display period makes the menu the account default for everyone at its start time, so a menu "
+      + "with audience:'members' cannot have one — clear the display period or change the audience to 'all'",
     )
   }
 }

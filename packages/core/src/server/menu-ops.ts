@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto'
 import type { BatchOperation, LineClient } from '../line/client.js'
 import type { AuditWriter } from './audit.js'
 import {
-  MenuActiveForMembersError, MenuNotFoundError, MenuNotMembersAudienceError, MenuNotReadyError,
+  MenuActiveForMembersError, MenuChannelLockedError, MenuDisplayPeriodNotAllowedError,
+  MenuNotAllAudienceError, MenuNotFoundError, MenuNotMembersAudienceError, MenuNotReadyError,
+  type MemberMenuOperation,
 } from './errors.js'
 import type { Repo, RichMenuRow } from './types.js'
 
@@ -78,7 +80,85 @@ export function assertAudienceChangeAllowed(input: {
   // ใครถืออยู่จริง ทั้งที่ channel นั้นก็แค่ยังไม่มีเมนูสมาชิกเลย
   if (input.menu.lineRichMenuId === null) return
   if (input.memberRichMenuId !== input.menu.lineRichMenuId) return
-  throw new MenuActiveForMembersError(input.menu.id)
+  throw new MenuActiveForMembersError(input.menu.id, 'audience')
+}
+
+/**
+ * Task 17 / final review BLOCKER — คู่ตรงข้ามของ `assertMembersAudience` ข้างบนแบบตรงตัว: ที่นั่น
+ * กันไม่ให้เมนูที่ไม่ใช่ของสมาชิกถูก **activate ให้สมาชิก** ที่นี่กันไม่ให้เมนูที่ไม่ใช่ของทุกคนถูก
+ * **ตั้งเป็น default ของบัญชี** ซึ่งคือการยัดมันให้ผู้ติดตามทุกคน ไม่ใช่แค่สมาชิก
+ *
+ * เรียกจากสามที่ที่ตั้ง default ได้จริง และต้องครบทั้งสาม ไม่ใช่แค่ที่ที่ UI เดินผ่าน:
+ * `publishMenu` (เฉพาะเมื่อ `setAsDefault`), `setMenuAsDefault` (`POST /menus/:id/default` และ op
+ * `set-default` ของ scheduler ใช้ตัวเดียวกัน) — ดูคอมเมนต์เต็มที่ `MenuNotAllAudienceError`
+ *
+ * อยู่ใน core ไม่ใช่ในแต่ละ adapter ด้วยเหตุผลเดิมของไฟล์นี้ทั้งไฟล์: ด่านที่เขียนซ้ำสองรอบคือด่าน
+ * ที่วันหนึ่งจะมีอยู่แค่ฝั่งเดียว
+ */
+export function assertAllAudience(menu: Pick<RichMenuRow, 'id' | 'audience'>): void {
+  if (menu.audience !== 'all') {
+    throw new MenuNotAllAudienceError(menu.id)
+  }
+}
+
+/**
+ * Task 17 / final review H1+H2 — เมนูที่ **เป็นเมนูสมาชิกของ channel อยู่ตอนนี้** ห้ามถูก publish
+ * ซ้ำและห้ามถูกลบแถวทิ้ง ทั้งสองทางพาไปลงสถานะเดียวกัน: pointer ของ channel ชี้ id ที่ไม่มีอยู่จริง
+ * อีกแล้ว สวิตช์อ่านว่า "ปิด" ทั้งที่สมาชิกยังค้างอยู่ และไม่มีทางล้าง pointer ผ่านผลิตภัณฑ์ได้เลย
+ * (`deactivate` 404 ที่ `menus.findOne` ในเคสลบ) — เหตุผลเต็มอยู่ที่ `MenuActiveForMembersError`
+ *
+ * เงื่อนไขเดียวกับครึ่งท้ายของ `assertAudienceChangeAllowed` เป๊ะ ๆ และตั้งใจให้ตรงกัน: "เมนูนี้คือ
+ * ตัวที่ pointer ชี้อยู่จริงไหม" — เทียบด้วย `lineRichMenuId` ไม่ใช่ `menu.id` เพราะ pointer เก็บ id
+ * ฝั่ง LINE เมนูร่างที่ยังไม่เคยขึ้น LINE (`lineRichMenuId === null`) ผ่านเสมอ ไม่ใช่ไปเทียบ
+ * `null === null` แล้วปฏิเสธการลบร่างของ channel ที่บังเอิญยังไม่มีเมนูสมาชิกเลย
+ *
+ * รับ `memberRichMenuId` เป็นค่าดิบเหมือน `assertAudienceChangeAllowed` — ผู้เรียกทั้งสอง adapter
+ * อ่านค่านี้จาก repo ของตัวเองคนละรูปกันอยู่แล้ว และ core ไม่ต้องรู้จัก channel มากกว่านี้
+ */
+export function assertNotChannelMemberMenu(input: {
+  menu: Pick<RichMenuRow, 'id' | 'lineRichMenuId'>
+  memberRichMenuId: string | null
+  operation: Exclude<MemberMenuOperation, 'audience'>
+}): void {
+  if (input.menu.lineRichMenuId === null) return
+  if (input.memberRichMenuId !== input.menu.lineRichMenuId) return
+  throw new MenuActiveForMembersError(input.menu.id, input.operation)
+}
+
+/**
+ * Task 17 / deferred item 3 — ห้ามย้ายเมนูที่มีตัวจริงอยู่บน LINE แล้วไป channel อื่น
+ * (เหตุผลเต็มที่ `MenuChannelLockedError`)
+ *
+ * `next === undefined` ต้องผ่านเสมอด้วยกฎเดียวกับ `assertAudienceChangeAllowed`: "ไม่ส่งมา" คือ
+ * "ไม่เปลี่ยน" และ `next === menu.channelId` (ฟอร์มส่งค่าเดิมกลับมาทุกครั้ง) ก็ไม่ใช่การย้าย —
+ * ถ้าด่านนี้ดูแค่ "มีคีย์ channelId ไหม" เมนูที่ publish แล้วจะแก้อะไรไม่ได้เลยสักอย่าง ซึ่งแย่กว่า
+ * ปัญหาที่มันตั้งใจแก้ (บทเรียนเดียวกับ Task 14b item 3 round 2)
+ */
+export function assertChannelChangeAllowed(input: {
+  menu: Pick<RichMenuRow, 'id' | 'channelId' | 'lineRichMenuId'>
+  next: string | undefined
+}): void {
+  if (input.next === undefined || input.next === input.menu.channelId) return
+  // ยังไม่เคยขึ้น LINE — ร่างย้าย channel ได้ตามปกติ ไม่มีอะไรค้างอยู่ฝั่งบัญชีเดิม
+  if (input.menu.lineRichMenuId === null) return
+  throw new MenuChannelLockedError(input.menu.id)
+}
+
+/**
+ * Task 17 item 5 — ช่วงเวลาแสดงผลบนเมนูสมาชิก (เหตุผลเต็มที่ `MenuDisplayPeriodNotAllowedError`)
+ *
+ * `audience` ที่ส่งเข้ามาต้องเป็น audience **ผลลัพธ์** ของคำขอนี้ (ค่าที่ส่งมา ถ้าไม่ส่งก็ค่าเดิมของ
+ * แถว ถ้าเป็นเมนูใหม่ก็ค่า default ของคอลัมน์) ไม่ใช่ค่าเดิมเสมอ — ไม่งั้นการเปลี่ยนเป็น members
+ * พร้อมกับตั้งช่วงเวลาในคำขอเดียวจะลอดผ่านทั้งที่เป็นสถานะเดียวกับที่ด่านนี้มีไว้กัน
+ */
+export function assertDisplayPeriodAllowed(input: {
+  audience: 'all' | 'members'
+  startAt: string | null
+  endAt: string | null
+}): void {
+  if (input.audience !== 'members') return
+  if (input.startAt === null && input.endAt === null) return
+  throw new MenuDisplayPeriodNotAllowedError()
 }
 
 export async function setMenuAsDefault(
@@ -86,6 +166,12 @@ export async function setMenuAsDefault(
   input: { menuId: string; actorId: string | null },
 ): Promise<void> {
   const menu = await publishedMenuOrThrow(deps.menus, input.menuId)
+  // Task 17 — เรียก**หลัง** publishedMenuOrThrow ด้วยเหตุผลเดียวกับที่ `assertMembersAudience` เรียก
+  // หลังมัน (ดูคอมเมนต์ที่นั่น): ถ้าเมนูผิดทั้งสองอย่างพร้อมกัน error ที่ควรเห็นก่อนคือตัวที่ปิดกั้น
+  // กว่า ทางนี้ครอบทั้ง `POST /menus/:id/default` และ op `set-default` ของ scheduler เพราะทั้งคู่
+  // ลงมาที่ฟังก์ชันเดียวกันนี้ — แถว `set-default` ของเมนูสมาชิกที่ค้างอยู่ในฐานข้อมูลที่อัปเกรดมา
+  // จึงล้มเป็นงาน failed พร้อม lastError แทนที่จะยัดเมนูสมาชิกให้ผู้ติดตามทุกคนตามเวลาที่ตั้งไว้
+  assertAllAudience(menu)
   const previous = await deps.client.getDefault()
 
   await deps.audit.around(

@@ -2,11 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { LineServerError, LineValidationError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
 import {
-  MenuActiveForMembersError, MenuNotMembersAudienceError, MenuNotReadyError,
+  MenuActiveForMembersError, MenuChannelLockedError, MenuDisplayPeriodNotAllowedError,
+  MenuNotAllAudienceError, MenuNotMembersAudienceError, MenuNotReadyError,
 } from '../../src/server/errors.js'
 import {
-  assertAudienceChangeAllowed, assertMembersAudience, clearChannelDefault, deleteOrphan,
-  reconcileChannel, setMenuAsDefault, swapMenuAlias, unlinkAllFromMenu,
+  assertAllAudience, assertAudienceChangeAllowed, assertChannelChangeAllowed,
+  assertDisplayPeriodAllowed, assertMembersAudience, assertNotChannelMemberMenu,
+  clearChannelDefault, deleteOrphan, reconcileChannel, setMenuAsDefault, swapMenuAlias,
+  unlinkAllFromMenu,
 } from '../../src/server/menu-ops.js'
 import type { AuditRow, Repo, RichMenuRow } from '../../src/server/types.js'
 
@@ -169,6 +172,176 @@ describe('assertAudienceChangeAllowed', () => {
   })
 })
 
+/**
+ * Task 17 / final review BLOCKER — `assertAllAudience` คือคู่ตรงข้ามของ `assertMembersAudience`
+ * ข้างบน (ดูคอมเมนต์ที่ตัวฟังก์ชันเอง) เทสต์ตรงนี้พิสูจน์ตรรกะของมันแยกจากผู้เรียกทั้งสามทาง
+ * (`publishMenu` ที่ setAsDefault, `POST /menus/:id/default`, op `set-default` ของ scheduler)
+ */
+describe('assertAllAudience', () => {
+  it('เมนู audience: all ผ่านโดยไม่โยนอะไร', () => {
+    expect(() => assertAllAudience(menuRow({ audience: 'all' }))).not.toThrow()
+  })
+
+  it('เมนู audience: members โยน MenuNotAllAudienceError พร้อม id ของเมนูนั้น', () => {
+    try {
+      assertAllAudience(menuRow({ id: 'm-13', audience: 'members' }))
+      throw new Error('ต้องโยนก่อนถึงบรรทัดนี้')
+    } catch (error) {
+      expect(error).toBeInstanceOf(MenuNotAllAudienceError)
+      expect((error as MenuNotAllAudienceError).code).toBe('menu_not_all_audience')
+      expect((error as MenuNotAllAudienceError).menuId).toBe('m-13')
+    }
+  })
+})
+
+/**
+ * Task 17 / final review H1+H2 — `assertNotChannelMemberMenu` (ดูคอมเมนต์ที่ตัวฟังก์ชันเอง)
+ *
+ * แต่ละ `it` ต่างจากเคสที่ถูกปฏิเสธเพียงจุดเดียวเหมือนชุดของ `assertAudienceChangeAllowed` ข้างบน —
+ * ยามที่ปฏิเสธทุกอย่างก็ผ่านเทสต์ "ต้องปฏิเสธ" ได้เหมือนกัน เคสที่ต้องผ่านจึงเป็นครึ่งที่บอกว่านี่คือ
+ * ยาม ไม่ใช่การล็อกปุ่ม publish/delete ทิ้งถาวร
+ */
+describe('assertNotChannelMemberMenu', () => {
+  const liveMemberMenu = menuRow({ id: 'm-live', audience: 'members', lineRichMenuId: 'richmenu-a' })
+
+  it('publish ซ้ำบนเมนูที่ pointer ของ channel ชี้อยู่ — โยน MenuActiveForMembersError ที่บอกให้ปิดสวิตช์ก่อน publish', () => {
+    try {
+      assertNotChannelMemberMenu({
+        menu: liveMemberMenu, memberRichMenuId: 'richmenu-a', operation: 'publish',
+      })
+      throw new Error('ต้องโยนก่อนถึงบรรทัดนี้')
+    } catch (error) {
+      expect(error).toBeInstanceOf(MenuActiveForMembersError)
+      expect((error as MenuActiveForMembersError).code).toBe('menu_active_for_members')
+      expect((error as MenuActiveForMembersError).menuId).toBe('m-live')
+      expect((error as MenuActiveForMembersError).message)
+        .toBe("rich menu m-live is currently the channel's member menu; "
+          + 'turn the members toggle off before publishing it again')
+    }
+  })
+
+  it('ลบแถวเมนูที่ pointer ของ channel ชี้อยู่ — ปฏิเสธด้วยข้อความของ delete ไม่ใช่ข้อความของ publish', () => {
+    try {
+      assertNotChannelMemberMenu({
+        menu: liveMemberMenu, memberRichMenuId: 'richmenu-a', operation: 'delete',
+      })
+      throw new Error('ต้องโยนก่อนถึงบรรทัดนี้')
+    } catch (error) {
+      expect((error as MenuActiveForMembersError).message)
+        .toBe("rich menu m-live is currently the channel's member menu; "
+          + 'turn the members toggle off before deleting it')
+    }
+  })
+
+  // ครึ่งที่พิสูจน์ว่านี่คือยาม ไม่ใช่การปิดปุ่มถาวร — "ปิดสวิตช์สมาชิกก่อน" ที่ข้อความบอกให้ทำ
+  // คือการล้าง pointer ตัวนี้พอดี หลังจากนั้น publish/delete ต้องทำได้จริง
+  it('ปิดสวิตช์แล้ว (pointer เป็น null) — publish ซ้ำและลบได้ตามปกติ', () => {
+    expect(() => assertNotChannelMemberMenu({
+      menu: liveMemberMenu, memberRichMenuId: null, operation: 'publish',
+    })).not.toThrow()
+    expect(() => assertNotChannelMemberMenu({
+      menu: liveMemberMenu, memberRichMenuId: null, operation: 'delete',
+    })).not.toThrow()
+  })
+
+  it('เมนูสมาชิกตัวอื่นของ channel เดียวกันถูก pointer ชี้อยู่ — เมนูนี้ยังทำได้ตามปกติ', () => {
+    expect(() => assertNotChannelMemberMenu({
+      menu: liveMemberMenu, memberRichMenuId: 'richmenu-somebody-else', operation: 'publish',
+    })).not.toThrow()
+  })
+
+  /**
+   * เมนูร่างที่ยังไม่เคยขึ้น LINE — ถ้าไม่มี guard `lineRichMenuId === null` ในฟังก์ชัน เคสนี้จะไป
+   * จบที่ `null !== null` ซึ่งเป็นเท็จ แล้วปฏิเสธ **publish ครั้งแรกของทุกเมนู** บน channel ที่ยัง
+   * ไม่มีเมนูสมาชิก ซึ่งคือทุก channel ที่เพิ่งตั้งค่าเสร็จ (บทเรียนเดียวกับด่านคู่ขนานของ
+   * `assertAudienceChangeAllowed` ข้างบน)
+   */
+  it('เมนูที่ยังไม่เคยขึ้น LINE บน channel ที่ยังไม่มีเมนูสมาชิก — publish ครั้งแรกต้องไม่โดนจับด้วย null === null', () => {
+    expect(() => assertNotChannelMemberMenu({
+      menu: menuRow({ status: 'draft', lineRichMenuId: null }),
+      memberRichMenuId: null,
+      operation: 'publish',
+    })).not.toThrow()
+  })
+})
+
+/**
+ * Task 17 / deferred item 3 — `assertChannelChangeAllowed` (ดูคอมเมนต์ที่ตัวฟังก์ชันเอง)
+ */
+describe('assertChannelChangeAllowed', () => {
+  const published = menuRow({ id: 'm-pub', channelId: '10', lineRichMenuId: 'richmenu-a' })
+
+  it('ย้ายเมนูที่มีตัวจริงอยู่บน LINE แล้วไป channel อื่น — โยน MenuChannelLockedError', () => {
+    try {
+      assertChannelChangeAllowed({ menu: published, next: '20' })
+      throw new Error('ต้องโยนก่อนถึงบรรทัดนี้')
+    } catch (error) {
+      expect(error).toBeInstanceOf(MenuChannelLockedError)
+      expect((error as MenuChannelLockedError).code).toBe('menu_channel_locked')
+      expect((error as MenuChannelLockedError).menuId).toBe('m-pub')
+    }
+  })
+
+  // ฟอร์มส่ง channelId เดิมกลับมาทุกครั้งที่กด Save — ถ้าด่านนี้ดูแค่ "มีคีย์ channelId ไหม"
+  // เมนูที่ publish แล้วจะแก้ชื่อ/รูป/ปุ่มไม่ได้เลยสักอย่าง ซึ่งแย่กว่าปัญหาที่มันตั้งใจแก้
+  it('ส่ง channelId เดิมกลับมา (การกด Save ธรรมดา) — ผ่าน', () => {
+    expect(() => assertChannelChangeAllowed({ menu: published, next: '10' })).not.toThrow()
+  })
+
+  it('ไม่ส่ง channelId มาเลย (undefined = ไม่เปลี่ยน) — ผ่าน', () => {
+    expect(() => assertChannelChangeAllowed({ menu: published, next: undefined })).not.toThrow()
+  })
+
+  it('ร่างที่ยังไม่เคยขึ้น LINE — ย้าย channel ได้ตามปกติ', () => {
+    expect(() => assertChannelChangeAllowed({
+      menu: menuRow({ status: 'draft', lineRichMenuId: null, channelId: '10' }), next: '20',
+    })).not.toThrow()
+  })
+
+  // เงื่อนไขคือ "มีตัวจริงอยู่บน LINE" ไม่ใช่ `status === 'published'` — แถวที่ publish ล้มกลางทาง
+  // แล้วถือ id ค้างไว้ก็ผูกอยู่กับบัญชี LINE ของ channel เดิมเหมือนกัน
+  it('แถวที่ status เป็น failed แต่ยังถือ lineRichMenuId ค้างไว้ — ย้ายไม่ได้เหมือนกัน', () => {
+    expect(() => assertChannelChangeAllowed({
+      menu: menuRow({ status: 'failed', lineRichMenuId: 'richmenu-a', channelId: '10' }), next: '20',
+    })).toThrow(MenuChannelLockedError)
+  })
+})
+
+/**
+ * Task 17 item 5 — `assertDisplayPeriodAllowed` (ดูคอมเมนต์ที่ตัวฟังก์ชันเอง)
+ */
+describe('assertDisplayPeriodAllowed', () => {
+  const start = '2026-09-01T00:00:00.000Z'
+  const end = '2026-09-30T00:00:00.000Z'
+
+  it('เมนูสมาชิกที่มีเวลาเริ่ม — โยน MenuDisplayPeriodNotAllowedError', () => {
+    try {
+      assertDisplayPeriodAllowed({ audience: 'members', startAt: start, endAt: null })
+      throw new Error('ต้องโยนก่อนถึงบรรทัดนี้')
+    } catch (error) {
+      expect(error).toBeInstanceOf(MenuDisplayPeriodNotAllowedError)
+      expect((error as MenuDisplayPeriodNotAllowedError).code).toBe('menu_display_period_not_allowed')
+    }
+  })
+
+  // `endAt` เพียงลำพังก็สร้างแถว `clear-default` ซึ่งไปล้าง default ของบัญชีทั้งบัญชีตามเวลา —
+  // ไม่ใช่แค่ `startAt` ที่อันตราย ถ้าด่านนี้ดูแค่ startAt ครึ่งหนึ่งของปัญหาจะลอดผ่าน
+  it('เมนูสมาชิกที่มีแค่เวลาสิ้นสุด — ปฏิเสธเหมือนกัน', () => {
+    expect(() => assertDisplayPeriodAllowed({ audience: 'members', startAt: null, endAt: end }))
+      .toThrow(MenuDisplayPeriodNotAllowedError)
+  })
+
+  it('เมนูสมาชิกที่ไม่มีช่วงเวลาเลย — ผ่าน (นี่คือเมนูสมาชิกปกติทุกตัว)', () => {
+    expect(() => assertDisplayPeriodAllowed({ audience: 'members', startAt: null, endAt: null }))
+      .not.toThrow()
+  })
+
+  it('เมนูของทุกคนที่มีช่วงเวลาแสดงผล — ผ่าน (ฟีเจอร์เดิมของสเปก §5.7 ต้องไม่ถูกปิดไปด้วย)', () => {
+    expect(() => assertDisplayPeriodAllowed({ audience: 'all', startAt: start, endAt: end }))
+      .not.toThrow()
+  })
+})
+
 describe('setMenuAsDefault', () => {
   it('ตั้ง default บน LINE แล้วเขียน audit ที่บอกว่าจากอะไรเป็นอะไร', async () => {
     const { menus, audit, auditRows } = repos([menuRow()])
@@ -199,6 +372,42 @@ describe('setMenuAsDefault', () => {
       .rejects.toBeInstanceOf(LineServerError)
 
     expect(auditRows[0]).toMatchObject({ action: 'set-default', result: 'failure', errorCode: 'line_server_error' })
+  })
+
+  /**
+   * Task 17 / final review BLOCKER — เส้นทางที่สองที่ตั้ง default ได้: `POST /menus/:id/default`
+   * และ op `set-default` ของ scheduler (ทั้งคู่ลงมาที่ฟังก์ชันนี้) ก่อนหน้านี้ทั้งสองทางเรียกแค่
+   * `publishedMenuOrThrow` แล้วเดินต่อ ไม่เคยดู `audience` เลย
+   *
+   * เช็ค "ไม่แตะ LINE เลย" ด้วย ไม่ใช่แค่ว่ามัน throw — การปฏิเสธที่เกิด**หลัง**ยิง `setDefault`
+   * ไปแล้วคือความเสียหายเดิมทุกประการ ต่างกันแค่มี exception ตามมา
+   */
+  it('เมนู audience: members ตั้งเป็น default ของบัญชีไม่ได้ และต้องไม่แตะ LINE เลย', async () => {
+    const { menus, audit, auditRows } = repos([menuRow({ audience: 'members' })])
+    const line = client({ getDefault: vi.fn(async () => 'richmenu-old') })
+
+    await expect(setMenuAsDefault({ client: line, menus, audit }, { menuId: '1', actorId: '3' }))
+      .rejects.toBeInstanceOf(MenuNotAllAudienceError)
+
+    expect((line as unknown as { setDefault: ReturnType<typeof vi.fn> }).setDefault)
+      .not.toHaveBeenCalled()
+    // ถูกปฏิเสธก่อนแตะ LINE — ไม่มี action ที่แตะ LINE จึงไม่มีแถว audit (สเปก §13.2 ข้อ 8 นับ
+    // เฉพาะสิ่งที่แตะ LINE จริง เหมือนที่ rate limit ของ publish ถูกวางไว้นอก audit.around)
+    expect(auditRows).toHaveLength(0)
+  })
+
+  /**
+   * คู่ที่พิสูจน์ว่าด่านข้างบนเป็นยาม ไม่ใช่การปิดเส้นทางนี้ทิ้ง — เมนูเดียวกันเป๊ะ ต่างกันแค่
+   * `audience` ("เปลี่ยน audience เป็น all ก่อน" คือสิ่งที่ข้อความของ 409 บอกให้ทำพอดี)
+   */
+  it('เมนูเดียวกันที่ audience เป็น all — ตั้ง default ได้ตามปกติ', async () => {
+    const { menus, audit } = repos([menuRow({ audience: 'all' })])
+    const line = client({ getDefault: vi.fn(async () => 'richmenu-old') })
+
+    await setMenuAsDefault({ client: line, menus, audit }, { menuId: '1', actorId: '3' })
+
+    expect((line as unknown as { setDefault: ReturnType<typeof vi.fn> }).setDefault)
+      .toHaveBeenCalledWith('richmenu-a')
   })
 })
 
