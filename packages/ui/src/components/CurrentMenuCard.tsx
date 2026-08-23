@@ -24,23 +24,34 @@ export function CurrentMenuCard({ channelId }: CurrentMenuCardProps) {
   const { ui, http, t } = usePort()
   const [audience, setAudience] = useState<ChannelAudience | null>(null)
   const [menus, setMenus] = useState<RichMenuSummary[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [audienceError, setAudienceError] = useState<string | null>(null)
+  const [menusError, setMenusError] = useState<string | null>(null)
 
+  /**
+   * Task 21 item 3 — เดิมสองคำขอนี้ผูกกันด้วย `Promise.all` เดียว เจอ error ตัวเดียวกันเสมอคือ
+   * `list.loadFailed` ("โหลดรายการ rich menu ไม่สำเร็จ") ไม่ว่าตัวที่ล้มจริงจะเป็นคำขอไหน — ปัญหา
+   * คือสองคำขอนี้มีธรรมชาติต่างกันมาก: `channelAudience` ยิงถึง LINE จริง (token หมดอายุ/LINE
+   * ล่ม/429 ทำให้มันล้มได้) ส่วน `menus` เป็นแค่อ่านจาก DB ของเราเอง เกือบไม่มีทางล้ม — ถ้าที่ล้ม
+   * จริงคือแค่ audience ผู้ใช้จะเห็นข้อความอ้างว่า "โหลดรายการ rich menu ไม่สำเร็จ" ทั้งที่ตาราง
+   * เต็มของ `RichMenuList` ข้างล่างการ์ดนี้ (คนละคำขอ คนละ component) render สำเร็จอยู่ตรงหน้าเลย
+   *
+   * แยกเป็นสองคำขออิสระ จับ error คนละตัว: `menusError` จริง ๆ แล้วแปลว่า "โหลดรายการ rich menu
+   * ไม่สำเร็จ" (คำเดียวกับที่ `RichMenuList` ใช้ — เป็นข้อความที่ตรงจริง) ส่วน `audienceError`
+   * ใช้คีย์ใหม่ที่ไม่อ้างว่ารายการเมนูพัง — ทั้งสองยังไม่มีคำใดพูดว่า "การกระทำ" ล้ม เพราะไม่มีใครกด
+   * อะไรเลยตรงนี้ (เหตุผลเดียวกับ AudienceToggle.tsx:load — ดูคอมเมนต์ที่นั่น)
+   */
   useEffect(() => {
     let cancelled = false
     setAudience(null)
     setMenus(null)
-    setError(null)
-    Promise.all([
-      http.get<ChannelAudience>(ENDPOINTS.channelAudience(channelId)),
-      http.get<RichMenuSummary[]>(`${ENDPOINTS.menus}?channel=${channelId}`),
-    ])
-      .then(([nextAudience, nextMenus]) => {
-        if (cancelled) return
-        setAudience(nextAudience)
-        setMenus(nextMenus)
-      })
-      .catch(() => { if (!cancelled) setError(t('list.loadFailed')) })
+    setAudienceError(null)
+    setMenusError(null)
+    http.get<ChannelAudience>(ENDPOINTS.channelAudience(channelId))
+      .then((next) => { if (!cancelled) setAudience(next) })
+      .catch(() => { if (!cancelled) setAudienceError(t('audience.loadFailed')) })
+    http.get<RichMenuSummary[]>(`${ENDPOINTS.menus}?channel=${channelId}`)
+      .then((next) => { if (!cancelled) setMenus(next) })
+      .catch(() => { if (!cancelled) setMenusError(t('list.loadFailed')) })
     return () => { cancelled = true }
   }, [channelId, http, t])
 
@@ -53,8 +64,12 @@ export function CurrentMenuCard({ channelId }: CurrentMenuCardProps) {
     return found === undefined ? t('list.currentMenu.none') : found.title
   }
 
-  if (error !== null) return <ui.Alert variant="danger">{error}</ui.Alert>
-  if (audience === null || menus === null) return <ui.Loader>{t('common.loading')}</ui.Loader>
+  // `menusError` มาก่อนเสมอ ไม่ว่า audience จะล้มด้วยหรือไม่: ไม่มี `menus` แปลว่า `titleOf` ใช้
+  // งานไม่ได้เลย การ์ดทั้งใบ render อะไรที่มีความหมายไม่ได้จริง ๆ ไม่ใช่แค่เรื่อง priority ข้อความ
+  if (menusError !== null) return <ui.Alert variant="danger">{menusError}</ui.Alert>
+  if (menus === null) return <ui.Loader>{t('common.loading')}</ui.Loader>
+  if (audienceError !== null) return <ui.Alert variant="danger">{audienceError}</ui.Alert>
+  if (audience === null) return <ui.Loader>{t('common.loading')}</ui.Loader>
 
   return (
     <ui.Flex direction="column" gap={2}>

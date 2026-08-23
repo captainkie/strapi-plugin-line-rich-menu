@@ -67,4 +67,34 @@ describe('CurrentMenuCard', () => {
     expect(get).toHaveBeenCalledWith(ENDPOINTS.channelAudience('c1'))
     expect(get).toHaveBeenCalledWith(`${ENDPOINTS.menus}?channel=c1`)
   })
+
+  /**
+   * Task 21 item 3 — เดิมสองคำขอนี้ผูกกันด้วย `Promise.all` เดียว: audience ล้มเฉย ๆ (menus โหลดได้
+   * ปกติ) ก็ยังขึ้นข้อความ 'list.loadFailed' ("โหลดรายการ rich menu ไม่สำเร็จ") ทั้งที่รายการเมนู
+   * ไม่ได้พังจริง — เทสต์นี้ตรวจว่าตอนนี้แยกกันแล้ว: audience ล้มอย่างเดียวต้องขึ้นข้อความคนละคีย์
+   * ('audience.loadFailed') ไม่ใช่ข้อความที่อ้างว่ารายการเมนูพัง
+   */
+  it('เฉพาะ audience โหลดไม่สำเร็จ (menus โหลดได้ปกติ) ต้องบอกเหตุผลที่ตรง ไม่ใช่ "โหลดรายการ rich menu ไม่สำเร็จ"', async () => {
+    const get = vi.fn(async (url: string) => {
+      if (url === ENDPOINTS.channelAudience('c1')) throw new Error('boom')
+      return menus
+    })
+    const base = createStubPort({ t: (k) => k })
+    const port = { ...base, http: { ...base.http, get } as typeof base.http }
+    render(<PortProvider value={port}><CurrentMenuCard channelId="c1" /></PortProvider>)
+    await waitFor(() => expect(screen.getByText('audience.loadFailed')).toBeInTheDocument())
+    expect(screen.queryByText('list.loadFailed')).not.toBeInTheDocument()
+  })
+
+  it('เฉพาะ menus โหลดไม่สำเร็จ (audience โหลดได้ปกติ) ยังขึ้น "โหลดรายการ rich menu ไม่สำเร็จ" เหมือนเดิม', async () => {
+    const get = vi.fn(async (url: string) => {
+      if (url === ENDPOINTS.channelAudience('c1')) return { defaultRichMenuId: null, memberRichMenuId: null, memberCount: 0 }
+      throw new Error('boom')
+    })
+    const base = createStubPort({ t: (k) => k })
+    const port = { ...base, http: { ...base.http, get } as typeof base.http }
+    render(<PortProvider value={port}><CurrentMenuCard channelId="c1" /></PortProvider>)
+    await waitFor(() => expect(screen.getByText('list.loadFailed')).toBeInTheDocument())
+    expect(screen.queryByText('audience.loadFailed')).not.toBeInTheDocument()
+  })
 })
