@@ -52,13 +52,21 @@ export async function backfillLegacyAudience(strapi: StrapiV5): Promise<void> {
     })
     logger.info(`line-rich-menu: audience backfill updated ${count} pre-existing rich menu row(s) to 'all'`)
   } catch (error) {
-    logger.error(
-      'line-rich-menu: audience backfill failed — rich menus that existed before this version will '
-      + 'read audience as null: the admin list shows a missing label for them and saving one from the '
-      + 'editor is rejected with validation_failed on "audience", a field the operator never touched. '
-      + 'Boot continues; the next boot retries.',
-      error,
-    )
+    // `createScrubbedLogger` เองไม่โยนวันนี้ — แต่ "ไม่ล้มการบูตเด็ดขาด" คือข้อบังคับเด็ดขาด ไม่ใช่
+    // ข้อสังเกต ถ้า transport ของ logger เปลี่ยนไปวันหนึ่งแล้วโยน จะไม่มีอะไรกั้นไม่ให้มันไต่ขึ้นไปถึง
+    // bootstrap() แล้วพาแอปทั้งตัวล้มไปด้วย ทั้งที่ backfill เองล้มแบบปลอดภัยอยู่แล้วบรรทัดบน
+    try {
+      logger.error(
+        'line-rich-menu: audience backfill failed — rich menus that existed before this version will '
+        + 'read audience as null: the admin list shows a missing label for them and saving one from the '
+        + 'editor is rejected with validation_failed on "audience", a field the operator never touched. '
+        + 'Boot continues; the next boot retries.',
+        error,
+      )
+    } catch {
+      // ไม่มีอะไรทำต่อได้จริง ๆ ถ้า log เองพัง — กลืนไว้เพื่อให้บูตเดินต่อ ซึ่งเป็นเป้าหมายเดียวของ
+      // catch ชั้นนอกอยู่แล้ว
+    }
   }
 }
 
