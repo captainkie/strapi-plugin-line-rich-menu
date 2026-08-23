@@ -40,9 +40,13 @@ export interface DbQuery {
    * (มีแต่ `update({ documentId })` ทีละใบ) และการวนอ่านทั้งตารางตอนบูตเพื่อซ่อมคอลัมน์เดียวคือ
    * ราคาที่จ่ายทุกครั้งที่บูต ต่อให้ไม่มีอะไรต้องซ่อมเลย — ดู `backfillLegacyAudience` ใน bootstrap.ts
    *
-   * คืนจำนวนแถวที่ **ถูกแก้จริง** (`{ count }` มาจาก knex `.update()` ตรง ๆ ใน entity-manager ของ
-   * `@strapi/database`) ไม่ใช่จำนวนแถวที่ where ตรง ซึ่งเป็นตัวเลขเดียวที่บอกได้ว่า backfill
-   * ทำงานหรือแค่ไม่เจออะไร
+   * `{ count }` มาจาก knex `.update()` ตรง ๆ ใน entity-manager ของ `@strapi/database` — บน MySQL
+   * นั่นคือ `affectedRows` ซึ่งขึ้นกับ driver ว่านับ "แถวที่ตรง WHERE" หรือ "แถวที่ค่าจริงเปลี่ยน"
+   * (ยังไม่ได้วัดบน MySQL จริง ต่างจาก SQLite/PostgreSQL ที่วัดแล้วใน task-15-report.md) ตัวเลขที่
+   * `backfillLegacyAudience` (bootstrap.ts) log ถูกต้องอยู่ดีไม่ว่า driver จะนับแบบไหน เพราะคู่
+   * WHERE/SET ของคำสั่งนั้นเจาะจงเฉพาะ (`audience IS NULL` กับ `audience = 'all'`) ทำให้แถวที่ตรง
+   * เงื่อนไขเปลี่ยนค่าจริงทุกแถวเสมอ ไม่มีแถวไหนตรง WHERE แล้วค่าไม่เปลี่ยน — "ตรง" กับ "เปลี่ยน"
+   * จึงเป็นตัวเลขเดียวกันสำหรับคำสั่งนี้โดยเฉพาะ ไม่ใช่เพราะ knex รับประกันคุณสมบัตินี้ทั่วไป
    */
   updateMany(params: {
     where: Record<string, unknown>
