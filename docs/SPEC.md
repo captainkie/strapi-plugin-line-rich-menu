@@ -135,6 +135,25 @@ currently pointing at answers `409 menu_active_for_members`. Neither one "fixes"
 the caller — unlinking members is a decision about real people's chats, not something to infer from
 an edit to a form field.
 
+Four more writes reach the same pairing from other directions, and all four are refused on the same
+principle. **Making a menu the account default** — `POST /menus/:id/publish` with
+`setAsDefault: true`, `POST /menus/:id/default`, and the scheduler's `set-default` op, which all
+land on the same guard — answers `409 menu_not_all_audience` for a menu whose audience is not
+`'all'`, because the account default is what *every* follower sees, not what members see; the
+editor's publish button now derives that flag from the menu's audience instead of always asking for
+it. **Re-publishing** the menu a channel currently points at, and **deleting its row**, both answer
+`409 menu_active_for_members`: publish issues a brand-new LINE id and deletes the old one, so every
+member would be stranded while the pointer named a menu that no longer exists, and after the row is
+gone `deactivate` has nothing to look up, so the pointer could never return to null through the
+product at all. **Moving a published menu to another channel** answers `409 menu_channel_locked` —
+its LINE menu belongs to the old channel's account regardless, so the move is incoherent even
+setting the pointer aside.
+
+Every one of those refusals has a working remedy, and it is the same one: turn the members toggle
+off, which unlinks everyone, then do the thing. That is not a workaround for re-publishing in
+particular — LINE issues a new rich menu id on every publish, so every member has to be re-linked
+either way. The only choice is whether that cost is visible or hidden.
+
 ### One shape that has caused repeated defects
 
 `templateKey` is `null` whenever a layout has been hand-edited. It has been read as "which canvas
@@ -181,6 +200,15 @@ PNG, and the output is capped at LINE's byte limit.
 
 A display period becomes two rows in `rich-menu-schedule`: `set-default` at the start and
 `clear-default` at the end.
+
+That is why **a menu with `audience: 'members'` cannot have a display period** and saving one
+answers `409 menu_display_period_not_allowed`. A period is a scheduled account default, so a
+members menu with one would be pushed to every follower at its start time — the same defect as
+setting it as the default by hand, only delayed. Making the period schedule
+`link-members`/`unlink-members` instead is *not* what this refusal is standing in for: that would
+also have to move `memberRichMenuId` at both ends to keep the three facts consistent, which is new
+scheduler semantics and belongs in its own designed change rather than being inferred from a form
+field that means something else today.
 
 Claiming uses a single conditional `UPDATE` through knex — `where state = 'pending' and (lockedAt
 is null or lockedAt < now - ttl)` — so **multiple Strapi instances are safe**: exactly one wins each

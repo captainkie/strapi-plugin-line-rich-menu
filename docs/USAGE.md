@@ -210,6 +210,26 @@ state, and there would be no way to switch it off from the UI either.
 do that for you: switching the toggle off unlinks every member from the menu, and that is a decision
 about real people's chats, not a detail to be inferred from an edit to a form field.
 
+#### The other things a members menu will not do
+
+Same rule, same remedy, in four more places:
+
+- **A members menu is never made the account default.** The account default is what every follower
+  sees, not what members see. Pressing **Save and publish** on a Members menu publishes it without
+  touching the default — that is what makes it available to the toggle — and asking for the default
+  explicitly (through the API) is refused with `menu_not_all_audience`.
+- **A menu that is switched on for members cannot be published again.** LINE issues a *new* rich
+  menu id every time you publish, and the old one is deleted, so republishing in place would drop
+  every member onto a menu that no longer exists while the plugin still believed they held it.
+  Turn the toggle off, publish, turn it back on. Everyone has to be re-linked either way; this just
+  makes that visible rather than silent.
+- **A menu that is switched on for members cannot be deleted.** Turning it off is what releases it.
+- **A menu that has been published cannot be moved to another channel.** Its rich menu lives on the
+  original channel's LINE account, so the move would not mean anything.
+- **A menu set to Members cannot have a display period.** A display period is a scheduled account
+  default — it makes the menu everyone's menu at its start time — so it contradicts Members
+  directly. Use the toggle for members and the display period for Everyone menus.
+
 ### Creating members
 
 **LINE member** is a content type you can see and edit in Content Manager — unlike every other
@@ -314,6 +334,17 @@ the audience — Members back to Everyone — the server refused it with `menu_a
 because that menu is still the one your members are holding. Turn its **Enable for members** toggle
 off first, then change the audience. See
 [Turning a live members menu back to Everyone](#turning-a-live-members-menu-back-to-everyone).
+
+**"Could not save" on a Members menu with a start or end date filled in.** Refused with
+`menu_display_period_not_allowed`: a display period is a scheduled account default, which would push
+the menu to every follower at its start time. Clear both dates, or set the audience to Everyone.
+
+**"Could not publish" on a menu whose toggle is on.** Refused with `menu_active_for_members`.
+Publishing creates a new rich menu on LINE and deletes the old one, so your members would be left
+holding something that no longer exists. Turn the toggle off, publish, turn it back on.
+
+**"Could not delete" a menu whose toggle is on.** Same refusal, same fix — turn the toggle off
+first. See [The other things a members menu will not do](#the-other-things-a-members-menu-will-not-do).
 
 **The members toggle is greyed out.** It needs both things: the menu must be published, and its
 audience must be **Members**. If the audience is the problem, a line under the toggle says so; if
