@@ -628,6 +628,41 @@ test.describe('audience สมาชิก', () => {
     const memberMenu = await publishedMenu(
       request, token, channelId, { name: 'เมนูสมาชิก', aliasId: 'members-menu' })
 
+    /**
+     * ===================== Task 17 / final review BLOCKER =====================
+     *
+     * เมนูที่ประกาศตัวว่าเป็นของสมาชิก ต้องไม่มีทางกลายเป็น default ของบัญชี ซึ่งผู้ติดตาม
+     * **ทุกคน** เห็น ไม่ใช่แค่สมาชิก — ก่อน Task 17 นี่คือเส้นทาง**บังคับ**: ปุ่ม publish
+     * ปุ่มเดียวใน editor ส่ง `setAsDefault: true` ตายตัว และสวิตช์สมาชิกทำงานได้ก็ต่อเมื่อ
+     * เมนู publish แล้วเท่านั้น เมนูสมาชิกทุกตัวจึงถูกยัดให้ทุกคนก่อนจะได้เป็นของสมาชิก
+     *
+     * ปิดทั้งสองประตูที่ตั้ง default ได้ และยืนยันจาก **ฝั่ง LINE จริง** ว่า default ไม่ขยับ —
+     * ไม่ใช่แค่ดู status code เพราะ "ปฏิเสธหลังจากตั้ง default ไปแล้ว" คือความเสียหายเดิมทุกประการ
+     *
+     * ยิงตรงนี้ก่อน activate โดยตั้งใจ: pointer ของ channel ยังว่าง ด่าน `menu_active_for_members`
+     * (H1 ข้างล่าง) จึงยังไม่ทำงาน สิ่งที่ปฏิเสธคำขอนี้คือด่าน audience ล้วน ๆ
+     */
+    const accountDefault = async (): Promise<string | null> => {
+      const response = await request.get(`${LINE_MOCK}/v2/bot/user/all/richmenu`, lineAuth)
+      return response.status() === 200 ? (await response.json()).richMenuId as string : null
+    }
+    const defaultBefore = await accountDefault()
+
+    const publishAsDefault = await request.post(`/line-rich-menu/menus/${memberMenu.id}/publish`, {
+      ...auth(token), data: { setAsDefault: true },
+    })
+    expect(publishAsDefault.status(), await publishAsDefault.text()).toBe(409)
+    expect(await publishAsDefault.json()).toMatchObject({ error: { code: 'menu_not_all_audience' } })
+
+    const setDefaultDirect = await request.post(`/line-rich-menu/menus/${memberMenu.id}/default`, {
+      ...auth(token), data: {},
+    })
+    expect(setDefaultDirect.status(), await setDefaultDirect.text()).toBe(409)
+    expect(await setDefaultDirect.json()).toMatchObject({ error: { code: 'menu_not_all_audience' } })
+
+    expect(await accountDefault(),
+      'default ของบัญชีต้องยังเป็นเมนูเดิม ไม่ใช่เมนูสมาชิกที่เพิ่งถูกปฏิเสธไป').toBe(defaultBefore)
+
     // สมาชิกสามคนก่อนเปิดสวิตช์
     const uids = ['1', '2', '3'].map(uidOf)
     for (const lineUserId of uids) await createMember(request, token, { channelId, lineUserId })
@@ -643,6 +678,43 @@ test.describe('audience สมาชิก', () => {
     for (const uid of uids) {
       const onLine = await request.get(`${LINE_MOCK}/v2/bot/user/${uid}/richmenu`, lineAuth)
       expect(onLine.status(), await onLine.text()).toBe(200)
+      expect((await onLine.json()).richMenuId).toBe(memberMenu.lineRichMenuId)
+    }
+
+    /**
+     * ===================== Task 17 / final review H1 + H2 =====================
+     *
+     * เมนูที่ **เป็นเมนูสมาชิกของ channel อยู่ตอนนี้** publish ซ้ำไม่ได้ และลบแถวทิ้งไม่ได้
+     *
+     * publish ซ้ำ: LINE ออก id ใหม่ทุกครั้ง แถวถูกเขียน id ใหม่ แล้วตัวเก่าถูกลบทิ้ง — สมาชิกทุกคน
+     * หลุดจากเมนูที่ถูกลบ ขณะที่ `channel.memberRichMenuId` ยังชี้ id ที่ไม่มีอยู่แล้ว สวิตช์อ่านว่า
+     * "ปิด" และสมาชิกใหม่ยังถูกแจกเมนูที่ถูกลบต่อไป
+     * ลบแถว: `deactivate` เริ่มด้วย `menus.findOne(id)` แล้ว 404 — pointer กลับเป็น null ผ่าน
+     * ผลิตภัณฑ์ไม่ได้อีกเลย
+     *
+     * วางตรงนี้เพราะเป็นจุดที่ memberMenu live จริง (activate รันแล้ว สมาชิกถือเมนูอยู่จริงบน LINE)
+     * — สถานะที่ทำให้ด่านนี้มีความหมาย ไม่ใช่เขียวเพราะไม่มีอะไรให้ปฏิเสธ
+     */
+    const republishWhileLive = await request.post(`/line-rich-menu/menus/${memberMenu.id}/publish`, {
+      ...auth(token), data: { setAsDefault: false },
+    })
+    expect(republishWhileLive.status(), await republishWhileLive.text()).toBe(409)
+    expect(await republishWhileLive.json())
+      .toMatchObject({ error: { code: 'menu_active_for_members' } })
+
+    const deleteWhileLive = await request.delete(
+      `/line-rich-menu/menus/${memberMenu.id}`, auth(token))
+    expect(deleteWhileLive.status(), await deleteWhileLive.text()).toBe(409)
+    expect(await deleteWhileLive.json())
+      .toMatchObject({ error: { code: 'menu_active_for_members' } })
+
+    // ปฏิเสธจริง ไม่ใช่ปฏิเสธหลังทำไปแล้ว — แถวยังอยู่ ชี้เมนูตัวเดิม และสมาชิกยังถือตัวเดิมอยู่บน LINE
+    const stillThere = await request.get(`/line-rich-menu/menus/${memberMenu.id}`, auth(token))
+    expect(stillThere.status(), await stillThere.text()).toBe(200)
+    expect((await stillThere.json()).lineRichMenuId).toBe(memberMenu.lineRichMenuId)
+    for (const uid of uids) {
+      const onLine = await request.get(`${LINE_MOCK}/v2/bot/user/${uid}/richmenu`, lineAuth)
+      expect(onLine.status(), 'สมาชิกต้องยังถือเมนูเดิมอยู่หลังคำขอถูกปฏิเสธ').toBe(200)
       expect((await onLine.json()).richMenuId).toBe(memberMenu.lineRichMenuId)
     }
 
@@ -816,6 +888,23 @@ test.describe('audience สมาชิก', () => {
       expect(after.status()).toBe(404)
     }
 
+    /**
+     * === Task 17, ครึ่งที่พิสูจน์ว่า H1 เป็นยาม ไม่ใช่การล็อกเมนูสมาชิกไว้ห้ามแก้ตลอดกาล ===
+     *
+     * "ปิดสวิตช์สมาชิกก่อน" ที่ข้อความของ 409 บอกให้ทำ เพิ่งเกิดขึ้นจริงบรรทัดบน (deactivate ปลด
+     * ทุกคนแล้ว) — publish ซ้ำต้องผ่านได้จริงตอนนี้ เมนูตัวเดียวกันเป๊ะ audience เดิม (ยังเป็น
+     * 'members') ต่างจากเคสที่ถูกปฏิเสธข้างบนแค่ pointer ของ channel ถูกล้างไปแล้วเท่านั้น
+     *
+     * id ใหม่ที่ได้กลับมาคือหลักฐานว่าทำไมด่านนั้นต้องปฏิเสธแทนที่จะซ่อมให้: LINE ออก id ใหม่ทุก
+     * publish สมาชิกทุกคนต้องถูกผูกใหม่อยู่ดีไม่ว่าทางไหน เลือกได้แค่ว่าต้นทุนนั้นจะมองเห็นหรือถูกซ่อน
+     */
+    const republishAfterDeactivate = await request.post(
+      `/line-rich-menu/menus/${memberMenu.id}/publish`, { ...auth(token), data: { setAsDefault: false } })
+    expect(republishAfterDeactivate.status(), await republishAfterDeactivate.text()).toBe(200)
+    const republished = await republishAfterDeactivate.json()
+    expect(republished.status).toBe('published')
+    expect(republished.lineRichMenuId, 'LINE ออก id ใหม่ทุก publish').not.toBe(memberMenu.lineRichMenuId)
+
     // === Task 14b item 3, ครึ่งที่สอง — เมนูที่ไม่ได้ active อยู่ ต้องเปลี่ยน audience ได้ตามปกติ ===
     //
     // ยามที่ปฏิเสธทุกอย่างก็ "ไม่มีบั๊ก" เหมือนกัน — ด่านนี้คือสิ่งเดียวที่แยก "ยาม" ออกจาก
@@ -837,6 +926,129 @@ test.describe('audience สมาชิก', () => {
     expect((await strippedAfterDeactivate.json()).audience,
       'ปิดสวิตช์แล้วต้องเปลี่ยน audience ได้จริง ไม่ใช่ถูกปฏิเสธต่อไป — ไม่งั้น 409 ข้างบนก็คือการ ' +
       'ล็อกฟิลด์นี้ถาวร ไม่ใช่ยาม').toBe('all')
+
+    /**
+     * ===================== Task 17 item 5 — ช่วงเวลาแสดงผลบนเมนูสมาชิก =====================
+     *
+     * `writeDisplayPeriod` แปลง startAt/endAt เป็นแถว `set-default`/`clear-default` โดยไม่ดู
+     * audience เลย เมนูสมาชิกที่มีช่วงเวลาแสดงผลจึงถูกยัดให้ผู้ติดตามทุกคนเมื่อถึงเวลาเริ่ม —
+     * ประตูที่สองของ BLOCKER เดียวกัน แต่มาแบบตั้งเวลาไว้ล่วงหน้า
+     *
+     * สองคำขอนี้ต่างกัน **ฟิลด์เดียว** คือ audience — นั่นคือทั้งหมดที่แยก "ยาม" ออกจาก
+     * "ปิดฟีเจอร์ช่วงเวลาแสดงผลทิ้ง" (สเปก §5.7 ยังต้องใช้ได้กับเมนูของทุกคนเหมือนเดิม)
+     */
+    const period = { startAt: '2026-12-01T00:00:00.000Z', endAt: '2026-12-31T00:00:00.000Z' }
+    const periodBase = menuBody({
+      name: 'เมนูสมาชิก (ช่วงเวลา)',
+      channelId,
+      imageFileId: menuBeforeEdit.imageFileId,
+      aliasId: menuBeforeEdit.aliasId,
+    })
+
+    const periodOnMembers = await request.put(`/line-rich-menu/menus/${memberMenu.id}`, {
+      ...auth(token), data: { ...periodBase, ...period, audience: 'members' },
+    })
+    expect(periodOnMembers.status(), await periodOnMembers.text()).toBe(409)
+    expect(await periodOnMembers.json())
+      .toMatchObject({ error: { code: 'menu_display_period_not_allowed' } })
+
+    const periodOnAll = await request.put(`/line-rich-menu/menus/${memberMenu.id}`, {
+      ...auth(token), data: { ...periodBase, ...period, audience: 'all' },
+    })
+    expect(periodOnAll.status(), await periodOnAll.text()).toBe(200)
+    const withPeriod = await periodOnAll.json()
+    expect({ startAt: withPeriod.startAt, endAt: withPeriod.endAt },
+      'ช่วงเวลาแสดงผลของเมนูทุกคนต้องถูกเขียนลงจริง ไม่ใช่แค่ตอบ 200').toEqual(period)
+
+    // ล้างช่วงเวลาก่อนลบแถว — ไม่ทิ้งงานที่ค้างชี้เมนูที่ไม่มีอยู่แล้วไว้ให้ scheduler
+    const clearedPeriod = await request.put(`/line-rich-menu/menus/${memberMenu.id}`, {
+      ...auth(token), data: { ...periodBase, startAt: null, endAt: null, audience: 'all' },
+    })
+    expect(clearedPeriod.status(), await clearedPeriod.text()).toBe(200)
+
+    /**
+     * === Task 17, ครึ่งที่พิสูจน์ว่า H2 เป็นยาม ไม่ใช่การห้ามลบเมนูสมาชิกตลอดกาล ===
+     * pointer ของ channel ถูกล้างไปแล้วตั้งแต่ deactivate — ลบได้จริง และหายไปจริง
+     */
+    const deleteAfterDeactivate = await request.delete(
+      `/line-rich-menu/menus/${memberMenu.id}`, auth(token))
+    expect(deleteAfterDeactivate.status(), await deleteAfterDeactivate.text()).toBe(204)
+    const gone = await request.get(`/line-rich-menu/menus/${memberMenu.id}`, auth(token))
+    expect(gone.status(), await gone.text()).toBe(404)
+  })
+
+  /**
+   * ===================== Task 17 / deferred item 3 — ย้าย channel =====================
+   *
+   * `saveMenu` เขียน `channelId` จาก input ตรง ๆ ทุกครั้ง การย้ายเมนูสมาชิกที่ยัง live อยู่ไป
+   * channel อื่นโดยคงป้าย `'members'` ไว้ จึงข้าม `assertAudienceChangeAllowed` ทั้งด่าน (มัน
+   * return early ที่ `next === 'members'` ก่อนจะได้อ่าน channel ด้วยซ้ำ) ผลคือ pointer ของ channel
+   * ต้นทางยังชี้เมนูที่ย้ายไปแล้ว ส่วน `deactivate` ไปอ่าน channel ปลายทาง — ล้างของต้นทางไม่ได้อีก
+   * เลย สถานะเดียวกับการลบแถวทิ้ง (H2) เป๊ะ ๆ
+   *
+   * ไม่มีเส้นทางจาก editor ที่ทำแบบนี้ได้ (ฟอร์มส่ง channelId เดิมกลับมาเสมอ) — แต่นั่นคือเหตุผลที่
+   * ด่านต้องอยู่ที่ชั้น API ไม่ใช่ที่ฟอร์ม และเป็นเหตุผลที่ด่านนี้ต้องมีเทสต์ที่ยิง API จริง
+   *
+   * ใช้เมนู 'เมนูหลัก' (aliasId: 'main') ที่ publish ไปแล้วตั้งแต่ด่านแรกสุดของไฟล์ ไม่ publish เมนู
+   * ใหม่ที่นี่ — publish rate limiter (capacity 3 ต่อ channel) แชร์กันทั้งไฟล์ (เหตุผลเดียวกับที่
+   * ด่าน 'activate เมนูที่ audience เป็น all' ข้างล่างอธิบายไว้)
+   */
+  test('ย้าย channel ของเมนูที่ขึ้น LINE แล้วถูกปฏิเสธด้วย 409 menu_channel_locked', async ({ request }) => {
+    const token = await login(request, ADMIN)
+    const channelId = (await theChannel(request, token)).id
+
+    // ชื่อของ channel ที่สองต้องเรียง**หลัง**ของเดิมเสมอ — `theChannel` ของไฟล์นี้หยิบแถวแรกจาก
+    // GET /channels ซึ่งเรียงตามชื่อ ถ้าตัวใหม่แย่งตำแหน่งแถวแรก ทุกเทสต์ที่เหลือจะไปทำงานกับ
+    // channel ผิดตัวเงียบ ๆ ใช้ชื่อเดิมแล้วต่อท้าย (prefix เดียวกัน ยาวกว่า = เรียงหลังเสมอ)
+    const second = await request.post('/line-rich-menu/channels', {
+      ...auth(token),
+      data: {
+        name: 'ร้านทดสอบสอง', channelId: '1650000001',
+        channelAccessToken: 'e2e-access-token-second-WXYZ',
+      },
+    })
+    expect(second.status(), await second.text()).toBe(200)
+    const secondId = (await second.json()).id as string
+    expect((await theChannel(request, token)).id,
+      'channel ที่สองต้องไม่แย่งตำแหน่งแถวแรกของ theChannel').toBe(channelId)
+
+    const list = await request.get(`/line-rich-menu/menus?channel=${channelId}`, auth(token))
+    expect(list.status(), await list.text()).toBe(200)
+    const rows = await list.json() as { id: string; aliasId: string | null }[]
+    const mainMenu = rows.find((row) => row.aliasId === 'main')
+    expect(mainMenu, 'ด่านแรกสุดของไฟล์ต้องสร้างเมนู aliasId: main ไว้ให้แล้ว').toBeDefined()
+
+    const detailResponse = await request.get(`/line-rich-menu/menus/${mainMenu!.id}`, auth(token))
+    expect(detailResponse.status(), await detailResponse.text()).toBe(200)
+    const detail = await detailResponse.json()
+    expect(detail.lineRichMenuId, 'เมนูนี้ต้อง publish ไปแล้วจริง ไม่งั้นด่านนี้เขียวเพราะไม่มีอะไรให้กัน')
+      .not.toBeNull()
+
+    const body = (targetChannelId: string) => ({
+      ...menuBody({
+        name: detail.name, channelId: targetChannelId,
+        imageFileId: detail.imageFileId, aliasId: detail.aliasId,
+      }),
+      audience: 'all',
+    })
+
+    const moved = await request.put(`/line-rich-menu/menus/${mainMenu!.id}`, {
+      ...auth(token), data: body(secondId),
+    })
+    expect(moved.status(), await moved.text()).toBe(409)
+    expect(await moved.json()).toMatchObject({ error: { code: 'menu_channel_locked' } })
+
+    // ปฏิเสธจริง ไม่ใช่ปฏิเสธหลังเขียนไปแล้ว — แถวต้องยังสังกัด channel เดิม
+    const afterRefusal = await request.get(`/line-rich-menu/menus/${mainMenu!.id}`, auth(token))
+    expect((await afterRefusal.json()).channelId).toBe(channelId)
+
+    // คู่ที่พิสูจน์ว่านี่คือยาม ไม่ใช่การล็อกเมนูที่ publish แล้วห้ามแก้ — คำขอเดียวกันเป๊ะ
+    // ต่างกันแค่ channelId เป็นตัวเดิม ซึ่งคือสิ่งที่ฟอร์มส่งมาทุกครั้งที่กด Save
+    const savedInPlace = await request.put(`/line-rich-menu/menus/${mainMenu!.id}`, {
+      ...auth(token), data: body(channelId),
+    })
+    expect(savedInPlace.status(), await savedInPlace.text()).toBe(200)
+    expect((await savedInPlace.json()).channelId).toBe(channelId)
   })
 
   /**
