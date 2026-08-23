@@ -207,7 +207,7 @@ cursor`, never an offset) written back onto the schedule row after every chunk, 
 — "members of this channel" — does not shrink while the job runs; without a remembered position, a
 job resumed after a crash would send everyone from the first member again. `unlink-members` carries
 no cursor and must not grow one: its source is "members still holding this menu's LINE id," which
-shrinks by exactly one chunk's worth every time a chunk succeeds, because linking a member clears
+shrinks by exactly one chunk's worth every time a chunk succeeds, because unlinking a member clears
 that field the moment it happens. A job with no memory that resumes against a query which has
 already forgotten what it did is still correct; paging the same set by a remembered cursor would
 not be, and would need one anyway to know it was done.
