@@ -143,7 +143,17 @@ export function EditorPage() {
       ? await http.post<MenuDetail>(ENDPOINTS.menus, body)
       : await http.put<MenuDetail>(ENDPOINTS.menu(id), body)
 
-    if (publish) await http.post(ENDPOINTS.menuPublish(menu.id), { setAsDefault: true })
+    // Task 17 / final review BLOCKER — `setAsDefault` คือการทำให้เมนูนี้เป็น default ของบัญชี ซึ่ง
+    // ผู้ติดตาม **ทุกคน** เห็น ไม่ใช่แค่สมาชิก ก่อนหน้านี้บรรทัดนี้ส่ง `true` ตายตัว และสวิตช์สมาชิก
+    // ทำงานได้ก็ต่อเมื่อเมนู publish แล้วเท่านั้น — เมนูสมาชิกทุกตัวจึงถูกยัดให้ผู้ติดตามทุกคน
+    // **ก่อน** จะได้เป็นของสมาชิก โดยไม่มีทางเลี่ยงเลย เพราะนี่คือปุ่ม publish ปุ่มเดียวที่มี
+    //
+    // ส่งตามกลุ่มเป้าหมายที่ผู้ใช้เลือกไว้ ไม่ใช่ถามผู้ใช้เพิ่มอีกคำถาม: เซิร์ฟเวอร์ปฏิเสธ
+    // `setAsDefault: true` บนเมนูสมาชิกด้วย 409 `menu_not_all_audience` อยู่แล้ว (assertAllAudience
+    // ใน core) — ถ้า UI ยังส่ง true ตายตัว ผู้ใช้จะเจอ error จากตัวเลือกที่ตัว UI เลือกให้เอง
+    if (publish) {
+      await http.post(ENDPOINTS.menuPublish(menu.id), { setAsDefault: next.audience === 'all' })
+    }
     navigate(BASE)
   }
 

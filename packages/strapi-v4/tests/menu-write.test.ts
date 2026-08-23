@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { saveMenu } from '../src/server/menu-write.js'
+import { readDisplayPeriod, saveMenu } from '../src/server/menu-write.js'
 import type { Services } from '../src/server/container.js'
 import type { MenuInput } from '../src/server/validation.js'
 import type { ImageStore, ListParams, Repo, RichMenuRow, ScheduleRow } from '@fosivo/line-rich-menu-core'
@@ -63,13 +63,16 @@ function fakeStore(source: Buffer): ImageStore {
  */
 function fakeServices(
   menus: Repo<RichMenuRow>, source: Buffer, memberRichMenuId: string | null = null,
+  // Task 17 — describe ของช่วงเวลาแสดงผลด้านล่างต้องอ่านแถว schedule ที่ `writeDisplayPeriod`
+  // เขียนกลับมาจริง ๆ ไม่ใช่แค่ดูว่า saveMenu ไม่ throw (แพทเทิร์นเดียวกับฝั่ง strapi-v5)
+  schedules?: Repo<ScheduleRow>,
 ): Services {
   return {
     config: {} as never,
     logger: { debug() {}, info() {}, warn() {}, error() {} },
     channels: { findOne: async () => ({ memberRichMenuId }) } as never,
     menus,
-    schedules: fakeRepo<ScheduleRow>(),
+    schedules: schedules ?? fakeRepo<ScheduleRow>(),
     // menu-write.ts ไม่แตะ members เลย (ไม่ใช่ path ของ link-members) — ใส่ไว้ให้ตรงกับ Services เฉย ๆ
     members: {} as never,
     audit: {} as never,
@@ -257,6 +260,124 @@ describe('saveMenu — ถอดป้าย members ออกจากเมน
     const live = await liveMemberMenu(menus, services)
 
     const updated = await saveMenu(services, { ...baseInput, audience: 'all' }, live, null)
+    expect(updated.audience).toBe('all')
+  })
+})
+const OTHER_CHANNEL = '20'
+
+/**
+ * ===================== Task 17 — สองประตูที่เหลือของสมการสามฝ่าย =====================
+ *
+ * `audience` ของเมนู, `channel.memberRichMenuId` และ `lineRichMenuId` ต้องตรงกันเสมอ ตรรกะของทั้งสอง
+ * ด่านอยู่ที่ `assertChannelChangeAllowed` / `assertDisplayPeriodAllowed` ใน core และมีเทสต์ของ
+ * ตัวเองที่นั่น (`packages/core/tests/server/menu-ops.test.ts`) — ไฟล์นี้พิสูจน์คนละเรื่องเหมือน
+ * describe ของ item 3 ข้างบน: `saveMenu` ของ **adapter ตัวนี้** เรียกด่านนั้นจริง ด้วยค่าจริงจากแถว
+ * เดิม และปฏิเสธ **ก่อน** เขียนอะไรลง repo
+ */
+describe('saveMenu — ย้าย channel ของเมนูที่ขึ้น LINE แล้วไม่ได้ (Task 17 / deferred item 3)', () => {
+  it('เมนูที่มี lineRichMenuId แล้ว + channelId ใหม่ → ถูกปฏิเสธด้วย menu_channel_locked และไม่เขียนอะไรเลย', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg())
+    const created = await saveMenu(services, baseInput, null, null)
+    const published = await menus.update(created.id, { status: 'published', lineRichMenuId: 'line-rm-1' })
+
+    await expect(saveMenu(services, { ...baseInput, channelId: OTHER_CHANNEL }, published, null))
+      .rejects.toMatchObject({ code: 'menu_channel_locked' })
+
+    expect((await menus.findOne(published.id))!.channelId).toBe(baseInput.channelId)
+  })
+
+  // ฟอร์มส่ง channelId เดิมกลับมาทุกครั้งที่กด Save — ถ้าด่านนี้ดูแค่ "มีคีย์ channelId ไหม"
+  // เมนูที่ publish แล้วจะแก้อะไรไม่ได้เลยสักอย่าง ซึ่งแย่กว่าปัญหาที่มันตั้งใจแก้
+  it('เมนูเดียวกัน + channelId เดิม (การกด Save ธรรมดา) — บันทึกได้ตามปกติ', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg())
+    const created = await saveMenu(services, baseInput, null, null)
+    const published = await menus.update(created.id, { status: 'published', lineRichMenuId: 'line-rm-1' })
+
+    const updated = await saveMenu(services, { ...baseInput, name: 'ชื่อใหม่' }, published, null)
+    expect(updated.name).toBe('ชื่อใหม่')
+  })
+
+  it('ร่างที่ยังไม่เคยขึ้น LINE — ย้าย channel ได้จริง และค่าใหม่ถูกเขียนลงแถว', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg())
+    // เขียน `lineRichMenuId: null` ลงแถวชัด ๆ — แถวจริงในฐานข้อมูลมีคอลัมน์นี้เป็น null เสมอ
+    // ส่วน repo ปลอมของไฟล์นี้เก็บเฉพาะคีย์ที่ patch ส่งมา ค่าจึงเป็น `undefined` ถ้าไม่ตั้งเอง
+    // ซึ่งไม่ใช่สถานะที่เกิดได้จริง (`RichMenuRow.lineRichMenuId` เป็น `string | null` และ repo
+    // ทั้งสองตัวแม็ปคอลัมน์นี้ทุกครั้ง) — ด่านนี้ตั้งใจ fail closed กับค่าที่ไม่ใช่ null
+    const created = await saveMenu(services, baseInput, null, null)
+    const draft = await menus.update(created.id, { lineRichMenuId: null })
+
+    const moved = await saveMenu(services, { ...baseInput, channelId: OTHER_CHANNEL }, draft, null)
+    expect(moved.channelId).toBe(OTHER_CHANNEL)
+  })
+})
+
+describe('saveMenu — เมนูสมาชิกมีช่วงเวลาแสดงผลไม่ได้ (Task 17 item 5)', () => {
+  const START = '2026-09-01T00:00:00.000Z'
+  const END = '2026-09-30T00:00:00.000Z'
+
+  it('สร้างเมนู members พร้อมช่วงเวลา → ถูกปฏิเสธ และไม่มีแถวเมนูเกิดขึ้นเลย', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg())
+
+    await expect(saveMenu(
+      services, { ...baseInput, audience: 'members', startAt: START, endAt: END }, null, null,
+    )).rejects.toMatchObject({ code: 'menu_display_period_not_allowed' })
+
+    expect(menus.rows).toHaveLength(0)
+  })
+
+  // คู่ที่พิสูจน์ว่านี่คือยาม ไม่ใช่การปิดฟีเจอร์ช่วงเวลาแสดงผล (สเปก §5.7) ทิ้ง
+  it('เมนูของทุกคนพร้อมช่วงเวลาเดียวกัน — บันทึกได้ และแถว schedule ถูกเขียนจริง', async () => {
+    const schedules = fakeRepo<ScheduleRow>()
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg(), null, schedules)
+
+    const saved = await saveMenu(
+      services, { ...baseInput, audience: 'all', startAt: START, endAt: END }, null, null)
+
+    await expect(readDisplayPeriod(schedules, saved.id)).resolves.toEqual({ startAt: START, endAt: END })
+  })
+
+  it('เมนูสมาชิกที่ไม่มีช่วงเวลา — บันทึกได้ตามปกติ (นี่คือเมนูสมาชิกทุกตัว)', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg())
+
+    const saved = await saveMenu(services, { ...baseInput, audience: 'members' }, null, null)
+    expect(saved.audience).toBe('members')
+  })
+
+  /**
+   * ผู้เรียก API ที่ละคีย์ `audience` ไว้ ("ไม่ส่งมา" = "ไม่เปลี่ยน") แต่ส่งช่วงเวลามาบนเมนูที่เป็น
+   * members อยู่แล้ว — ถ้าด่านนี้อ่านแค่ `input.audience` มันจะเห็น `undefined` แล้วปล่อยผ่าน
+   */
+  it('เมนู members เดิม + body ที่ละคีย์ audience แต่ส่งช่วงเวลามา → ถูกปฏิเสธ', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg())
+    const member = await saveMenu(services, { ...baseInput, audience: 'members' }, null, null)
+
+    // destructure คีย์ออกจริง ๆ ไม่ใช่ตั้งเป็น undefined — ต้องได้ object ที่ไม่มีคีย์ audience เลย
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { audience: _omitted, ...withoutAudience } = { ...baseInput, audience: 'members' as const }
+    await expect(saveMenu(
+      services, { ...withoutAudience, startAt: START, endAt: null } as MenuInput, member, null,
+    )).rejects.toMatchObject({ code: 'menu_display_period_not_allowed' })
+  })
+
+  /**
+   * คู่ของเคสข้างบน — เปลี่ยนเป็น 'all' พร้อมตั้งช่วงเวลาในคำขอเดียวต้อง **ผ่าน** เพราะ audience
+   * ผลลัพธ์คือ 'all' ถ้าด่านนี้อ่าน audience ของแถวเดิมแทนผลลัพธ์ เคสนี้จะถูกปฏิเสธผิด ๆ
+   * (channel ไม่ได้ชี้มาที่เมนูนี้ — `assertAudienceChangeAllowed` จึงไม่เกี่ยว)
+   */
+  it('เปลี่ยนเป็น all พร้อมตั้งช่วงเวลาในคำขอเดียว — ผ่าน เพราะด่านอ่าน audience ผลลัพธ์', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg())
+    const member = await saveMenu(services, { ...baseInput, audience: 'members' }, null, null)
+
+    const updated = await saveMenu(
+      services, { ...baseInput, audience: 'all', startAt: START, endAt: END }, member, null)
     expect(updated.audience).toBe('all')
   })
 })

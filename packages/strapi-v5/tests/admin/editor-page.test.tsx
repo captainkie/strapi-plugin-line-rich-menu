@@ -40,9 +40,15 @@ const menuDetail = {
 function setup() {
   const put = vi.fn(async () => ({ id: 'menu-1' }))
   const get = vi.fn(async (url: string) => (url === ENDPOINTS.menu('menu-1') ? menuDetail : []))
+  // Task 17 — ปุ่ม "บันทึกและเผยแพร่" ยิง `POST /menus/:id/publish` ต่อจาก PUT ทันที ก่อนหน้านี้
+  // ไม่มีเทสต์ไหนในไฟล์นี้กด publish เลย `post` จึงไม่เคยถูกดัก — ซึ่งคือเหตุผลที่ `setAsDefault: true`
+  // ตายตัวอยู่รอดมาได้ทุกรอบรีวิว
+  const post = vi.fn(async (url: string) => (
+    url === ENDPOINTS.upload ? [{ id: 900, url: '/uploads/menu.png' }] : {}
+  ))
   const port = createStubPort({
     t: (key: string) => key,
-    http: { ...createStubPort().http, get: get as never, put: put as never },
+    http: { ...createStubPort().http, get: get as never, put: put as never, post: post as never },
   })
   render(
     <MemoryRouter initialEntries={['/plugins/line-rich-menu/rich-menus/menu-1']}>
@@ -57,7 +63,7 @@ function setup() {
       </Routes>
     </MemoryRouter>,
   )
-  return { put }
+  return { put, post }
 }
 
 /**
@@ -156,5 +162,82 @@ describe('EditorPage — กลุ่มเป้าหมายเดินท�
     await waitFor(() => expect(put).toHaveBeenCalled())
     const [, body] = put.mock.calls[0] as unknown as [string, { audience: string }]
     expect(body.audience).toBe('all')
+  })
+})
+
+/**
+ * Task 17 / final review BLOCKER — ปุ่ม publish ปุ่มเดียวที่มีใน editor เคยส่ง `setAsDefault: true`
+ * ตายตัว และสวิตช์สมาชิกทำงานได้ก็ต่อเมื่อเมนู publish แล้วเท่านั้น — เมนูสมาชิก**ทุกตัว**จึงถูก
+ * ยัดให้ผู้ติดตามทุกคนก่อนจะได้เป็นของสมาชิก โดยไม่มีทางเลี่ยงเลย เซิร์ฟเวอร์ปฏิเสธค่านี้แล้ว
+ * (409 `menu_not_all_audience`) แต่ถ้า UI ยังส่ง true ตายตัว ผลลัพธ์คือผู้ใช้เจอ error จากตัวเลือก
+ * ที่ UI เลือกให้เอง ซึ่งไม่ใช่การแก้บั๊ก แต่คือการย้ายที่มันไปโผล่
+ *
+ * ขับผ่าน `EditorPage` จริงในโหมดแก้ไข แล้วอ่าน body ที่ออกไปจริง — ไม่ใช่ยืนยันค่าคงที่ในโค้ด
+ */
+/**
+ * jsdom ไม่ decode รูปจริง — `ImageField` วัดขนาดผ่าน `Image.naturalWidth/Height` จึงต้องปลอมค่าไว้
+ * (แพทเทิร์นเดียวกับ `packages/ui/tests/image-field.test.tsx`) ต้องปลอมเพราะปุ่ม publish ปฏิเสธ
+ * ร่างที่ไม่มีรูป (`editor.error.noImage` ใน RichMenuEditor) — และหน้า editor ตอนเปิดเมนูเดิมมาแก้
+ * ตั้ง `image: null` เสมอ (GET /menus/:id ไม่คืน url ของไฟล์ดิบมาให้) เส้นทาง publish จริงจึงต้อง
+ * ผ่านการอัปโหลดรูปหนึ่งครั้งเสมอ ซึ่งคือสิ่งที่ผู้ใช้ทำจริงตอนกดปุ่มนี้
+ */
+function stubImageSize(width: number, height: number) {
+  class StubImage {
+    onload: (() => void) | null = null
+    onerror: (() => void) | null = null
+    naturalWidth = width
+    naturalHeight = height
+    set src(_v: string) { queueMicrotask(() => this.onload?.()) }
+  }
+  vi.stubGlobal('Image', StubImage)
+  vi.stubGlobal('URL', { ...URL, createObjectURL: () => 'blob:stub', revokeObjectURL: () => {} })
+}
+
+/** อัปโหลดรูปหนึ่งใบผ่านช่องจริงของฟอร์ม แล้วรอจน `draft.image` ถูกตั้งค่า */
+async function attachImage(): Promise<void> {
+  stubImageSize(2500, 1686)
+  fireEvent.change(screen.getByTestId('image-input'), {
+    target: { files: [new File([new Uint8Array([1, 2, 3])], 'menu.png', { type: 'image/png' })] },
+  })
+  await waitFor(() => expect(screen.getByTestId('image-remove')).toBeInTheDocument())
+}
+
+describe('EditorPage — publish ต้องตั้ง default ตามกลุ่มเป้าหมาย ไม่ใช่ true ตายตัว (Task 17)', () => {
+  it('เมนูสมาชิก: กดบันทึกและเผยแพร่ — body ของ publish ต้องเป็น setAsDefault: false', async () => {
+    const { post } = setup()
+    await waitFor(() => expect(screen.getByLabelText('audience.members')).toBeChecked())
+    await attachImage()
+    fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+
+    const publishCall = async () => {
+      const call = post.mock.calls.find(([url]) => url === ENDPOINTS.menuPublish('menu-1'))
+      expect(call, 'ต้องมีคำขอ publish จริงออกไป ไม่ใช่แค่ upload').toBeDefined()
+      return call as unknown as [string, { setAsDefault: boolean }]
+    }
+    await waitFor(publishCall)
+    const [, body] = await publishCall()
+    expect(body.setAsDefault,
+      'เมนูสมาชิกต้องไม่ถูกตั้งเป็น default ของบัญชี ซึ่งผู้ติดตามทุกคนเห็น').toBe(false)
+  })
+
+  /**
+   * คู่ที่พิสูจน์ว่านี่ไม่ใช่การปิดฟีเจอร์ "publish แล้วตั้งเป็น default" ทิ้ง — เมนูของทุกคนยังต้อง
+   * ตั้ง default ให้เหมือนเดิม ไม่งั้นการกด "บันทึกและเผยแพร่" จะไม่ทำให้เมนูขึ้นจริงกับใครเลย
+   */
+  it('สลับเป็น "ทุกคน" แล้วกดบันทึกและเผยแพร่ — body ของ publish ต้องเป็น setAsDefault: true', async () => {
+    const { post } = setup()
+    await waitFor(() => expect(screen.getByLabelText('audience.members')).toBeChecked())
+    fireEvent.click(screen.getByLabelText('audience.all'))
+    await attachImage()
+    fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+
+    const publishCall = async () => {
+      const call = post.mock.calls.find(([url]) => url === ENDPOINTS.menuPublish('menu-1'))
+      expect(call, 'ต้องมีคำขอ publish จริงออกไป ไม่ใช่แค่ upload').toBeDefined()
+      return call as unknown as [string, { setAsDefault: boolean }]
+    }
+    await waitFor(publishCall)
+    const [, body] = await publishCall()
+    expect(body.setAsDefault).toBe(true)
   })
 })

@@ -1,5 +1,5 @@
 import {
-  clearChannelDefault, publishMenu, reconcileChannel, setMenuAsDefault,
+  assertNotChannelMemberMenu, clearChannelDefault, publishMenu, reconcileChannel, setMenuAsDefault,
   type RichMenuRow,
 } from '@fosivo/line-rich-menu-core'
 import { getServices, type Services } from '../container.js'
@@ -105,6 +105,20 @@ export const menus = ({ strapi }: { strapi: StrapiV5 }) => ({
     const existing = await services.menus.findOne(id)
     if (existing === null) { ctx.status = 404; ctx.body = { error: { code: 'menu_not_found' } }; return }
 
+    // Task 17 / final review H2 — ลบแถวเมนูที่เป็นเมนูสมาชิกของ channel อยู่ตอนนี้ไม่ได้: หลังแถว
+    // หายไป `deactivate` จะ 404 ที่ `menus.findOne(id)` ทันที pointer `memberRichMenuId` จึงกลับ
+    // เป็น null ผ่านผลิตภัณฑ์ไม่ได้อีกเลย และสมาชิกทุกคนค้างอยู่กับเมนูที่ไม่มีใครรู้จักแล้ว —
+    // ปฏิเสธแล้วบอกให้ปิดสวิตช์ก่อน ไม่ใช่ deactivate ให้เองเงียบ ๆ (Task 13 ruling: การกระทำทำตาม
+    // เจตนา ไม่ใช่เขียนทับเจตนา) ตรรกะทั้งหมดอยู่ที่ `assertNotChannelMemberMenu` ใน core ตัวเดียว
+    // ที่ publish เรียกด้วย — ไม่ใช่สำเนาที่วันหนึ่งจะไม่ตรงกันระหว่างสอง adapter
+    //
+    // อ่าน channel ทุกครั้งโดยไม่เช็ค `lineRichMenuId` ก่อน เพื่อไม่ให้เงื่อนไขของยามมีสองสำเนา
+    // (ที่นี่หนึ่ง ในตัวยามอีกหนึ่ง) — ตัวยามเองรู้ว่าเมนูที่ยังไม่เคยขึ้น LINE ผ่านเสมอ
+    const owner = await services.channels.findOne(existing.channelId)
+    assertNotChannelMemberMenu({
+      menu: existing, memberRichMenuId: owner.memberRichMenuId, operation: 'delete',
+    })
+
     await services.audit.around(
       {
         actorId: actorOf(ctx), action: 'delete', richMenuId: id, channelId: existing.channelId,
@@ -132,7 +146,16 @@ export const menus = ({ strapi }: { strapi: StrapiV5 }) => ({
       store: services.store,
       logger: services.logger,
       now: () => new Date(),
-    }, { menuId: id, actorId: actorOf(ctx), setAsDefault: body.setAsDefault })
+      // Task 17 / final review H1 — publish ซ้ำบนเมนูที่เป็นเมนูสมาชิกอยู่ตอนนี้ ทำลายทุกลิงก์ที่มี
+      // อยู่ (LINE ออก id ใหม่ทุก publish แล้วขั้น deleteOld ลบตัวเก่าทิ้ง) โดยไม่มีใครขยับ pointer
+      // ตาม — core เป็นคนตัดสิน ที่นี่แค่ส่งข้อเท็จจริงที่ core มองไม่เห็นเองเข้าไป
+      // อ่านจาก `channel` ก้อนเดิมที่โหลดมาเพื่อ access token อยู่แล้ว ไม่ยิง query เพิ่ม
+    }, {
+      menuId: id,
+      actorId: actorOf(ctx),
+      setAsDefault: body.setAsDefault,
+      memberRichMenuId: channel.memberRichMenuId,
+    })
   }),
 
   setDefault: guard(strapi, async (ctx) => {

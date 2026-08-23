@@ -1,5 +1,6 @@
 import {
-  ValidationError, assertAudienceChangeAllowed, imageFingerprint, prepareImage,
+  ValidationError, assertAudienceChangeAllowed, assertChannelChangeAllowed,
+  assertDisplayPeriodAllowed, imageFingerprint, prepareImage,
   type Repo, type RichMenuRow, type ScheduleRow,
 } from '@fosivo/line-rich-menu-core'
 import type { Services } from './container.js'
@@ -101,6 +102,29 @@ export async function saveMenu(
       memberRichMenuId: owner.memberRichMenuId,
     })
   }
+
+  // Task 17 / deferred item 3 — ย้ายเมนูที่มีตัวจริงอยู่บนบัญชี LINE ของ channel เดิมแล้วไป channel
+  // อื่นไม่ได้ ด่านข้างบนจับเคสนี้ไม่ได้เลยเพราะมัน return early ที่ `next === 'members'` ก่อนจะได้
+  // อ่าน channel ด้วยซ้ำ — ย้ายเมนูสมาชิกที่ยัง live อยู่ข้าม channel โดยคงป้าย 'members' ไว้จึงลอด
+  // ผ่านทั้งด่าน แล้วจบที่ pointer ของ channel ต้นทางชี้เมนูที่ไม่ได้อยู่ที่นั่นแล้ว ส่วน `deactivate`
+  // ไปอ่าน channel ปลายทาง — ล้างของต้นทางไม่ได้อีกเลย เหมือนเคสลบแถวทิ้ง (H2) เป๊ะ ๆ
+  // เข้าถึงได้จาก admin API เท่านั้น ไม่ใช่จาก editor (ซึ่งส่ง channelId เดิมกลับมาเสมอ)
+  if (existing !== null) {
+    assertChannelChangeAllowed({ menu: existing, next: input.channelId })
+  }
+
+  // Task 17 item 5 — ช่วงเวลาแสดงผลถูกเก็บเป็นแถว `set-default`/`clear-default` (ดู
+  // `writeDisplayPeriod` ข้างบน) เมนูสมาชิกที่มีช่วงเวลาแสดงผลจึงถูกยัดให้ผู้ติดตามทุกคนเมื่อถึงเวลา
+  // เริ่ม — ประตูที่สองของ BLOCKER เดียวกันกับ `setAsDefault` แต่มาแบบตั้งเวลาไว้ล่วงหน้า
+  //
+  // ใช้ audience **ผลลัพธ์** ของคำขอนี้ ไม่ใช่ค่าเดิมของแถว: "ไม่ส่งมา" = "ไม่เปลี่ยน" (กฎเดียวกับ
+  // ที่ patch ข้างล่างใช้) และเมนูใหม่ที่ไม่ส่ง audience มาได้ 'all' จากคอลัมน์ default ของ
+  // content-type — ไม่งั้นการเปลี่ยนเป็น members พร้อมตั้งช่วงเวลาในคำขอเดียวจะลอดผ่าน
+  assertDisplayPeriodAllowed({
+    audience: input.audience ?? existing?.audience ?? 'all',
+    startAt: input.startAt,
+    endAt: input.endAt,
+  })
 
   await assertAliasFree(services, input, existing?.id ?? null)
 

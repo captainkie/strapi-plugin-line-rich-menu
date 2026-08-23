@@ -36,6 +36,19 @@ const STATUS_BY_CODE: Record<string, number> = {
   // `MenuActiveForMembersError` ใน core) 409 ด้วยเหตุผลเดียวกัน — "เมนูนี้ยังทำสิ่งที่ขอไม่ได้"
   // ไม่ใช่ "คำขอผิดรูปแบบ" — แต่คนละ code เพราะวิธีแก้ของผู้ใช้คนละอย่างกัน
   menu_active_for_members: 409,
+  // Task 17 / final review BLOCKER — ด้านกลับของ `menu_not_members_audience` ที่ยังไม่เคยมียาม:
+  // ทำให้เมนูที่ประกาศตัวว่าเป็นของสมาชิกกลายเป็น default ของบัญชี (= ผู้ติดตามทุกคนเห็น) ไม่ได้
+  // ครอบทั้ง `POST /menus/:id/publish` ที่ setAsDefault, `POST /menus/:id/default` และ op
+  // `set-default` ของ scheduler — ดู `MenuNotAllAudienceError` ใน core
+  menu_not_all_audience: 409,
+  // Task 17 / deferred item 3 — ย้ายเมนูที่มีตัวจริงอยู่บนบัญชี LINE ของ channel เดิมแล้วไป channel
+  // อื่นไม่ได้ (`MenuChannelLockedError` ใน core) เส้นทางนี้เข้าถึงได้จาก admin API เท่านั้น ไม่ใช่
+  // จาก editor — แต่นั่นคือเหตุผลที่ยามต้องอยู่ที่ชั้นนี้ ไม่ใช่ที่ฟอร์ม
+  menu_channel_locked: 409,
+  // Task 17 item 5 — ช่วงเวลาแสดงผลคือแถว set-default/clear-default ที่ตั้งเวลาไว้ เมนูสมาชิกจึงมี
+  // ไม่ได้ (`MenuDisplayPeriodNotAllowedError` ใน core) 409 ไม่ใช่ 400 ทั้งที่มาจากฟอร์ม เพราะสิ่งที่
+  // ผิดไม่ใช่รูปทรงของคำขอ แต่เป็นการรวมกันของสองฟิลด์ที่ต่างก็ถูกต้องในตัวเอง
+  menu_display_period_not_allowed: 409,
   alias_not_published: 409,
   publish_already_running: 409,
   publish_rate_limited: 429,

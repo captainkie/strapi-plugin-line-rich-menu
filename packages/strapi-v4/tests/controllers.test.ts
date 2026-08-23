@@ -1022,3 +1022,256 @@ describe('members controller — เส้นใหม่ทั้งหมด�
     }
   })
 })
+
+/**
+ * ===================== Task 17 — ด่านของ menus controller =====================
+ *
+ * ตรรกะทั้งสองด่านอยู่ที่ `assertNotChannelMemberMenu` / `assertAllAudience` ใน core และมีเทสต์ของ
+ * ตัวเองที่นั่น — ไฟล์นี้พิสูจน์ว่า controller ของ **adapter ตัวนี้** เรียกมันจริง ด้วยค่าจริงจาก
+ * channel จริง และตอบ 409 ที่ถูกแม็ปไว้ใน `http-error.ts` ไม่ใช่ 500 (ยาม + code แต่ไม่ได้แม็ป
+ * status คือยามที่อ่านเหมือนเซิร์ฟเวอร์พัง)
+ *
+ * ทุกเคสที่ปฏิเสธมีคู่ที่ต้องผ่านอยู่ติดกัน — ต่างกันจุดเดียวคือจุดที่ผู้ใช้แก้ได้จริง
+ */
+describe('menus controller — delete แถวที่เป็นเมนูสมาชิกของ channel อยู่ (Task 17 / final review H2)', () => {
+  it('ปฏิเสธด้วย 409 menu_active_for_members และแถวต้องยังอยู่', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '30')
+    ;(rows[UID.channel]![0] as Record<string, unknown>)['memberRichMenuId'] = 'line-rm-1'
+    rows[UID.menu] = [audienceMenuFixture(1, Number(channelId), { status: 'published', lineRichMenuId: 'line-rm-1' })]
+
+    const context = ctx({ params: { id: '1' } })
+    await controllers.menus({ strapi }).delete(context)
+
+    expect(context.status).toBe(409)
+    expect(context.body).toMatchObject({ error: { code: 'menu_active_for_members' } })
+    // ปฏิเสธจริง ไม่ใช่ปฏิเสธหลังลบไปแล้ว — ถ้าแถวหายไป `deactivate` จะ 404 ตลอดกาล
+    // แล้ว pointer ของ channel กลับเป็น null ผ่านผลิตภัณฑ์ไม่ได้อีกเลย
+    expect(rows[UID.menu]).toHaveLength(1)
+  })
+
+  it('ปิดสวิตช์แล้ว (pointer เป็น null) — ลบเมนูเดิมได้จริง', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '31')
+    rows[UID.menu] = [audienceMenuFixture(1, Number(channelId), { status: 'published', lineRichMenuId: 'line-rm-1' })]
+
+    const context = ctx({ params: { id: '1' } })
+    await controllers.menus({ strapi }).delete(context)
+
+    expect(context.status).toBe(204)
+    expect(rows[UID.menu]).toHaveLength(0)
+  })
+
+  it('pointer ชี้เมนูสมาชิกตัวอื่นอยู่ — เมนูนี้ลบได้ ไม่ใช่ถูกล็อกไปด้วยทั้ง channel', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '32')
+    ;(rows[UID.channel]![0] as Record<string, unknown>)['memberRichMenuId'] = 'line-rm-somebody-else'
+    rows[UID.menu] = [audienceMenuFixture(1, Number(channelId), { status: 'published', lineRichMenuId: 'line-rm-1' })]
+
+    const context = ctx({ params: { id: '1' } })
+    await controllers.menus({ strapi }).delete(context)
+
+    expect(context.status).toBe(204)
+    expect(rows[UID.menu]).toHaveLength(0)
+  })
+})
+
+describe('menus controller — setDefault ของเมนูสมาชิก (Task 17 / final review BLOCKER)', () => {
+  it('เมนู audience: members ตอบ 409 menu_not_all_audience และไม่ยิง LINE เลย', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '33')
+    rows[UID.menu] = [audienceMenuFixture(1, Number(channelId), {
+      status: 'published', lineRichMenuId: 'line-rm-1', audience: 'members',
+    })]
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const context = ctx({ params: { id: '1' } })
+    await controllers.menus({ strapi }).setDefault(context)
+
+    expect(context.status).toBe(409)
+    expect(context.body).toMatchObject({ error: { code: 'menu_not_all_audience' } })
+    expect(fetchSpy, 'ถูกปฏิเสธก่อนแตะ LINE ไม่ใช่หลังจากตั้ง default ไปแล้ว').not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+
+  it('เมนูเดียวกันที่ audience เป็น all — ตั้ง default ได้ตามปกติ', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '34')
+    rows[UID.menu] = [audienceMenuFixture(1, Number(channelId), {
+      status: 'published', lineRichMenuId: 'line-rm-1', audience: 'all',
+    })]
+
+    // GET = อ่าน default ปัจจุบัน (404 = ยังไม่เคยตั้ง) ส่วน POST = ตั้ง default ตัวจริง
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => (
+      (init?.method ?? 'GET') === 'GET'
+        ? new Response('{}', { status: 404 })
+        : new Response('{}', { status: 200 })
+    ))
+    const context = ctx({ params: { id: '1' } })
+    await controllers.menus({ strapi }).setDefault(context)
+
+    expect(context.status).toBe(204)
+    expect(fetchSpy.mock.calls.some(([url, init]) => (init?.method === 'POST')
+      && String(url).includes('/v2/bot/user/all/richmenu/line-rm-1'))).toBe(true)
+    fetchSpy.mockRestore()
+  })
+})
+
+/**
+ * Task 17 / final review H1 — publish ซ้ำบนเมนูที่เป็นเมนูสมาชิกของ channel อยู่ตอนนี้
+ *
+ * ด่านอยู่ใน `publishMenu` ของ core แต่ core มองไม่เห็น pointer ของ channel เอง — controller เป็น
+ * คนส่ง `memberRichMenuId` เข้าไป describe นี้จึงพิสูจน์สิ่งที่เทสต์ของ core พิสูจน์ไม่ได้:
+ * **adapter ตัวนี้ส่งค่าจริงจาก channel จริง ไม่ใช่ `null` ตายตัว** (การส่ง null ตายตัวคือการ
+ * ปิดยามทั้งด่านโดยที่เทสต์ของ core ยังเขียวหมด)
+ */
+describe('menus controller — publish ซ้ำเมนูสมาชิกที่ยัง live อยู่ (Task 17 / final review H1)', () => {
+  /** เมนูที่พร้อม publish จริง — มีรูปที่ normalize แล้วและมีผังอย่างน้อยหนึ่งช่อง */
+  const publishableOver = {
+    status: 'published', lineRichMenuId: 'line-rm-1', audience: 'members',
+    normalizedImage: 900, normalizedMime: 'image/jpeg',
+    normalizedWidth: 2500, normalizedHeight: 1686,
+    areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 1686 }, action: { type: 'message', text: 'hi' } }],
+  }
+
+  /**
+   * ไฟล์ที่มี url สัมบูรณ์ — `ImageStore.read` ของ v4 อ่านผ่าน
+   * `entityService.findOne('plugin::upload.file', id)` (ต่างจาก v5 ที่ถาม upload service ตรง ๆ)
+   * จึง seed แถวลงตารางนั้นแทนการ override `plugin()` แล้วให้มันไปดึงไบต์ผ่าน fetch ที่ mock ไว้
+   */
+  const seedUploadFile = (rows: Record<string, Record<string, unknown>[]>) => {
+    rows['plugin::upload.file'] = [{ id: 900, url: 'https://cdn.example/menu.jpg' }]
+  }
+
+  const lineMock = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+    const href = String(url)
+    if (href.startsWith('https://cdn.example/')) return new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+    if (href.endsWith('/richmenu')) {
+      return new Response(JSON.stringify({ richMenuId: 'line-rm-new' }), { status: 200 })
+    }
+    return new Response('{}', { status: 200 })
+  })
+
+  it('pointer ของ channel ชี้มาที่เมนูนี้ — ตอบ 409 menu_active_for_members และไม่แตะ LINE เลย', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '35')
+    ;(rows[UID.channel]![0] as Record<string, unknown>)['memberRichMenuId'] = 'line-rm-1'
+    rows[UID.menu] = [audienceMenuFixture(1, Number(channelId), publishableOver)]
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const context = ctx({ params: { id: '1' }, request: { body: { setAsDefault: false } } })
+    await controllers.menus({ strapi }).publish(context)
+
+    expect(context.status).toBe(409)
+    expect(context.body).toMatchObject({ error: { code: 'menu_active_for_members' } })
+    expect(fetchSpy, 'เมนูที่สมาชิกทุกคนถืออยู่ต้องไม่ถูกแตะบน LINE เลย').not.toHaveBeenCalled()
+    // แถวต้องไม่ถูกเขียนเป็น 'publishing' ค้างไว้ — นั่นจะบล็อก publish ครั้งถัดไปไปห้านาที
+    expect(rows[UID.menu]![0]!['status']).toBe('published')
+    expect(rows[UID.menu]![0]!['lineRichMenuId']).toBe('line-rm-1')
+    fetchSpy.mockRestore()
+  })
+
+  /**
+   * คู่ที่พิสูจน์ว่าเป็นยาม ไม่ใช่การล็อกเมนูสมาชิกไว้ห้ามแก้ตลอดกาล — "ปิดสวิตช์สมาชิกก่อน" ที่
+   * ข้อความของ 409 บอกให้ทำ คือการล้าง pointer ตัวนี้พอดี หลังจากนั้น publish ต้องเดินจนจบจริง
+   */
+  it('ปิดสวิตช์แล้ว (pointer เป็น null) — publish ซ้ำเมนูเดิมได้จนจบ', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    seedUploadFile(rows)
+    const channelId = await seedAudienceChannel(strapi, '36')
+    rows[UID.menu] = [audienceMenuFixture(1, Number(channelId), publishableOver)]
+
+    const fetchSpy = lineMock()
+    const context = ctx({ params: { id: '1' }, request: { body: { setAsDefault: false } } })
+    await controllers.menus({ strapi }).publish(context)
+
+    expect(context.body).toMatchObject({ status: 'published', lineRichMenuId: 'line-rm-new' })
+    // ไม่ตั้ง default ให้ — เมนูสมาชิกต้องไม่กลายเป็นเมนูของผู้ติดตามทุกคน
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes('/user/all/richmenu'))).toBe(false)
+    fetchSpy.mockRestore()
+  })
+})
+
+/**
+ * Task 17 — สอง code ใหม่ที่เกิดใน `saveMenu` ต้องออกทาง HTTP เป็น 409 จริง ไม่ใช่ 500
+ *
+ * `menu-write.test.ts` พิสูจน์ว่า `saveMenu` โยน error ที่ถูกต้อง — แต่ error ที่ถูกต้องซึ่ง
+ * `STATUS_BY_CODE` ไม่รู้จักจะออกไปเป็น 500 `internal_error` ผู้เรียกแยกไม่ออกจากเซิร์ฟเวอร์พัง
+ * และ UI ก็ไม่มีทางบอกผู้ใช้ว่าต้องแก้อะไร ด่านนี้คือจุดเดียวที่พิสูจน์ครึ่งนั้น
+ */
+describe('menus controller — code ใหม่ของ saveMenu ต้องออกเป็น 409 ไม่ใช่ 500 (Task 17)', () => {
+  const body = (over: Record<string, unknown>) => ({
+    name: 'เมนู', size: 'large', chatBarText: 'เปิดเมนู', chatBarMode: 'custom', selected: true,
+    templateKey: null,
+    areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 1686 }, action: { type: 'message', text: 'hi' } }],
+    imageFileId: null, areaImages: [], aliasId: null, startAt: null, endAt: null, ...over,
+  })
+
+  it('ย้าย channel ของเมนูที่ขึ้น LINE แล้ว → 409 menu_channel_locked', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const from = await seedAudienceChannel(strapi, '37')
+    const to = await seedAudienceChannel(strapi, '38')
+    rows[UID.menu] = [audienceMenuFixture(1, Number(from), {
+      status: 'published', lineRichMenuId: 'line-rm-1', audience: 'all',
+    })]
+
+    const context = ctx({
+      params: { id: '1' },
+      request: { body: body({ channelId: to, audience: 'all' }) },
+    })
+    await controllers.menus({ strapi }).update(context)
+
+    expect(context.status).toBe(409)
+    expect(context.body).toMatchObject({ error: { code: 'menu_channel_locked' } })
+  })
+
+  it('สร้างเมนูสมาชิกพร้อมช่วงเวลาแสดงผล → 409 menu_display_period_not_allowed', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '39')
+    rows[UID.menu] = []
+
+    const context = ctx({
+      request: {
+        body: body({
+          channelId, audience: 'members',
+          startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-30T00:00:00.000Z',
+        }),
+      },
+    })
+    await controllers.menus({ strapi }).create(context)
+
+    expect(context.status).toBe(409)
+    expect(context.body).toMatchObject({ error: { code: 'menu_display_period_not_allowed' } })
+    expect(rows[UID.menu], 'คำขอที่ถูกปฏิเสธต้องไม่สร้างแถวเมนูเลย').toHaveLength(0)
+  })
+
+  // คู่ที่พิสูจน์ว่าไม่ได้ปิดฟีเจอร์ช่วงเวลาแสดงผลทิ้ง (สเปก §5.7) — เมนูของทุกคนยังตั้งได้
+  it('สร้างเมนูของทุกคนพร้อมช่วงเวลาเดียวกัน → 201', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '40')
+    rows[UID.menu] = []
+
+    const context = ctx({
+      request: {
+        body: body({
+          channelId, audience: 'all',
+          startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-30T00:00:00.000Z',
+        }),
+      },
+    })
+    await controllers.menus({ strapi }).create(context)
+
+    expect(context.status).toBe(201)
+    expect(rows[UID.menu]).toHaveLength(1)
+  })
+})
