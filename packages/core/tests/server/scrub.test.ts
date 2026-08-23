@@ -30,6 +30,16 @@ describe('scrub', () => {
     expect(scrub(`Bearer ${TOKEN}`)).toBe(`Bearer ${REDACTED}`)
   })
 
+  // Task 20 item 5 (final-review-consolidated.md S5) — measured ก่อนแก้: scrub ของ error ที่มี DSN
+  // แบบ postgres:// ฝังอยู่ในข้อความ (ไม่ใช่คีย์ใดคีย์หนึ่งที่ SENSITIVE_KEY จับได้) คืนข้อความเดิม
+  // ทั้งดุ้น — password ต้องหายไป ส่วน scheme/user/host/path ต้องยังอยู่เพื่อให้ยัง debug ต่อได้
+  it('ตัด credential ที่ฝังในสตริงแบบ URL ออก แม้จะไม่ใช่ Bearer (เช่น postgres DSN ใน error message)', () => {
+    const raw = 'connect ECONNREFUSED postgres://strapi:s3cr3t-pw@db.internal:5432/strapi'
+    const masked = `connect ECONNREFUSED postgres://strapi:${REDACTED}@db.internal:5432/strapi`
+    expect(scrub({ message: raw })).toEqual({ message: masked })
+    expect(scrub(new Error(raw))).toEqual({ name: 'Error', message: masked })
+  })
+
   it('ไม่วนไม่รู้จบเมื่อเจอ object ที่อ้างถึงตัวเอง', () => {
     const cyclic: Record<string, unknown> = { name: 'a' }
     cyclic['self'] = cyclic
