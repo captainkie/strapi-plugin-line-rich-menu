@@ -21,6 +21,24 @@ describe('ทุก content type', () => {
     expect(contentTypes['line-member'].schema.pluginOptions?.['content-type-builder']).toEqual({ visible: false })
   })
 
+  /**
+   * Task 20 item 3 (final-review-consolidated.md S3) — ด่านข้างบนกรองด้วย `.visible === true` เท่านั้น
+   * แปลว่าคีย์ `pluginOptions['content-manager']` ที่หายไปทั้งคีย์ (ไม่ใช่ `{ visible: false }` ตรง ๆ)
+   * ผ่านด่านนั้นไปเงียบ ๆ ทั้งที่ Strapi ถือว่าคีย์ที่หายไปแปลว่า **visible** ไม่ใช่ hidden — v5 มี
+   * assertion แบบนี้อยู่แล้ว (content-types.test.ts) แต่ v4 ไม่มี พิสูจน์แล้วโดยผู้ทวนโค้ด: ลบบรรทัด
+   * `pluginOptions` ออกจาก line-channel.ts ทำให้ v5 แดง แต่ v4 ยังเขียวอยู่ ทั้งที่ผลจริงคือ
+   * channelAccessToken/channelSecret ที่เข้ารหัสไว้กับ accessTokenLast4/channelId ของ line-channel
+   * จะโผล่ให้ admin คนไหนก็ตามที่มีสิทธิ์ content-manager (ไม่ใช่ settings ของปลั๊กอินนี้) เห็นได้ใน
+   * Content Manager ทันที ข้ามสิทธิ์ settings ไปเลย — เช็คทั้งก้อนด้วย toEqual ไม่ใช่แค่ `?.visible`
+   * เพื่อจับทั้งกรณี false ตรง ๆ และกรณีคีย์หายไปทั้งคีย์
+   */
+  it('ทุกตัวยกเว้น line-member ประกาศ pluginOptions ซ่อนจาก content manager ไว้ตรง ๆ (ไม่ใช่แค่ไม่ true)', () => {
+    for (const [key, definition] of Object.entries(contentTypes)) {
+      if (key === 'line-member') continue
+      expect(definition.schema.pluginOptions?.['content-manager'], key).toEqual({ visible: false })
+    }
+  })
+
   it('ตรึงชื่อตารางไว้เอง ไม่ปล่อยให้ Strapi เดา', () => {
     expect(contentTypes['line-channel'].schema.collectionName).toBe('line_channels')
     expect(contentTypes['rich-menu'].schema.collectionName).toBe('rich_menus')
