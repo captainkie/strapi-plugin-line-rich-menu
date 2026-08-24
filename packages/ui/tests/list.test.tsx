@@ -285,3 +285,90 @@ describe('RichMenuList — unlink-all (Task 12)', () => {
     expect(screen.queryByTestId('unlink-all-result-1')).not.toBeInTheDocument()
   })
 })
+
+/**
+ * Task 21 item 1 + 2 — regression ต้องขับผ่าน `RichMenuList` จริง ไม่ใช่ `<AudienceToggle>` เดี่ยว ๆ
+ * (`audience-toggle.test.tsx` ยังเขียวมาตลอดแม้บั๊กนี้ยังอยู่ เพราะมัน render component โดยไม่มี
+ * parent ที่ทำลาย state) — บั๊กจริงคือ: `onChanged` ของ AudienceToggle บวก token ที่เป็นส่วนหนึ่งของ
+ * `key` ของตัวมันเอง ทำให้ React unmount+remount ตัวมันเองในคอมมิตเดียวกับที่มันเพิ่งตั้ง `sentAt` —
+ * ข้อความ "sent at HH:mm" จึงไม่เคยขึ้นจอเลยสักครั้ง ไม่ใช่แค่ขึ้นแล้วหายเร็ว
+ */
+describe('RichMenuList — audience toggle ผ่านตารางจริง (Task 21)', () => {
+  const membersMenu = {
+    id: '9', title: 'เมนูสมาชิก', status: 'published' as const, channelId: 'c1', aliasId: null,
+    updatedAt: '2026-08-20', size: 'large' as const, imageUrl: null, startAt: null, endAt: null,
+    audience: 'members' as const, lineRichMenuId: 'line-rm-9', areas: [],
+  }
+
+  it('activate ผ่านตารางจริง — ข้อความ "ส่งคำสั่งแล้วเมื่อ" ต้องขึ้นจริง ไม่ถูก remount ทำลายทิ้งในคอมมิตเดียวกัน', async () => {
+    const get = vi.fn(async (url: string) => (
+      url.startsWith(ENDPOINTS.channelAudience('c1'))
+        ? { defaultRichMenuId: null, memberRichMenuId: null, memberCount: 3 }
+        : [membersMenu]
+    ))
+    const post = vi.fn(async () => undefined)
+    const base = createStubPort({ t: (k) => k })
+    const port = { ...base, http: { ...base.http, get, post } as typeof base.http }
+    render(<PortProvider value={port}><RichMenuList channelId="c1" /></PortProvider>)
+
+    await waitFor(() => expect(screen.getByRole('switch')).not.toBeDisabled())
+    fireEvent.click(screen.getByRole('switch'))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('confirm-activate'))
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith(ENDPOINTS.menuAudienceActivate('9')))
+    await waitFor(() => expect(screen.getByTestId('audience-result')).toBeInTheDocument())
+  })
+
+  // item 2 — ปิดใช้งานไม่เคยรายงานอะไรเลยมาก่อน แม้จะ async/unconfirmable เหมือน activate ทุกประการ
+  it('deactivate ผ่านตารางจริงก็ต้องขึ้น "ส่งคำสั่งแล้วเมื่อ" เหมือนกัน (item 2)', async () => {
+    const get = vi.fn(async (url: string) => (
+      url.startsWith(ENDPOINTS.channelAudience('c1'))
+        ? { defaultRichMenuId: null, memberRichMenuId: 'line-rm-9', memberCount: 3 }
+        : [membersMenu]
+    ))
+    const post = vi.fn(async () => undefined)
+    const base = createStubPort({ t: (k) => k })
+    const port = { ...base, http: { ...base.http, get, post } as typeof base.http }
+    render(<PortProvider value={port}><RichMenuList channelId="c1" /></PortProvider>)
+
+    await waitFor(() => expect(screen.getByRole('switch')).toBeChecked())
+    fireEvent.click(screen.getByRole('switch'))
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith(ENDPOINTS.menuAudienceDeactivate('9')))
+    await waitFor(() => expect(screen.getByTestId('audience-result')).toBeInTheDocument())
+  })
+
+  /**
+   * ยืนยันว่าการลด fan-out (Task 21 item 3 — ไม่ remount แถวที่กดเอง) ไม่ได้ทำลาย correctness
+   * เดิมที่การ remount มีไว้เพื่อรักษา: แถวอื่นที่ pointer ถูกแย่งไปโดยอ้อม (activate แถว B ปิดแถว A
+   * ที่เคย active อยู่ไปด้วยในตัว เพราะ channel.memberRichMenuId ชี้ได้ทีละอัน) ต้องยัง remount แล้ว
+   * อ่านสถานะใหม่ ไม่ใช่ค้างโชว์ "เปิดอยู่" ผิด ๆ
+   */
+  it('แถวอื่นที่ pointer ถูกแย่งไปโดยอ้อม ยัง remount แล้วอ่านสถานะใหม่เหมือนเดิม (ลด fan-out ไม่ทำลาย correctness)', async () => {
+    const rowA = { ...membersMenu, id: 'a', lineRichMenuId: 'line-rm-a' }
+    const rowB = { ...membersMenu, id: 'b', lineRichMenuId: 'line-rm-b' }
+    let memberRichMenuId: string | null = 'line-rm-a'
+    const get = vi.fn(async (url: string) => (
+      url.startsWith(ENDPOINTS.channelAudience('c1'))
+        ? { defaultRichMenuId: null, memberRichMenuId, memberCount: 3 }
+        : [rowA, rowB]
+    ))
+    const post = vi.fn(async (url: string) => {
+      if (url === ENDPOINTS.menuAudienceActivate('b')) memberRichMenuId = 'line-rm-b'
+    })
+    const base = createStubPort({ t: (k) => k })
+    const port = { ...base, http: { ...base.http, get, post } as typeof base.http }
+    render(<PortProvider value={port}><RichMenuList channelId="c1" /></PortProvider>)
+
+    await waitFor(() => expect(screen.getAllByRole('switch')[0]).toBeChecked())
+    expect(screen.getAllByRole('switch')[1]).not.toBeChecked()
+
+    fireEvent.click(screen.getAllByRole('switch')[1]!)
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('confirm-activate'))
+
+    await waitFor(() => expect(screen.getAllByRole('switch')[1]).toBeChecked())
+    await waitFor(() => expect(screen.getAllByRole('switch')[0]).not.toBeChecked())
+  })
+})

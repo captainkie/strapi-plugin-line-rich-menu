@@ -24,11 +24,36 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
   const [menus, setMenus] = useState<RichMenuSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previewing, setPreviewing] = useState<string | null>(null)
-  // เปลี่ยนทุกครั้งที่ AudienceToggle แถวไหนแถวหนึ่งกด activate/deactivate สำเร็จ — บังคับให้
-  // การ์ดกับสวิตช์ *ทุกแถว* remount แล้วยิง `GET /channels/:id/audience` ใหม่ จำเป็นเพราะเปิด
-  // เมนู B ให้เป็นเมนูสมาชิกจะปิดเมนู A ที่เคยเป็นอยู่ไปด้วยในตัว (channel.memberRichMenuId
-  // ชี้ได้ทีละอัน) — แถวของ A ไม่มีทางรู้ว่าตัวเองถูกปิดไปแล้วถ้าไม่ถูกสั่งให้โหลดสถานะใหม่
-  const [audienceRefreshToken, setAudienceRefreshToken] = useState(0)
+  // การ์ดต้อง remount แล้วยิง `GET /channels/:id/audience` ใหม่ทุกครั้งที่ *แถวไหนก็ตาม* กด
+  // activate/deactivate สำเร็จ — มันสรุปภาพรวมทั้ง channel (ทุกคน + สมาชิก) ไม่ว่าแถวไหนเปลี่ยน
+  const [cardRefreshToken, setCardRefreshToken] = useState(0)
+
+  /**
+   * Task 21 item 1 (แก้บั๊ก "sent at HH:mm" ไม่เคยขึ้น) + item 3 (ลดการยิง audience ซ้ำซ้อน) —
+   * ก่อนหน้านี้ทุกแถวใช้ token เดียวกันเป็นส่วนหนึ่งของ `key` (`${menu.id}-${audienceRefreshToken}`)
+   * ทุกแถวจึง remount พร้อมกันทุกครั้งที่ *แถวไหนก็ตาม* เปลี่ยน — รวมถึงแถวที่เพิ่งกดเอง แถวนั้นเอง
+   * ก็เลย remount ในคอมมิตเดียวกับที่มันเพิ่งตั้ง `sentAt` ของตัวเอง (ผ่าน `confirmActivate`/
+   * `deactivate` ใน AudienceToggle) — unmount ทิ้ง state เดิมทันทีก่อนจอจะได้ทันวาดออกมาเลยด้วยซ้ำ
+   *
+   * ทางแก้: แยก "generation" เป็นรายเมนู แล้วกด activate/deactivate ของแถวไหน ไม่บวก generation
+   * ของแถวนั้นเอง — บวกให้ทุกแถว *อื่น* เท่านั้น แถวที่เพิ่งกดเองไม่ remount เลย (มันรู้สถานะสดของ
+   * ตัวเองอยู่แล้วผ่าน `load()` ภายในตัวมันเอง — ดู AudienceToggle) `sentAt` ที่เพิ่งตั้งจึงไม่ถูก
+   * ทำลาย ส่วนแถวอื่นยัง remount ตามเดิมทุกประการ (correctness เดิมที่ remount มีไว้เพื่อรักษา:
+   * แถวที่ถูกปิดไปโดยอ้อมต้องเลิกโชว์ "เปิดอยู่") ผลพลอยได้: แถวที่กดเองไม่ยิง `GET audience` ซ้ำ
+   * สองรอบอีกต่อไป (เดิมยิงทั้งจาก `load()` ที่เรียกตรง ๆ ในตัวมันเอง และซ้ำอีกทีจากการ remount)
+   */
+  const [audienceGeneration, setAudienceGeneration] = useState<Record<string, number>>({})
+
+  const handleAudienceChanged = (changedMenuId: string) => {
+    setCardRefreshToken((n) => n + 1)
+    setAudienceGeneration((prev) => {
+      const next = { ...prev }
+      for (const m of menus ?? []) {
+        if (m.id !== changedMenuId) next[m.id] = (next[m.id] ?? 0) + 1
+      }
+      return next
+    })
+  }
 
   /**
    * Task 12 — การบำรุงรักษาที่ตั้งใจให้หายาก: ปลดทุกคนที่ LINE รู้ว่ายังถือเมนูนี้อยู่ ผ่าน
@@ -99,8 +124,8 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
     <>
       {/* `key` เปลี่ยนค่า = remount ทั้งก้อน — ทาง React ที่บังคับให้ effect ภายในยิงใหม่โดยไม่ต้อง
           เพิ่ม prop ใหม่เข้า `CurrentMenuCard` ซึ่งสัญญาไว้แค่ `{ channelId }` (ดูคอมเมนต์ที่
-          `audienceRefreshToken` ด้านบน) */}
-      <CurrentMenuCard key={`current-menu-${audienceRefreshToken}`} channelId={channelId} />
+          `cardRefreshToken` ด้านบน) */}
+      <CurrentMenuCard key={`current-menu-${cardRefreshToken}`} channelId={channelId} />
 
       {/* `role="table"` ไม่ใช่ `<table>` จริง: port ไม่มี primitive ของตาราง และการวาด `<table>`
           ดิบที่นี่จะได้ตารางที่ไม่มีสไตล์ของ design system เวอร์ชันไหนเลย ส่วน role ทำให้ screen
@@ -186,16 +211,25 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
 
             <div role="cell" style={{ ...cell, flexDirection: 'column', alignItems: 'flex-start' }}>
               <span style={{ color: theme.strongText, fontSize: '.85rem' }}>{t(`audience.${menu.audience}`)}</span>
-              {/* `key` เปลี่ยนตาม audienceRefreshToken เหมือน CurrentMenuCard ข้างบน — แถวอื่นที่
-                  เพิ่งถูกปิดไปโดยอ้อม (activate ของแถวนี้ล้าง memberRichMenuId ของแถวอื่นทิ้ง)
-                  ต้อง remount แล้วยิง audience ใหม่ ไม่งั้นสวิตช์ของแถวนั้นค้างโชว์ "เปิดอยู่" ผิด ๆ */}
+              {/* `key` เปลี่ยนตาม `audienceGeneration[menu.id]` (ดูคอมเมนต์เต็มที่ประกาศ state
+                  ด้านบน) — แถวอื่นที่เพิ่งถูกปิดไปโดยอ้อม (activate ของแถวนี้ล้าง memberRichMenuId
+                  ของแถวอื่นทิ้ง) ต้อง remount แล้วยิง audience ใหม่ ไม่งั้นสวิตช์ของแถวนั้นค้างโชว์
+                  "เปิดอยู่" ผิด ๆ — ส่วนแถวนี้เองไม่ remount ตัวเองจากการกดของตัวเอง (Task 21 item 1) */}
               <AudienceToggle
-                key={`${menu.id}-${audienceRefreshToken}`}
+                key={`${menu.id}-${audienceGeneration[menu.id] ?? 0}`}
                 menu={menu}
-                onChanged={() => setAudienceRefreshToken((n) => n + 1)}
+                onChanged={() => handleAudienceChanged(menu.id)}
               />
               {/* Task 12 — เมนูที่ไม่เคย publish ไม่มี lineRichMenuId ให้ batch อ้างถึง เหตุผล
-                  เดียวกับที่ AudienceToggle ปิดสวิตช์ไว้ตอนเมนูยัง draft */}
+                  เดียวกับที่ AudienceToggle ปิดสวิตช์ไว้ตอนเมนูยัง draft
+
+                  Task 21 item 5 — เงื่อนไข disabled ตรงนี้ตัวเดียวกับที่ทำให้ AudienceToggle ข้างบน
+                  ปิดพร้อมโชว์ `audience.notPublishedMenu` อยู่แล้ว (ทั้งคู่มาจาก
+                  `menu.lineRichMenuId === null`) ตั้งใจไม่พิมพ์ข้อความเดียวกันซ้ำอีกรอบไว้ใต้ปุ่มนี้
+                  เพราะมันจะซ้อนกันเป็นประโยคเดิมสองบรรทัดติดกันในคอลัมน์แคบเดียวกัน — คำอธิบาย
+                  บรรทัดเดียวที่อยู่เหนือปุ่มนี้ขึ้นบรรทัดเดียวก็ครอบทั้งสองปุ่มได้อยู่แล้วเพราะเหตุผล
+                  เดียวกันเป๊ะ ๆ ซ้ำคำจะดูเหมือนบั๊ก UI มากกว่าช่วยอะไร (ตัดสินใจตามที่ brief เปิดทางไว้:
+                  "or the control needs a different treatment") */}
               <ui.Button
                 variant="danger"
                 testId={`unlink-all-${menu.id}`}

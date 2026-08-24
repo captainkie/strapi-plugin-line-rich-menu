@@ -39,7 +39,12 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
   const load = () => {
     http.get<ChannelAudience>(ENDPOINTS.channelAudience(menu.channelId))
       .then(setAudience)
-      .catch(() => setError(t('audience.actionFailed')))
+      // Task 21 item 3 — นี่คือการ*อ่าน*สถานะ ไม่ใช่การ*กระทำ* ที่ล้ม (ไม่มีการกดอะไรเลยตอน mount)
+      // ก่อนหน้านี้ catch นี้ใช้ audience.actionFailed ("ทำรายการไม่สำเร็จ") ตัวเดียวกับที่ activate/
+      // deactivate ใช้เมื่อคำสั่งที่ผู้ใช้กดจริง ๆ ล้ม — คนละความหมายกันคนละเวลากัน endpoint นี้ยิงถึง
+      // LINE จริง (token หมดอายุ/LINE ล่ม/429 ทำให้มันล้มได้) ผู้ใช้ที่เพิ่งเปิดหน้าไม่ควรเห็นข้อความที่
+      // สื่อว่าตัวเองเพิ่งกดอะไรพังไป ทั้งที่ยังไม่ได้แตะอะไรเลย
+      .catch(() => setError(t('audience.loadFailed')))
   }
 
   useEffect(load, [http, menu.channelId, t])
@@ -59,6 +64,24 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
    * ของตัวมันเอง จึงมี `audience.notMembersMenu` ขึ้นใต้สวิตช์คู่กันเสมอ (ดูตอน render)
    */
   const isMembersMenu = menu.audience === 'members'
+  /**
+   * Task 21 item 5 — เหตุผลที่สวิตช์ปิดอยู่ ไม่ได้มีสาเหตุเดียวเสมอไป: "ยังไม่ publish เลย" (ไม่มี
+   * `lineRichMenuId` ให้ activate ตั้งแต่ต้น) กับ "audience ตั้งเป็น all ไม่ใช่ members" เป็นคนละ
+   * สาเหตุกันคนละคำแนะนำ — `audience.notMembersMenu` ถูกกำหนดไว้แล้วให้พูดถึงสาเหตุที่สองเท่านั้น
+   * (ห้ามขยายให้ครอบคลุมสาเหตุแรกไปด้วย) ก่อนหน้านี้เมนู draft ไม่มีข้อความอะไรเลย เพราะเงื่อนไข
+   * `isMembersMenu || active` เป็นจริงสำหรับเมนู draft ที่ audience เป็น members อยู่แล้ว (ดู
+   * draftMenu fixture ในเทสต์ — สืบทอด audience: 'members' มา) จึงไม่เข้าเงื่อนไขที่โชว์ข้อความเลย
+   *
+   * ลำดับความสำคัญ: "ยังไม่ publish" ต้องมาก่อน เพราะเป็นเหตุผลที่ทำให้ audience ไม่มีความหมายอะไร
+   * เลย — ไม่ว่า audience จะตั้งเป็นอะไรก็ปิดสวิตช์เหมือนกันจนกว่าจะ publish
+   */
+  const disabledReasonKey: string | null = active
+    ? null
+    : menu.lineRichMenuId === null
+      ? 'audience.notPublishedMenu'
+      : isMembersMenu
+        ? null
+        : 'audience.notMembersMenu'
   // publish แล้วเท่านั้นถึงมี lineRichMenuId ให้ activate — เมนู draft ที่กดไปจะโดน 409
   // menu_not_ready จาก publishedMenuOrThrow เปล่า ๆ ปิดสวิตช์ไว้ตั้งแต่ต้นดีกว่าปล่อยให้กดแล้วเจอ
   // error ที่รู้ล่วงหน้าอยู่แล้วว่าต้องเกิด — audience === null (กำลังโหลด/โหลดพัง) ก็ปิดไว้ก่อน
@@ -77,6 +100,11 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
     setError(null)
     try {
       await http.post(ENDPOINTS.menuAudienceDeactivate(menu.id))
+      // Task 21 item 2 — ปิดใช้งานก็ async/unconfirmable เหมือนกับเปิดใช้งานทุกประการ (LINE ตอบ
+      // 202 เปล่า ๆ เหมือนกัน) แต่เส้นนี้ไม่เคยตั้ง sentAt มาก่อนเลยสักครั้ง ทั้งที่ docs/usage.md
+      // สัญญาไว้ว่า "the toggle above, and Unlink everyone below" พูดว่า "sent" ทั้งคู่ — ก่อนหน้านี้
+      // มีแค่ครึ่งหลังที่รอดเพราะ sentAt ของมันอยู่ที่ RichMenuList ซึ่งไม่ถูก remount ทำลาย
+      setSentAt(new Date())
       load()
       onChanged?.()
     } catch {
@@ -140,13 +168,13 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
       />
 
       {/* เหตุผลที่สวิตช์ปิดอยู่ ในที่เดียวกับที่ผู้ใช้กำลังมองอยู่ — ไม่ใช่ปล่อยให้เขาเดาเอง
-          ผูกกับ `menu.audience` ตัวเดียว ไม่ใช่ `!canToggle` ทั้งก้อน เพราะอีกสามเงื่อนไข
-          (ยังไม่ publish / กำลังโหลด / กำลังยิงคำขอ) ไม่ได้แก้ด้วยการไปเปลี่ยน audience
-          และข้อความนี้จะกลายเป็นคำแนะนำที่ผิดทันทีถ้าขึ้นตอนนั้นด้วย — เช่นเดียวกับตอน `active`
-          เป็น true (Task 14b item 1): สวิตช์กดได้อยู่แล้วเพื่อ "ปิด" ข้อความที่บอกว่าเปิดให้สมาชิก
-          ไม่ได้จึงเป็นคำแนะนำผิดทิศทาง — ผู้ใช้ต้องการปิด ไม่ใช่เปิด */}
-      {isMembersMenu || active ? null : (
-        <ui.Typography textColor="neutral600">{t('audience.notMembersMenu')}</ui.Typography>
+          `disabledReasonKey` (ดูคำนวณด้านบน) ครอบสองสาเหตุถาวรแล้ว (ยังไม่ publish / audience
+          ไม่ใช่ members) เหลือแค่สองเงื่อนไขชั่วคราวที่ยังไม่มีข้อความ (กำลังโหลด / กำลังยิงคำขอ)
+          ซึ่งตั้งใจไม่ให้มี เพราะเป็นสถานะที่หายไปเองเร็ว ๆ ไม่ใช่ทางตันที่ต้องอธิบายวิธีแก้ — เช่นเดียวกับ
+          ตอน `active` เป็น true (Task 14b item 1): สวิตช์กดได้อยู่แล้วเพื่อ "ปิด" ข้อความที่บอกว่าเปิดให้
+          สมาชิกไม่ได้จึงเป็นคำแนะนำผิดทิศทาง — ผู้ใช้ต้องการปิด ไม่ใช่เปิด */}
+      {disabledReasonKey === null ? null : (
+        <ui.Typography textColor="neutral600">{t(disabledReasonKey)}</ui.Typography>
       )}
 
       {error === null ? null : <ui.Alert variant="danger">{error}</ui.Alert>}
@@ -161,12 +189,22 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
       {!confirming || audience === null || confirmCount === null ? null : (
         <ui.Modal
           open
-          onClose={() => setConfirming(false)}
+          // Task 21 item 4 — เดิมทั้งปุ่มยืนยันและยกเลิกไม่มี `disabled={busy}` เลย: กดยืนยันสามครั้ง
+          // ยิง POST activate สามครั้งจริง (ยืนยันแล้ว) และกด Cancel ระหว่างคำขอค้างอยู่ปิดกล่องไป
+          // เฉย ๆ ทั้งที่ activation ยังลงจริงอยู่ดี ผู้ใช้จึงเข้าใจผิดว่าตัวเองยกเลิกสำเร็จ — ปิดทาง
+          // ปิดกล่องระหว่าง busy ทุกช่องทาง ไม่ใช่แค่ปุ่ม Cancel: onClose นี้คือช่องทางเดียวกันที่
+          // `ui.Modal` เปิดให้ปิดด้วย (เช่น Esc/คลิกฉากหลัง ถ้า adapter จริงผูกไว้) สวิตช์เดียวกัน
+          // ต้องกันไว้ทั้งคู่ ไม่งั้น guard ที่ปุ่ม Cancel มีความหมายแค่ทางเดียว
+          onClose={() => { if (!busy) setConfirming(false) }}
           title={t('audience.confirm.title')}
           footer={
             <>
-              <ui.Button variant="secondary" onClick={() => setConfirming(false)}>{t('common.cancel')}</ui.Button>
-              <ui.Button testId="confirm-activate" onClick={() => void confirmActivate()}>
+              <ui.Button variant="secondary" disabled={busy} onClick={() => setConfirming(false)}>
+                {t('common.cancel')}
+              </ui.Button>
+              {/* สเปกเดียวกับ `disabled={unlinkAllBusy}` ที่ `RichMenuList.tsx` ใช้กับปุ่มยืนยันของ
+                  "เลิกผูกทุกคน" อยู่แล้ว (Task 12) — คู่ยืนยัน/ยกเลิกของงานนี้ไม่เคยตามมาให้ครบ */}
+              <ui.Button testId="confirm-activate" disabled={busy} onClick={() => void confirmActivate()}>
                 {t('audience.activate')}
               </ui.Button>
             </>

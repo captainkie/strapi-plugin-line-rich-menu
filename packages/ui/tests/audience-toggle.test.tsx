@@ -255,4 +255,61 @@ describe('AudienceToggle', () => {
     await waitFor(() => expect(screen.getByText('audience.actionFailed')).toBeInTheDocument())
     expect(screen.queryByTestId('audience-result')).not.toBeInTheDocument()
   })
+
+  /**
+   * Task 21 item 3 — โหลด audience ไม่สำเร็จตอน mount (ไม่มีใครกดอะไรเลย) ต้องขึ้นข้อความคนละคีย์
+   * กับตอนที่ผู้ใช้กด activate/deactivate แล้วล้ม — ก่อนหน้านี้ทั้งสองกรณีใช้ 'audience.actionFailed'
+   * ("ทำรายการไม่สำเร็จ") ตัวเดียวกันหมด ทำให้แถวที่ยังไม่ได้ถูกแตะเลยขึ้น alert แดงราวกับผู้ใช้
+   * เพิ่งกดอะไรพังไป
+   */
+  it('โหลด audience ไม่สำเร็จตอน mount ต้องขึ้นข้อความว่าโหลดไม่สำเร็จ ไม่ใช่ "ทำรายการไม่สำเร็จ" (item 3)', async () => {
+    const get = vi.fn(async () => { throw new Error('boom') })
+    const base = createStubPort({ t: (k: string) => k })
+    const port = { ...base, http: { ...base.http, get, post: vi.fn(async () => undefined) } as typeof base.http }
+    render(<PortProvider value={port}><AudienceToggle menu={publishedMenu} /></PortProvider>)
+    await waitFor(() => expect(screen.getByText('audience.loadFailed')).toBeInTheDocument())
+    expect(screen.queryByText('audience.actionFailed')).not.toBeInTheDocument()
+  })
+
+  /**
+   * Task 21 item 4 — เดิมทั้งปุ่มยืนยันและยกเลิกในกล่องยืนยันไม่มี `disabled={busy}` เลย: กดยืนยัน
+   * สามครั้งยิง POST activate สามครั้งจริง เทสต์นี้ค้าง promise ของ post ไว้กลางอากาศ (ยังไม่ resolve)
+   * เพื่อจับสถานะ "กำลังยิงคำขออยู่" แล้วพิสูจน์ทั้งสองอย่าง: ปุ่มถูกปิด และคลิกซ้ำไม่ยิง POST ซ้ำ
+   */
+  it('ปุ่มยืนยันและยกเลิกถูกปิดระหว่างคำขอค้างอยู่ กันกดยืนยันซ้ำ (item 4)', async () => {
+    // เก็บ resolver ไว้ใน object แทน `let` ตรง ๆ — `let` ที่ถูกเขียนทับเฉพาะข้างใน closure ของ
+    // Promise executor ทำให้ TS narrow ตอนอ่านค่านอก closure ผิดไปเป็น `never` (control flow
+    // analysis ไม่ตามเข้าไปในนั้น) property บน object ไม่โดนปัญหานี้
+    const deferred: { resolve: (() => void) | undefined } = { resolve: undefined }
+    const post = vi.fn(() => new Promise<undefined>((resolve) => { deferred.resolve = () => resolve(undefined) }))
+    setup({ audience: { ...noOneActive, memberCount: 5 } as ChannelAudience, post })
+    await waitFor(() => expect(screen.getByRole('switch')).not.toBeDisabled())
+    fireEvent.click(screen.getByRole('switch'))
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('confirm-activate'))
+
+    await waitFor(() => expect(screen.getByTestId('confirm-activate')).toBeDisabled())
+    expect(screen.getByText('common.cancel')).toBeDisabled()
+
+    // คลิกซ้ำระหว่างที่ปุ่มถูกปิดอยู่ — ต้องไม่ยิง POST เพิ่ม (การเช็ค busy ในตัว handler เอง
+    // ไม่พึ่ง attribute disabled ของ primitive อย่างเดียว เหมือนแพทเทิร์นของสวิตช์ด้านบนในไฟล์นี้)
+    fireEvent.click(screen.getByTestId('confirm-activate'))
+    expect(post).toHaveBeenCalledTimes(1)
+
+    deferred.resolve?.()
+    await waitFor(() => expect(screen.getByTestId('audience-result')).toBeInTheDocument())
+  })
+
+  /**
+   * Task 21 item 5 — เมนู draft (ยังไม่ publish เลย) เดิมสวิตช์ถูกปิดโดยไม่มีข้อความอธิบายอะไรเลย
+   * เพราะเงื่อนไขเดิม (`isMembersMenu || active`) เป็นจริงสำหรับ draftMenu ที่สืบทอด audience:
+   * 'members' มา จึงไม่เข้าเงื่อนไขที่โชว์ข้อความ — ต้องมีคำอธิบายคนละคีย์จาก audience.notMembersMenu
+   * (ห้ามใช้ตัวเดียวกัน เพราะ draftMenu.audience คือ 'members' อยู่แล้ว ไม่ใช่ 'all')
+   */
+  it('เมนูที่ยังไม่ publish บอกเหตุผลว่ายังไม่ได้เผยแพร่ ไม่ใช่ปิดเงียบ ๆ (item 5)', async () => {
+    setup({ menu: draftMenu, t: realT('en') })
+    await waitFor(() => expect(screen.getByRole('switch')).toBeDisabled())
+    expect(screen.getByText(MESSAGES.en['audience.notPublishedMenu']!)).toBeInTheDocument()
+    expect(screen.queryByText(MESSAGES.en['audience.notMembersMenu']!)).not.toBeInTheDocument()
+  })
 })
