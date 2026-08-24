@@ -106,7 +106,12 @@ describe('runTick', () => {
     const updateCalls: unknown[] = []
 
     const services = {
-      channels: { withSecrets: () => ({ findOne: async (id: string) => ({ id, channelAccessToken: `token-${id}` }) }) },
+      channels: {
+        withSecrets: () => ({ findOne: async (id: string) => ({ id, channelAccessToken: `token-${id}` }) }),
+        // (Task 19 item 5) scheduler ถาม pointer ตัวนี้ก่อนทุกชุด — ของปลอมต้องตอบด้วย **ค่าเดียว
+        // กับที่เมนูถืออยู่** ไม่ใช่ค่ากลาง ๆ ไม่งั้นเทสต์ happy path นี้จะพิสูจน์แค่ว่า "ไม่พัง"
+        findOne: async (id: string) => ({ id, memberRichMenuId: 'line-rm-1' }),
+      },
       clientFor: () => ({ bulkLink: async (richMenuId: string, userIds: string[]) => { bulkLinkCalls.push({ richMenuId, userIds }) } }),
       schedules: {
         findMany: async (params?: { filters?: { state?: string } }) =>
@@ -132,5 +137,51 @@ describe('runTick', () => {
     expect(report).toMatchObject({ due: 1, claimed: 1, done: 1, failed: 0 })
     expect(bulkLinkCalls).toEqual([{ richMenuId: 'line-rm-1', userIds: [`U${'a'.repeat(32)}`] }])
     expect(updateCalls).toHaveLength(1)
+  })
+  /**
+   * (Task 19 item 5) ครึ่งที่พิสูจน์ว่า adapter **ต่อสาย `memberRichMenuIdOf` เข้ากับ channel จริง**
+   * ไม่ใช่แค่ใส่คีย์ไว้ให้ typecheck ผ่าน — pointer ที่ไม่ตรงต้องทำให้งานหยุดก่อนยิง LINE สักครั้ง
+   * ถ้า adapter ต่อสายผิด channel หรือคืนค่าคงที่ ด่านนี้จะเขียวไม่ได้
+   */
+  it('channel ไม่ได้ชี้มาที่เมนูนี้แล้ว → งาน link-members หยุดโดยไม่ยิง LINE เลย', async () => {
+    const dueRows = [{
+      id: 'sc1', richMenuId: 'm1', runAt: '2020-01-01T00:00:00.000Z',
+      op: 'link-members' as const, state: 'pending' as const,
+      lockedBy: null, lockedAt: null, lastError: null, cursor: null,
+    }]
+    const bulkLinkCalls: unknown[] = []
+    const pointerReads: string[] = []
+
+    const services = {
+      channels: {
+        withSecrets: () => ({ findOne: async (id: string) => ({ id, channelAccessToken: `token-${id}` }) }),
+        // ผู้ดูแลกดปิดไปแล้ว — pointer เป็น null ขณะที่แถวงานยังค้างอยู่ในตาราง
+        findOne: async (id: string) => { pointerReads.push(id); return { id, memberRichMenuId: null } },
+      },
+      clientFor: () => ({ bulkLink: async (...args: unknown[]) => { bulkLinkCalls.push(args) } }),
+      schedules: {
+        findMany: async (params?: { filters?: { state?: string } }) =>
+          params?.filters?.state === 'pending' ? dueRows : [],
+        update: async () => undefined,
+      },
+      lock: { claim: async () => true, release: async () => undefined },
+      menus: { findOne: async (id: string) => (id === 'm1' ? { channelId: 'ch1', lineRichMenuId: 'line-rm-1' } : null) },
+      members: {
+        findMany: async () => [
+          { id: 'mem1', channelId: 'ch1', lineUserId: `U${'a'.repeat(32)}`, displayName: null, linkedRichMenuId: null, linkedAt: null },
+        ],
+        update: async () => undefined,
+      },
+      audit: { write: async () => undefined, around: async (_ctx: unknown, fn: () => Promise<unknown>) => fn() },
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+    }
+    const strapi = { log: { debug: vi.fn(), error: vi.fn() } } as unknown as StrapiV4
+
+    const report = await runTick(strapi, services as never)
+
+    expect(report).toMatchObject({ due: 1, claimed: 1, done: 1, failed: 0 })
+    expect(bulkLinkCalls).toEqual([])
+    // อ่าน pointer ของ channel ที่เมนูสังกัดจริง ไม่ใช่ channel อื่นหรือค่าคงที่
+    expect(pointerReads).toEqual(['ch1'])
   })
 })

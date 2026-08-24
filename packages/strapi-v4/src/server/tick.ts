@@ -33,6 +33,11 @@ export async function runTick(strapi: StrapiV4, services: Services): Promise<Tic
       members: services.members,
       clientFor: async (channelId) =>
         services.clientFor(await services.channels.withSecrets().findOne(channelId)),
+      // (Task 19 item 5) งาน link-members ถามค่านี้ก่อนทุกชุดเพื่อหยุดเองเมื่อผู้ดูแลกดปิดกลางคัน
+      // อ่านผ่าน `channels.findOne` (ChannelRecord ไม่มีความลับ) ไม่ใช่ `withSecrets()` — งานนี้
+      // ต้องการแค่ pointer ไม่มีเหตุผลให้ถอดรหัส token เพิ่มอีกครั้งต่อชุด
+      memberRichMenuIdOf: async (channelId) =>
+        (await services.channels.findOne(channelId)).memberRichMenuId,
     },
     logger: services.logger,
     now: () => new Date(),

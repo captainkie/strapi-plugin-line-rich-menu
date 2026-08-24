@@ -32,6 +32,20 @@ export interface SchedulerOps {
    * (ดูเหตุผลที่ run())
    */
   members?: Repo<MemberRow>
+  /**
+   * (Task 19 item 5) อ่าน `memberRichMenuId` ปัจจุบันของ channel — pointer ตัวเดียวที่บอกว่า
+   * "ตอนนี้เมนูสมาชิกของ channel นี้คือตัวไหน" งาน `link-members` ถามค่านี้ก่อนทุกชุด เพื่อหยุด
+   * เองเมื่อผู้ดูแลกดปิดระหว่างที่มันกำลังวิ่ง (ดูเหตุผลเต็มที่จุดเรียกใน `run()`)
+   *
+   * **required ไม่ใช่ optional** ต่างจาก `members` ข้างบนที่เป็น optional ด้วยเหตุผลทางประวัติศาสตร์
+   * (v4/v5 ต่อสายกันคนละ task) — adapter ตัวใหม่ที่ลืมต่อสายตัวนี้ต้องคอมไพล์ไม่ผ่านทันที ไม่ใช่
+   * เงียบไปทั้งเส้นทางแล้วปล่อยให้งานที่ควรหยุดวิ่งต่อจนจบ ซึ่งเป็นแผลเป็น "ประกาศไว้แต่ไม่เคยต่อสาย"
+   * ที่แบรนช์นี้เจอมาแล้วสี่ครั้ง
+   *
+   * คืนเฉพาะ pointer ไม่ใช่ `ChannelRow` ทั้งก้อน — scheduler ไม่มีเหตุผลต้องเห็น ciphertext ของ
+   * token (การประกอบ client เป็นหน้าที่ของ `clientFor` ซึ่งแยกอยู่แล้ว)
+   */
+  memberRichMenuIdOf(channelId: string): Promise<string | null>
 }
 
 export interface SchedulerDeps {
@@ -186,6 +200,8 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
           async () => {
             let linked = 0
             let vanished = 0
+            // ไม่ครบ = ยังมีคนที่ยังไม่ได้เมนู ตั้งต้นเป็น "ครบ" แล้วให้ทางออกที่ผิดปกติเป็นคนคว่ำ
+            let complete = true
             try {
               // วนทุก chunk ภายในติ๊กเดียว แต่เขียน cursor ลงแถว schedule "หลังจบแต่ละชุด" ไม่ใช่ตอนจบ
               // ลูป — ถ้า process ตายกลางทาง (เช่น ชุดที่สิบสองจากยี่สิบ) รอบถัดไปต้องอ่าน cursor ที่
@@ -193,6 +209,25 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
               // บันทึกเลย รอบถัดไปจึงเริ่มใหม่ตั้งแต่คนแรก ยิง bulkLink ซ้ำให้คนที่ทำไปแล้วโดยไม่มีที่ไหน
               // บันทึกไว้เลยว่าเคยส่งไปแล้ว — ไม่ใช่แค่ช้า แต่เป็นบั๊กที่ตรวจไม่ออกจนกว่าจะมีคนสังเกตว่าโดนส่งซ้ำ
               for (;;) {
+                // (Task 19 item 5) ถามก่อน **ทุกชุด** ว่า channel ยังชี้มาที่เมนูนี้อยู่ไหม
+                //
+                // เปิดสวิตช์บน channel ที่มีสมาชิกหลักหมื่น คำขอ activate ค้างอยู่ระหว่างไล่ chunk
+                // อีกแท็บกดปิด — งาน unlink ปลดคนที่ผูกไปแล้วออก แต่งาน link ที่ยังวิ่งอยู่เดินหน้า
+                // ผูกคนที่เหลือต่อจาก cursor ของมันจนจบ ผลคือสมาชิกถือเมนูที่ channel ไม่ได้ชี้ไปแล้ว
+                // และไม่มีงานไหนตามเก็บ เพราะงานปลดจบไปก่อนที่คนกลุ่มนั้นจะถูกผูก
+                //
+                // หนึ่ง read ต่อชุด บนงานที่ยิง LINE อยู่แล้วหนึ่งครั้งต่อชุด — และเป็นการเช็คแบบเดียว
+                // ที่ **ปิด** ช่องนี้จริง ไม่ใช่ทำให้มันแคบลง (เช็คครั้งเดียวตอนเริ่มงานยังปล่อยให้
+                // ทุกชุดหลังจากนั้นวิ่งต่อหลังการกดปิด)
+                if (await deps.ops.memberRichMenuIdOf(menu.channelId) !== lineRichMenuId) {
+                  complete = false
+                  deps.logger.info(
+                    'line-rich-menu: link-members stopped early because the channel no longer points at this menu',
+                    { scheduleId: row.id, richMenuId: lineRichMenuId, channelId: menu.channelId, linked },
+                  )
+                  break
+                }
+
                 const result = await linkMemberChunk(chunkDeps, {
                   richMenuId: lineRichMenuId,
                   channelId: menu.channelId,
@@ -214,7 +249,7 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
               }
               throw error
             }
-            return { linked, vanished, complete: true }
+            return { linked, vanished, complete }
           },
           (value) => value,
         )

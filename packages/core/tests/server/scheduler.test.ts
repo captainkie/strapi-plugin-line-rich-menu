@@ -94,6 +94,8 @@ function harness(schedules: ScheduleRow[], menus: RichMenuRow[], claim = async (
       menus: listRepo(menus),
       audit: createAuditWriter({ repo: auditRepo, logger: silent }),
       clientFor,
+      // op อื่นไม่แตะ pointer นี้เลย — ตอบว่า "ยังชี้อยู่" ไว้ ไม่ใช่ค่ากลาง ๆ ที่ไม่มีความหมาย
+      memberRichMenuIdOf: async () => 'richmenu-a',
     },
     logger: silent,
     now: () => NOW,
@@ -434,6 +436,11 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     failOnChunk?: number
     /** id ของสมาชิกที่ "หายไป" ระหว่างงานวิ่ง — repo คืน RowVanishedError เหมือนของจริง (Task 19 item 3) */
     vanishedMemberId?: string
+    /**
+     * จำลองการกดปิดระหว่างงานกำลังวิ่ง (Task 19 item 5) — pointer ของ channel เลิกชี้มาที่เมนูนี้
+     * หลังผ่านการเช็คไปแล้ว N ครั้ง (เช็คเกิดก่อนทุกชุด: 0 = ปิดไปก่อนชุดแรกจะได้วิ่งเลย)
+     */
+    deactivateAfterChecks?: number
   }): Promise<{
     report: TickReport
     sentChunks: string[][]
@@ -451,6 +458,8 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     memberRows: MemberRow[]
     /** แถว audit ที่งานนี้เขียนจริง — เดิม link-members ไม่เคยเขียนสักแถว (Task 19 item 7) */
     auditRows: AuditRow[]
+    /** จำนวนครั้งที่งานถาม pointer ของ channel — ต้องเป็น "ก่อนทุกชุด" ไม่ใช่ครั้งเดียวตอนเริ่ม */
+    pointerChecks: () => number
   }> {
     const memberRows = membersFor(options.members)
     const memberRepo = memberRepoFor(memberRows)
@@ -458,6 +467,7 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     const linkTargets: string[] = []
     const queries: ListParams[] = []
     let bulkLinkCalls = 0
+    let pointerChecks = 0
 
     const line = {
       ...fakeLine(),
@@ -515,6 +525,13 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
         menus: listRepo([options.menu ?? menuRow({ id: '1', channelId: '10' })]),
         audit: createAuditWriter({ repo: auditRepo, logger: silent }),
         clientFor: async () => line as never,
+        memberRichMenuIdOf: async () => {
+          pointerChecks += 1
+          return options.deactivateAfterChecks !== undefined
+            && pointerChecks > options.deactivateAfterChecks
+            ? null
+            : 'richmenu-a'
+        },
         // ห่อ findMany ไว้บันทึก query ทุกครั้งที่ยิงจริง — เหมือน `deps()` ใน members.test.ts:
         // assertion บนผลลัพธ์อย่างเดียวผ่านได้แม้ query ที่ยิงจริงผิด (เช่น cursor ไม่ถูกส่ง)
         members: {
@@ -539,6 +556,7 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     const report = await scheduler.tick()
     return {
       report, sentChunks, released, queries, linkTargets, memberRows, auditRows,
+      pointerChecks: () => pointerChecks,
       cursorPersisted: scheduleRows[0]!.cursor,
     }
   }
@@ -661,6 +679,52 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     })
   })
 
+  /**
+   * (Task 19 item 5) สองแท็บ: แท็บหนึ่งกดเปิดแล้วคำขอค้างอยู่ระหว่างไล่ chunk อีกแท็บกดปิด งาน
+   * unlink ปลดคนที่ผูกไปแล้วออก แต่งาน link ที่ยังวิ่งอยู่เดินหน้าผูกคนที่เหลือต่อจนจบ — สมาชิก
+   * กลุ่มหลังจึงถือเมนูที่ channel ไม่ได้ชี้ไปแล้ว และไม่มีงานไหนตามเก็บ เพราะงานปลดจบไปก่อนที่
+   * คนกลุ่มนั้นจะถูกผูกด้วยซ้ำ
+   *
+   * `deactivateAfterChecks: 1` = ผ่านการเช็คครั้งแรก (ชุดแรกวิ่ง) แล้ว pointer หายไปก่อนชุดที่สอง
+   */
+  it('channel เลิกชี้มาที่เมนูนี้ระหว่างงานวิ่ง → หยุดที่ท้ายชุดปัจจุบัน ไม่ผูกคนที่เหลือต่อ', async () => {
+    const { report, sentChunks, auditRows, cursorPersisted } = await tickWith({
+      members: 1001, op: 'link-members', deactivateAfterChecks: 1,
+    })
+
+    // ชุดแรกวิ่งไปแล้วก่อนจะกดปิด ชุดที่สองกับสามต้องไม่เกิดขึ้นเลย
+    expect(sentChunks.map((c) => c.length)).toEqual([500])
+    // หยุด "อย่างสะอาด" — งานจบเป็น done ไม่ใช่ failed ที่จะถูกปลุกซ้ำในอนาคต
+    expect(report).toMatchObject({ done: 1, failed: 0 })
+    // และแยกออกจากงานที่จบครบได้จริงในแถว audit (item 7 คือสิ่งที่ทำให้ข้อนี้มองเห็นได้เลย)
+    expect(auditRows[0]).toMatchObject({
+      action: 'link-members', result: 'success', after: { linked: 500, complete: false },
+    })
+    expect(cursorPersisted).toBe('m00499')
+  })
+
+  it('กดปิดก่อนงานได้วิ่งชุดแรกเลย → ไม่ยิง LINE สักครั้ง และ audit บอกว่าไม่ครบ', async () => {
+    const { sentChunks, auditRows, report } = await tickWith({
+      members: 1001, op: 'link-members', deactivateAfterChecks: 0,
+    })
+
+    expect(sentChunks).toEqual([])
+    expect(report).toMatchObject({ done: 1, failed: 0 })
+    expect(auditRows[0]).toMatchObject({ result: 'success', after: { linked: 0, complete: false } })
+  })
+
+  /**
+   * "เช็คก่อนทุกชุด" ไม่ใช่ "เช็คครั้งเดียวตอนเริ่ม" — อย่างหลังทำให้ทุกด่านข้างบนเขียวได้เหมือนกัน
+   * ทั้งที่ยังปล่อยให้ชุดที่ 2..N วิ่งต่อหลังการกดปิด ซึ่งคือช่องที่ ruling บอกให้ **ปิด** ไม่ใช่
+   * ทำให้แคบลง ต้องนับจำนวนครั้งที่ถามจริง ไม่ใช่ถามว่าถามหรือเปล่า
+   */
+  it('ถาม pointer ก่อนทุกชุด ไม่ใช่ครั้งเดียวตอนเริ่มงาน', async () => {
+    const { sentChunks, pointerChecks } = await tickWith({ members: 1001, op: 'link-members' })
+
+    expect(sentChunks).toHaveLength(3)
+    expect(pointerChecks()).toBe(3)
+  })
+
   it('ไม่มี ops.members แล้วมีงาน link-members เข้ามา → พังทันที ไม่ใช่ข้ามงานไปเงียบ ๆ', async () => {
     const scheduleRows: ScheduleRow[] = [scheduleRow({ id: 's1', op: 'link-members', cursor: null })]
     const lock = { claim: vi.fn(async () => true), release: vi.fn(async () => {}) }
@@ -679,6 +743,7 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
         menus: listRepo([menuRow({ id: '1', channelId: '10' })]),
         audit: createAuditWriter({ repo: auditRepo, logger: silent }),
         clientFor: async () => fakeLine() as never,
+        memberRichMenuIdOf: async () => 'richmenu-a',
         // members ไม่ถูกระบุโดยตั้งใจ — จำลอง adapter ที่ลืม wire
       },
       logger: silent,
@@ -777,6 +842,7 @@ describe('tick — unlink-members วนจนหมดโดยไม่มี 
         menus: listRepo([options.menu ?? menuRow({ id: '1', channelId: '10' })]),
         audit: createAuditWriter({ repo: auditRepo, logger: silent }),
         clientFor: async () => line as never,
+        memberRichMenuIdOf: async () => 'richmenu-a',
         ...(options.wireMembers === false
           ? {}
           : { members: memberRepoFor(memberRows, options.clears ?? true) }),
