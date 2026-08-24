@@ -1,6 +1,6 @@
 {
   "name": "strapi-plugin-line-rich-menu-v4",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "LINE rich menu builder for Strapi 4.25.x — a bridge while you migrate to Strapi 5",
   "license": "Apache-2.0",
   "author": "Fosivo Labs Co., Ltd. <https://fosivo.com>",
