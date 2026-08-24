@@ -45,13 +45,29 @@ export interface DisplayPeriod {
  * ที่เทสต์ของ repo (`tests/repo.test.ts`) เรียกตรง ๆ กับ repo ที่ประกอบจาก strapi ปลอม —
  * เดิมเทสต์นั้นถือสำเนาของตัวเองไว้ จึงพิสูจน์ได้แค่ fixture ของมันเอง ไม่ใช่ของจริง
  */
+/**
+ * op ที่ "ช่วงเวลาแสดงผล" เป็นเจ้าของจริง ๆ — และเป็นชุดเดียวที่ `writeDisplayPeriod` ลบได้
+ *
+ * (Task 19 item 6) เดิมมันลบ **ทุกแถว pending** ของเมนูนั้น ซึ่งถูกต้องตอนที่ตารางนี้มีแค่สอง op
+ * แต่แบรนช์นี้เพิ่ม `link-members`/`unlink-members` เข้ามาในตารางเดียวกันโดยไม่ได้แคบเงื่อนไขตาม
+ * ผลคือการกด Save เมนูธรรมดา ๆ ลบงานผูก/ปลดสมาชิกของตัวเองทิ้งเงียบ ๆ: สวิตช์ยังอ่านว่าเปิด
+ * (`memberRichMenuId` ไม่ถูกแตะ) แต่ไม่มีงานเหลือให้ใครวิ่ง สมาชิกที่ยังไม่ถูกผูกจะไม่ถูกผูกเลย
+ *
+ * ประกาศเป็นค่าคงที่แยกไว้ ไม่ใช่เงื่อนไขอินไลน์ — op ตัวที่หกในอนาคตต้องถูกเพิ่มเข้ามาที่นี่
+ * อย่างจงใจ ไม่ใช่ตกอยู่ในขอบเขตการลบโดยปริยายเหมือนที่เกิดขึ้นกับสองตัวนี้
+ */
+const DISPLAY_PERIOD_OPS: readonly ScheduleRow['op'][] = ['set-default', 'clear-default']
+
 export async function writeDisplayPeriod(
   schedules: Repo<ScheduleRow>,
   menuId: string,
   period: DisplayPeriod,
 ): Promise<void> {
+  // `ListParams.filters` เทียบเท่ากับอย่างเดียว (ดู core/server/types.ts) กรอง op ต่อในหน่วยความจำ
+  // แทนการยิงสองคำสั่ง — จำนวนแถว pending ต่อเมนูหนึ่งตัวมีได้ไม่กี่แถวตามนิยามของตารางนี้
   const existing = await schedules.findMany({ filters: { richMenuId: menuId, state: 'pending' } })
-  await Promise.all(existing.map((row) => schedules.delete(row.id)))
+  const owned = existing.filter((row) => DISPLAY_PERIOD_OPS.includes(row.op))
+  await Promise.all(owned.map((row) => schedules.delete(row.id)))
 
   if (period.startAt !== null) {
     await schedules.create({ richMenuId: menuId, runAt: period.startAt, op: 'set-default', state: 'pending' })

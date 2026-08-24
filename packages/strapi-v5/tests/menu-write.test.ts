@@ -316,6 +316,47 @@ describe('writeDisplayPeriod / readDisplayPeriod — round trip และคว�
     expect(await schedules.findMany({ filters: { richMenuId: 'menu-1', state: 'pending' } })).toHaveLength(0)
   })
 
+  /**
+   * (Task 19 item 6) ตารางนี้เคยมีแค่สอง op ตอนที่ `writeDisplayPeriod` เขียนว่า "ลบทุกแถว pending
+   * ของเมนูนี้" ซึ่งถูกต้อง ณ ตอนนั้น — แบรนช์นี้เพิ่ม `link-members`/`unlink-members` เข้ามาใน
+   * ตารางเดียวกันโดยไม่ได้แคบเงื่อนไขตาม ผลคือ **กด Save เมนูธรรมดา ๆ ลบงานผูกสมาชิกของตัวเองทิ้ง**
+   * สวิตช์ยังอ่านว่าเปิด (pointer ไม่ถูกแตะ) แต่ไม่มีงานเหลือให้ใครวิ่ง ไม่มี error ไม่มี log
+   *
+   * ตรวจทั้งสองด้าน: งานสมาชิกยังอยู่ครบ **และ** แถวช่วงเวลาเก่ายังถูกแทนที่จริงเหมือนเดิม —
+   * การเลิกลบอะไรเลยก็ทำให้ครึ่งแรกเขียวได้เหมือนกัน
+   */
+  it('ไม่ลบงาน link-members/unlink-members ที่ pending อยู่ — Save เมนูต้องไม่ทิ้งงานสมาชิก', async () => {
+    const schedules = fakeRepo<ScheduleRow>()
+    const link = await schedules.create({
+      richMenuId: 'menu-1', runAt: '2026-09-01T00:00:00.000Z', op: 'link-members', state: 'pending',
+      lockedBy: null, lockedAt: null, lastError: null, cursor: 'mem0499',
+    })
+    const unlink = await schedules.create({
+      richMenuId: 'menu-1', runAt: '2026-09-01T00:00:00.000Z', op: 'unlink-members', state: 'pending',
+      lockedBy: null, lockedAt: null, lastError: null, cursor: null,
+    })
+    await writeDisplayPeriod(schedules, 'menu-1', {
+      startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-30T00:00:00.000Z',
+    })
+
+    // Save รอบที่สองด้วยช่วงเวลาใหม่ — จุดที่การลบเกิดขึ้นจริง
+    await writeDisplayPeriod(schedules, 'menu-1', {
+      startAt: '2026-10-01T00:00:00.000Z', endAt: '2026-10-31T00:00:00.000Z',
+    })
+
+    const pending = await schedules.findMany({ filters: { richMenuId: 'menu-1', state: 'pending' } })
+    // งานสมาชิกทั้งสองแถวต้องรอดมาครบ พร้อม cursor เดิมของมัน
+    expect(pending.filter((row) => row.op === 'link-members'))
+      .toEqual([expect.objectContaining({ id: link.id, cursor: 'mem0499' })])
+    expect(pending.filter((row) => row.op === 'unlink-members'))
+      .toEqual([expect.objectContaining({ id: unlink.id })])
+    // และแถวช่วงเวลายังถูก "แทนที่" ไม่ใช่สะสม — ครึ่งที่กันไม่ให้ "เลิกลบอะไรเลย" ผ่านด่านนี้
+    expect(pending.filter((row) => row.op === 'set-default' || row.op === 'clear-default')).toHaveLength(2)
+    await expect(readDisplayPeriod(schedules, 'menu-1')).resolves.toEqual({
+      startAt: '2026-10-01T00:00:00.000Z', endAt: '2026-10-31T00:00:00.000Z',
+    })
+  })
+
   it('menu อื่นไม่ถูกแตะ — ล้าง/เขียนช่วงเวลาของเมนูหนึ่งไม่กระทบตารางเมนูอื่น', async () => {
     const schedules = fakeRepo<ScheduleRow>()
     await writeDisplayPeriod(schedules, 'menu-1', {
