@@ -67,8 +67,8 @@ importers:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@20.19.43)
       zod:
-        specifier: ^3.23.8
-        version: 3.25.76
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/strapi-v4:
     dependencies:
@@ -79,8 +79,8 @@ importers:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@20.19.43)
       zod:
-        specifier: ^3.23.8
-        version: 3.25.76
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@fosivo/line-rich-menu-core':
         specifier: workspace:*
@@ -134,8 +134,8 @@ importers:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@20.19.43)
       zod:
-        specifier: ^3.23.8
-        version: 3.25.76
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@fosivo/line-rich-menu-core':
         specifier: workspace:*
@@ -18248,8 +18248,8 @@ snapshots:
       '@babel/parser': 7.29.8
       eslint: 9.39.5
       hermes-parser: 0.25.1
-      zod: 3.25.76
-      zod-validation-error: 4.0.2(zod@3.25.76)
+      zod: 4.4.3
+      zod-validation-error: 4.0.2(zod@4.4.3)
     transitivePeerDependencies:
       - supports-color
 
@@ -23682,9 +23682,9 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  zod-validation-error@4.0.2(zod@3.25.76):
+  zod-validation-error@4.0.2(zod@4.4.3):
     dependencies:
-      zod: 3.25.76
+      zod: 4.4.3
 
   zod@3.25.76: {}
 
