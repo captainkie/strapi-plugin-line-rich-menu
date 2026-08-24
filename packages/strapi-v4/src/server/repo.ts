@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type {
   AuditRow, ChannelRow, ImageStore, ListParams, MemberRow, Repo, RichMenuRow, ScheduleRow,
 } from '@fosivo/line-rich-menu-core'
+import { RowVanishedError } from '@fosivo/line-rich-menu-core'
 import { richMenu } from './content-types/rich-menu.js'
 import type { ContentTypeSchema } from './content-types/schema.js'
 import { UID } from './content-types/index.js'
@@ -155,6 +156,9 @@ function define<TRow extends { id: string }>(
     },
     async update(id, data) {
       const updated = await strapi.entityService.update(uid, Number(id), { ...populate, data: shape.toData(data) })
+      // ไดรเวอร์คืน `null` เมื่อแถวหายไปแล้ว ไม่ใช่ throw — ปล่อยให้ `toRow(null)` ระเบิดเป็น
+      // TypeError คือทิ้งข้อเท็จจริงที่ผู้เรียกต้องใช้ (Task 19 item 3, เหตุผลเต็มที่ RowVanishedError)
+      if (updated === null || updated === undefined) throw new RowVanishedError(uid, id)
       return shape.toRow(updated as Entity)
     },
     async delete(id) {

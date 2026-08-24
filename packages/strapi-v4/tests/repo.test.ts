@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { RowVanishedError } from '@fosivo/line-rich-menu-core'
 import type { RichMenuRow } from '@fosivo/line-rich-menu-core'
 import { richMenu } from '../src/server/content-types/rich-menu.js'
 import { UID } from '../src/server/content-types/index.js'
@@ -586,5 +587,42 @@ describe('audienceValuesOf — fallback ตอนอ่าน enum ของ aud
     }
     const values = audienceValuesOf(schema)
     expect(audienceOrAllUsing(values, 'members')).toBe('members')
+  })
+})
+
+/**
+ * (Task 19 item 3) ไดรเวอร์ของทั้งสอง Strapi คืน `null` เมื่อ id ที่ส่งไปไม่มีแถวอยู่แล้ว ไม่ throw
+ * — v4 `entityService.update` มี `if (!entityToUpdate) return null` ตั้งแต่ต้นฟังก์ชัน (ตรวจกับ
+ * `@strapi/strapi` ตัวจริงที่ติดตั้งอยู่) `null` ก้อนนั้นเคยเดินทางต่อเข้า `toRow` แล้วระเบิดเป็น
+ * TypeError ที่ `linkMemberChunk` แยกไม่ออกจากบั๊กจริง จนงาน enrolment ทั้งงานล้มเพราะสมาชิกหายไปคนเดียว
+ */
+describe('Repo.update เมื่อแถวหายไปแล้ว', () => {
+  function nullUpdateStrapi() {
+    const calls: string[] = []
+    const strapi = {
+      entityService: {
+        update: async (uid: string, id: number | string) => {
+          calls.push(`${uid}:${String(id)}`)
+          return null
+        },
+      },
+    } as unknown as StrapiV4
+    return { strapi, calls }
+  }
+
+  it('members: คืน RowVanishedError ที่มี code/rowId ไม่ใช่ TypeError จาก toRow', async () => {
+    const { strapi, calls } = nullUpdateStrapi()
+    const promise = createMemberRepo(strapi).update('11', { linkedRichMenuId: 'rm-1' })
+
+    await expect(promise).rejects.toBeInstanceOf(RowVanishedError)
+    await expect(promise).rejects.toMatchObject({ code: 'row_vanished', rowId: '11' })
+    // ยิงไปจริงก่อนแล้วค่อยล้ม ไม่ใช่ปฏิเสธตั้งแต่ยังไม่ได้เรียกไดรเวอร์
+    expect(calls).toEqual([`${UID.member}:11`])
+  })
+
+  it('menus: กติกาเดียวกัน — repo ทุกตัวใช้ define() ตัวเดียวกัน', async () => {
+    const { strapi } = nullUpdateStrapi()
+    await expect(createMenuRepo(strapi).update('7', { status: 'published' }))
+      .rejects.toBeInstanceOf(RowVanishedError)
   })
 })

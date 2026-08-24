@@ -42,6 +42,26 @@ export class AliasNotPublishedError extends CoreError {
   }
 }
 
+/**
+ * (Task 19 item 3) แถวที่กำลังจะเขียนทับหายไปแล้วระหว่างที่งานกำลังวิ่งอยู่
+ *
+ * ไดรเวอร์ของทั้งสอง Strapi **คืน `null`** เมื่อ id ที่ส่งไปไม่มีแถวอยู่แล้ว ไม่ใช่ throw
+ * (v5 `documents().update` คืน `updatedDraft` ที่ยังเป็น null, v4 `entityService.update`
+ * `return null` ตั้งแต่ต้นฟังก์ชัน — ตรวจกับต้นไม้ที่ติดตั้งจริงทั้งคู่) `null` ก้อนนั้นเดินทาง
+ * ต่อไปเข้า `toRow` แล้วระเบิดเป็น `TypeError` ที่อ่านไม่ออกว่าเกิดจากอะไร ผู้เรียกที่อยากจัดการ
+ * เคสนี้ต่างจากบั๊กจริงจึงแยกไม่ได้เลย
+ *
+ * error ตัวนี้คือการแปล "null ที่ดูเหมือนคำตอบสำเร็จ" ให้เป็นข้อเท็จจริงที่มีชื่อ **ตรงจุดที่ null
+ * มาถึง** ผู้เรียกที่รู้ว่าแถวหายไปแล้วไม่ใช่ความผิดพลาด (เช่น `linkMemberChunk`) จับเฉพาะตัวนี้
+ * ข้ามแถวนั้นแล้วไปต่อได้ โดยที่ error จริง ๆ (DB ล่ม, สิทธิ์ไม่พอ) ยังหลุดออกไปเหมือนเดิม
+ */
+export class RowVanishedError extends CoreError {
+  readonly code = 'row_vanished'
+  constructor(readonly uid: string, readonly rowId: string) {
+    super(`${uid} row ${rowId} no longer exists`)
+  }
+}
+
 export class ChannelNotFoundError extends CoreError {
   readonly code = 'channel_not_found'
 }

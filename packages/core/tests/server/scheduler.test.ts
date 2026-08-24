@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LineServerError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
+import { RowVanishedError } from '../../src/server/errors.js'
 import type { MemberRow } from '../../src/server/members.js'
 import { createScheduler } from '../../src/server/scheduler.js'
 import type { TickReport } from '../../src/server/scheduler.js'
@@ -431,6 +432,8 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     onScheduleUpdate?: (data: Partial<ScheduleRow>) => void
     startCursor?: string | null
     failOnChunk?: number
+    /** id ของสมาชิกที่ "หายไป" ระหว่างงานวิ่ง — repo คืน RowVanishedError เหมือนของจริง (Task 19 item 3) */
+    vanishedMemberId?: string
   }): Promise<{
     report: TickReport
     sentChunks: string[][]
@@ -519,6 +522,12 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
           async findMany(params) {
             queries.push(params ?? {})
             return memberRepo.findMany(params)
+          },
+          async update(id, data) {
+            if (id === options.vanishedMemberId) {
+              throw new RowVanishedError('plugin::line-rich-menu.line-member', id)
+            }
+            return memberRepo.update(id, data)
           },
         },
       },
@@ -630,6 +639,26 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
       result: 'failure', after: { linked: 500, complete: false },
     })
     expect(auditRows[0]?.errorCode).not.toBeNull()
+  })
+
+  /**
+   * (Task 19 item 3) คนเดียวที่ถูกลบไประหว่างงานวิ่งเคยทำให้ **ทั้งงาน** ล้ม: `members.update` คืน
+   * null จากไดรเวอร์ → `toRow(null)` เป็น TypeError → แถวงานถูกทำเครื่องหมาย failed cursor ค้างที่
+   * เดิม และ chunk ที่เหลือไม่เคยได้วิ่งเลย ที่ระดับนี้ต้องเช็คสิ่งที่หน่วยย่อยเช็คไม่ได้ — ว่า
+   * **chunk ต่อ ๆ ไปยังได้วิ่งจริง** ไม่ใช่แค่ว่าฟังก์ชันเดียวไม่ throw
+   */
+  it('สมาชิกหนึ่งคนหายไปกลางทาง ไม่ทำให้ chunk ที่เหลือหยุดวิ่ง — งานยังจบครบและ audit บันทึกไว้', async () => {
+    const { report, sentChunks, auditRows, cursorPersisted } = await tickWith({
+      members: 1001, op: 'link-members', vanishedMemberId: 'm00000',
+    })
+
+    expect(report).toMatchObject({ done: 1, failed: 0 })
+    // ทั้งสามชุดต้องได้วิ่ง — เดิมหยุดที่ชุดแรก
+    expect(sentChunks.map((c) => c.length)).toEqual([500, 500, 1])
+    expect(cursorPersisted).toBeNull()
+    expect(auditRows[0]).toMatchObject({
+      action: 'link-members', result: 'success', after: { linked: 1001, vanished: 1, complete: true },
+    })
   })
 
   it('ไม่มี ops.members แล้วมีงาน link-members เข้ามา → พังทันที ไม่ใช่ข้ามงานไปเงียบ ๆ', async () => {

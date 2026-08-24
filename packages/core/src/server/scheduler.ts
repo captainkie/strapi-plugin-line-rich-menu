@@ -162,7 +162,9 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
         // เมนูถูก unpublish หลังงานถูกตั้ง — ไม่มี id ให้ผูกใครได้ เหมือน case 'unlink-members'
         if (lineRichMenuId === null) return
 
-        const chunkDeps: LinkMemberChunkDeps = { client: ops.client, members: membersRepo, now: deps.now }
+        const chunkDeps: LinkMemberChunkDeps = {
+          client: ops.client, members: membersRepo, now: deps.now, logger: deps.logger,
+        }
         let cursor = row.cursor
 
         // (Task 19 item 7) งานผูกสมาชิกยกชุดคือปฏิบัติการที่แตะ LINE หนักที่สุดในผลิตภัณฑ์นี้ แต่เดิม
@@ -183,6 +185,7 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
           },
           async () => {
             let linked = 0
+            let vanished = 0
             try {
               // วนทุก chunk ภายในติ๊กเดียว แต่เขียน cursor ลงแถว schedule "หลังจบแต่ละชุด" ไม่ใช่ตอนจบ
               // ลูป — ถ้า process ตายกลางทาง (เช่น ชุดที่สิบสองจากยี่สิบ) รอบถัดไปต้องอ่าน cursor ที่
@@ -197,6 +200,7 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
                 })
                 if (result.processed === 0) break
                 linked += result.processed
+                vanished += result.vanished
                 cursor = result.nextCursor
                 await deps.schedules.update(row.id, { cursor })
                 if (cursor === null) break
@@ -206,11 +210,11 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
               // audit.ts:auditAfterOf) — ไม่ติดไว้ตรงนี้ แถวที่ล้มจะบอกได้แค่ error code ส่วนคำถามที่
               // สำคัญกว่าหลังเกิดเหตุ ("ผูกไปได้กี่คนก่อนล้ม คนที่เหลือยังไม่ได้เมนู") ไม่มีคำตอบอยู่ที่ไหนเลย
               if (error !== null && typeof error === 'object') {
-                Object.assign(error, { auditAfter: { linked, complete: false } })
+                Object.assign(error, { auditAfter: { linked, vanished, complete: false } })
               }
               throw error
             }
-            return { linked, complete: true }
+            return { linked, vanished, complete: true }
           },
           (value) => value,
         )
@@ -245,7 +249,7 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
             let previousLastId: string | null = null
             for (;;) {
               const result = await unlinkMemberChunk(
-                { client: ops.client, members: membersRepo },
+                { client: ops.client, members: membersRepo, logger: deps.logger },
                 { richMenuId: lineRichMenuId, channelId: menu.channelId },
               )
               if (result.processed === 0) return processed
