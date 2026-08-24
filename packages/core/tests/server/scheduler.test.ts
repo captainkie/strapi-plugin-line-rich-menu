@@ -397,14 +397,18 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
 
   // เลียนแบบ keyset paging ของ adapter จริง (`idGreaterThan` คือ `WHERE id > ?` ไม่ใช่ offset) —
   // ต้องรองรับให้ตรงกับที่ `linkMemberChunk` ยิงจริง ไม่งั้นเทสต์ cursor/resume ข้างล่างจับบั๊กไม่ได้
-  function memberRepoFor(rows: MemberRow[]): Repo<MemberRow> {
+  //
+  // (review-19 M3) `ignoreCursor` จำลอง adapter ที่ `mapFilters` ทำ `idGreaterThan` หลุดหาย —
+  // `findMany` ยังรับพารามิเตอร์นั้นเข้ามาได้ตามปกติ แค่ไม่กรองด้วยมันเลย ชุดถัดไปจึงได้แถวหน้าแรก
+  // ซ้ำเดิมทุกครั้ง (ตรงตามสภาพที่บั๊กจริงจะเป็น ไม่ใช่แค่คืนค่าว่างเปล่า)
+  function memberRepoFor(rows: MemberRow[], ignoreCursor = false): Repo<MemberRow> {
     return {
       async findMany(params) {
         const filters = params?.filters ?? {}
         let result = rows.filter((row) => Object.entries(filters).every(
           ([field, want]) => (row as unknown as Record<string, unknown>)[field] === want,
         ))
-        if (params?.idGreaterThan !== undefined) {
+        if (!ignoreCursor && params?.idGreaterThan !== undefined) {
           const cursor = params.idGreaterThan
           result = result.filter((row) => row.id > cursor)
         }
@@ -446,6 +450,11 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
      * N+1 เป็นต้นไป — จำลอง "แถวถูกแย่งไปแล้ว" กลางทาง งานต้องหยุดที่นั่น ไม่ใช่วนต่อ
      */
     keepClaimFailsAfter?: number
+    /**
+     * (review-19 M3) repo สมาชิกที่ไม่สนใจ `idGreaterThan` เลย — จำลอง adapter ที่ `mapFilters` ทำ
+     * cursor หลุดหาย ชุดถัดไปจะได้แถวชุดเดิมซ้ำทุกครั้ง ใช้แทน `memberRepoFor` ปกติเมื่อระบุ
+     */
+    brokenPaging?: boolean
   }): Promise<{
     report: TickReport
     sentChunks: string[][]
@@ -471,7 +480,7 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     scheduleRows: ScheduleRow[]
   }> {
     const memberRows = membersFor(options.members)
-    const memberRepo = memberRepoFor(memberRows)
+    const memberRepo = memberRepoFor(memberRows, options.brokenPaging ?? false)
     const sentChunks: string[][] = []
     const linkTargets: string[] = []
     const queries: ListParams[] = []
@@ -812,6 +821,24 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     expect(sentChunks.map((c) => c.length)).toEqual([500])
     // pointer ถูกถามก่อนชุดแรกเท่านั้น (เช็คก่อนชุดที่สองไม่มีวันเกิดเพราะลูปหยุดไปก่อนแล้ว)
     expect(pointerChecks()).toBe(1)
+  })
+
+  /**
+   * (review-19 M3) มิเรอร์เทสต์ "repo ที่ไม่เคยล้าง linkedRichMenuId → งานล้ม ไม่ใช่วนไม่รู้จบ" ของ
+   * 'unlink-members' ท้ายไฟล์ — ที่นี่คือฝั่ง link: ถ้า `idGreaterThan` หลุดจาก repo ไปวันหนึ่ง
+   * (`brokenPaging: true`) ชุดที่สองจะได้แถว 500 คนแรกซ้ำกับชุดแรกเป๊ะ ๆ `nextCursor` ไม่ขยับเลย
+   * ก่อนแก้ ไม่มีอะไรจับกรณีนี้ได้เลย — งานจะวนยิง bulkLink ซ้ำไม่รู้จบ (เทสต์นี้จะ "ค้างจนหมดเวลา"
+   * แทนที่จะแดง ถ้า guard ถูกถอดออก)
+   */
+  it('(M3) repo ที่ไม่ขยับ cursor (idGreaterThan หลุด) → งานล้ม ไม่ใช่วนไม่รู้จบ', async () => {
+    const { report, released, sentChunks } = await tickWith({
+      members: 1001, op: 'link-members', brokenPaging: true,
+    })
+
+    // ชุดแรกผ่านปกติ (ยังไม่มีอะไรให้เทียบ) ชุดที่สองได้แถวชุดเดิมซ้ำ → ต้องล้มตรงนั้น ไม่ใช่ชุดที่สาม
+    expect(sentChunks).toHaveLength(2)
+    expect(report).toMatchObject({ done: 0, failed: 1 })
+    expect(released).toMatchObject({ state: 'failed' })
   })
 
   it('ไม่มี ops.members แล้วมีงาน link-members เข้ามา → พังทันที ไม่ใช่ข้ามงานไปเงียบ ๆ', async () => {

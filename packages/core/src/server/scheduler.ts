@@ -230,6 +230,10 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
               // ค้างไว้แล้วต่อจากตรงนั้น ถ้าย้ายการเขียนไปไว้หลังลูปจบ crash กลางทางจะทำให้ cursor ไม่ถูก
               // บันทึกเลย รอบถัดไปจึงเริ่มใหม่ตั้งแต่คนแรก ยิง bulkLink ซ้ำให้คนที่ทำไปแล้วโดยไม่มีที่ไหน
               // บันทึกไว้เลยว่าเคยส่งไปแล้ว — ไม่ใช่แค่ช้า แต่เป็นบั๊กที่ตรวจไม่ออกจนกว่าจะมีคนสังเกตว่าโดนส่งซ้ำ
+              // (review-19 M3) เก็บ nextCursor ของชุดก่อนหน้าไว้เทียบ — `undefined` ตั้งต้นเพื่อไม่ให้
+              // ชนกับ `null` ที่เป็นค่า nextCursor จริงได้ (ชุดสุดท้ายที่ได้แถวน้อยกว่าเพดาน) ดูเหตุผล
+              // เต็มที่จุดเทียบด้านล่าง
+              let previousCursor: string | null | undefined
               for (;;) {
                 // (Task 19 item 5) ถามก่อน **ทุกชุด** ว่า channel ยังชี้มาที่เมนูนี้อยู่ไหม
                 //
@@ -274,6 +278,19 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
                   cursor,
                 })
                 if (result.processed === 0) break
+                // (review-19 M3) มิเรอร์ guard "ชุดว่างไม่มีวันจริง" ของ 'unlink-members' ข้างล่าง —
+                // ถ้า adapter ไหนทำ `idGreaterThan` หลุดจาก `mapFilters` ไปวันหนึ่ง `linkMemberChunk`
+                // จะคืนสมาชิก 500 คนแรกซ้ำทุกชุด `nextCursor` ไม่ขยับเลย ลูปนี้จะไม่มีวันเจอทั้ง
+                // "ชุดว่าง" และ `cursor === null` เอง — ก่อน item 4 claim จะหมดอายุในห้านาทีแล้วมีคน
+                // (หรือ I3) มาเห็น ตอนนี้ heartbeat ต่ออายุให้ทุกชุด งานจึงถือ lock และยิง bulkLink
+                // ซ้ำไม่รู้จบโดยไม่มีอะไรให้สังเกตจากภายนอกเลย — `idGreaterThan` pin ไว้แล้วทั้งสอง
+                // adapter จึงเป็น defence-in-depth ไม่ใช่บั๊กที่ยังมีชีวิตอยู่
+                if (result.nextCursor === previousCursor) {
+                  throw new Error(
+                    'line-rich-menu: link-members made no progress — members repo did not advance the cursor',
+                  )
+                }
+                previousCursor = result.nextCursor
                 linked += result.processed
                 vanished += result.vanished
                 cursor = result.nextCursor
