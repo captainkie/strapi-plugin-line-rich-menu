@@ -446,6 +446,8 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     linkTargets: string[]
     /** แถวสมาชิกหลัง tick — ค่า `linkedRichMenuId` ที่ประทับลงไปคือสิ่งที่ unlink ใช้หาคนทีหลัง */
     memberRows: MemberRow[]
+    /** แถว audit ที่งานนี้เขียนจริง — เดิม link-members ไม่เคยเขียนสักแถว (Task 19 item 7) */
+    auditRows: AuditRow[]
   }> {
     const memberRows = membersFor(options.members)
     const memberRepo = memberRepoFor(memberRows)
@@ -527,7 +529,7 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
 
     const report = await scheduler.tick()
     return {
-      report, sentChunks, released, queries, linkTargets, memberRows,
+      report, sentChunks, released, queries, linkTargets, memberRows, auditRows,
       cursorPersisted: scheduleRows[0]!.cursor,
     }
   }
@@ -592,6 +594,42 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     expect(report).toMatchObject({ done: 1, failed: 0 })
     expect(linkTargets).toEqual([])
     expect(memberRows.every((row) => row.linkedRichMenuId === null)).toBe(true)
+  })
+
+  /**
+   * (Task 19 item 7) ก่อนหน้านี้ 'link-members' เป็น op เดียวที่ไม่เขียนแถว audit เลย — ปฏิบัติการที่
+   * แตะ LINE หนักที่สุดในผลิตภัณฑ์เป็นสิ่งเดียวที่ไม่มีร่องรอย ทำให้บั๊กอื่นทุกตัวของกลไก enrolment
+   * มองไม่เห็นจากภายนอก ตรวจให้ครบทั้งค่าที่ต้องอยู่ในแถว ไม่ใช่แค่ "มีแถว"
+   */
+  it('เขียน audit link-members success พร้อมจำนวนที่ผูกได้จริง และ complete: true', async () => {
+    const { auditRows } = await tickWith({ members: 1001, op: 'link-members' })
+
+    expect(auditRows).toHaveLength(1)
+    // richMenuId ที่ปักไว้คือ id ฝั่ง LINE ('richmenu-a') ไม่ใช่ id ของแถวเมนู ('1') — ธรรมเนียม
+    // เดียวกับ unlink-members (เหตุผลเต็มที่ AuditRow.richMenuId ใน types.ts)
+    expect(auditRows[0]).toMatchObject({
+      action: 'link-members', richMenuId: 'richmenu-a', channelId: '10',
+      result: 'success', after: { linked: 1001, complete: true },
+    })
+    expect(auditRows[0]?.errorCode).toBeNull()
+  })
+
+  /**
+   * หัวใจของ item 7: enrolment ที่ทำได้ครึ่งเดียวต้อง**แยกออก**จาก enrolment ที่จบครบได้จากแถว audit
+   * เพียงแถวเดียว ตัวเลขคนอย่างเดียวตอบไม่ได้ ("500 คน" คือทั้งหมดที่มี หรือแค่ที่ทำทันก่อนล้ม?)
+   * `complete` คือค่าที่ตอบคำถามนั้น และ `linked` บนแถว failure มาได้ทางเดียวคือผ่าน `auditAfter`
+   * บนตัว error (audit.ts:auditAfterOf) เพราะ `around` ไม่มีทางอื่นเห็นความคืบหน้าของ run() ที่โยน
+   */
+  it('งานที่ล้มกลางทางเขียน audit failure ที่แยกออกจากงานที่จบครบ — linked เท่าที่ทำได้ + complete: false', async () => {
+    // 600 คน ชุดละ 500: ชุดแรกผ่าน (500 คน) ชุดที่สองล้ม
+    const { auditRows } = await tickWith({ members: 600, op: 'link-members', failOnChunk: 2 })
+
+    expect(auditRows).toHaveLength(1)
+    expect(auditRows[0]).toMatchObject({
+      action: 'link-members', richMenuId: 'richmenu-a', channelId: '10',
+      result: 'failure', after: { linked: 500, complete: false },
+    })
+    expect(auditRows[0]?.errorCode).not.toBeNull()
   })
 
   it('ไม่มี ops.members แล้วมีงาน link-members เข้ามา → พังทันที ไม่ใช่ข้ามงานไปเงียบ ๆ', async () => {

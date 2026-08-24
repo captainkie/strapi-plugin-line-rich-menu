@@ -165,22 +165,55 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
         const chunkDeps: LinkMemberChunkDeps = { client: ops.client, members: membersRepo, now: deps.now }
         let cursor = row.cursor
 
-        // วนทุก chunk ภายในติ๊กเดียว แต่เขียน cursor ลงแถว schedule "หลังจบทุกชุด" ไม่ใช่ตอนจบลูป —
-        // ถ้า process ตายกลางทาง (เช่น ชุดที่สิบสองจากยี่สิบ) รอบถัดไปต้องอ่าน cursor ที่ค้างไว้แล้ว
-        // ต่อจากตรงนั้น ถ้าย้ายการเขียนไปไว้หลังลูปจบ crash กลางทางจะทำให้ cursor ไม่ถูกบันทึกเลย
-        // รอบถัดไปจึงเริ่มใหม่ตั้งแต่คนแรก ยิง bulkLink ซ้ำให้คนที่ทำไปแล้วโดยไม่มีที่ไหนบันทึกไว้เลย
-        // ว่าเคยส่งไปแล้ว — ไม่ใช่แค่ช้า แต่เป็นบั๊กที่ตรวจไม่ออกจนกว่าจะมีคนสังเกตว่าโดนส่งซ้ำ
-        for (;;) {
-          const result = await linkMemberChunk(chunkDeps, {
+        // (Task 19 item 7) งานผูกสมาชิกยกชุดคือปฏิบัติการที่แตะ LINE หนักที่สุดในผลิตภัณฑ์นี้ แต่เดิม
+        // มันเป็น op เดียวในห้าตัวที่ไม่เขียนแถว audit เลยสักแถว ไม่ว่าจะสำเร็จหรือล้ม — ผลคือบั๊กของ
+        // กลไก enrolment ทุกตัว (cursor ค้าง, แถวหาย, claim ซ้อน, deactivate ไม่หยุดงาน) มองไม่เห็น
+        // จากภายนอกโดยสิ้นเชิง ห่อด้วย `audit.around` แบบเดียวกับ 'unlink-members' ข้างล่างเป๊ะ ๆ
+        //
+        // `complete` คือสิ่งที่ทำให้ enrolment ที่ทำได้ครึ่งเดียวแยกออกจาก enrolment ที่จบครบได้ใน
+        // แถวเดียว — ตัวเลขคนอย่างเดียวตอบไม่ได้ว่า "7,000 คน" คือทั้งหมดที่มีอยู่หรือแค่ที่ทำทัน
+        await deps.ops.audit.around(
+          {
+            actorId,
+            action: 'link-members',
+            // id ฝั่ง LINE ไม่ใช่ id ของแถวเมนู — ธรรมเนียมของงานระดับสมาชิก (ดู AuditRow.richMenuId)
             richMenuId: lineRichMenuId,
             channelId: menu.channelId,
-            cursor,
-          })
-          if (result.processed === 0) break
-          cursor = result.nextCursor
-          await deps.schedules.update(row.id, { cursor })
-          if (cursor === null) break
-        }
+            before: null,
+          },
+          async () => {
+            let linked = 0
+            try {
+              // วนทุก chunk ภายในติ๊กเดียว แต่เขียน cursor ลงแถว schedule "หลังจบแต่ละชุด" ไม่ใช่ตอนจบ
+              // ลูป — ถ้า process ตายกลางทาง (เช่น ชุดที่สิบสองจากยี่สิบ) รอบถัดไปต้องอ่าน cursor ที่
+              // ค้างไว้แล้วต่อจากตรงนั้น ถ้าย้ายการเขียนไปไว้หลังลูปจบ crash กลางทางจะทำให้ cursor ไม่ถูก
+              // บันทึกเลย รอบถัดไปจึงเริ่มใหม่ตั้งแต่คนแรก ยิง bulkLink ซ้ำให้คนที่ทำไปแล้วโดยไม่มีที่ไหน
+              // บันทึกไว้เลยว่าเคยส่งไปแล้ว — ไม่ใช่แค่ช้า แต่เป็นบั๊กที่ตรวจไม่ออกจนกว่าจะมีคนสังเกตว่าโดนส่งซ้ำ
+              for (;;) {
+                const result = await linkMemberChunk(chunkDeps, {
+                  richMenuId: lineRichMenuId,
+                  channelId: menu.channelId,
+                  cursor,
+                })
+                if (result.processed === 0) break
+                linked += result.processed
+                cursor = result.nextCursor
+                await deps.schedules.update(row.id, { cursor })
+                if (cursor === null) break
+              }
+            } catch (error) {
+              // แถว failure ของ `around` รับ `after` มาจาก `auditAfter` บนตัว error เท่านั้น (ดู
+              // audit.ts:auditAfterOf) — ไม่ติดไว้ตรงนี้ แถวที่ล้มจะบอกได้แค่ error code ส่วนคำถามที่
+              // สำคัญกว่าหลังเกิดเหตุ ("ผูกไปได้กี่คนก่อนล้ม คนที่เหลือยังไม่ได้เมนู") ไม่มีคำตอบอยู่ที่ไหนเลย
+              if (error !== null && typeof error === 'object') {
+                Object.assign(error, { auditAfter: { linked, complete: false } })
+              }
+              throw error
+            }
+            return { linked, complete: true }
+          },
+          (value) => value,
+        )
         return
       }
       case 'unlink-members': {
