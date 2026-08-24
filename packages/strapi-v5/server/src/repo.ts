@@ -2,9 +2,11 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
-  AuditRow, ChannelRow, ImageStore, ListParams, Repo, RichMenuRow, ScheduleRow,
+  AuditRow, ChannelRow, ImageStore, ListParams, MemberRow, Repo, RichMenuRow, ScheduleRow,
 } from '@fosivo/line-rich-menu-core'
-import { MenuNotReadyError } from '@fosivo/line-rich-menu-core'
+import { MenuNotReadyError, RowVanishedError } from '@fosivo/line-rich-menu-core'
+import { richMenu } from './content-types/rich-menu.js'
+import type { ContentTypeSchema } from './content-types/schema.js'
 import { UID } from './content-types/index.js'
 import type { DocumentParams, StrapiV5 } from './strapi.js'
 
@@ -45,6 +47,81 @@ const fileIdOf = (value: unknown): number | null => {
 const orNull = <T>(value: unknown): T | null => (value === undefined || value === null ? null : value as T)
 
 /**
+ * ค่าที่ยอมรับได้ของคอลัมน์ `audience` — อ่านจาก `enum` ที่ content-type ประกาศไว้จริง
+ * (content-types/rich-menu.ts) ไม่ใช่เขียนรายการซ้ำมือที่นี่อีกที่
+ *
+ * Task 16 fix round 1 — เดิม `audienceOrAll` เช็คแค่ `null`/`undefined` แล้วปล่อยทุกค่าที่เหลือ
+ * ผ่าน cast ตรง ๆ ทั้งที่ตัวคอมเมนต์ของฟังก์ชันเองบอกว่าครอบค่าจาก "restore, dump เก่า, หรือ
+ * เครื่องมืออื่นที่เขียนตารางตรง ๆ" ด้วย — Strapi ไม่สร้าง CHECK constraint ให้คอลัมน์
+ * enumeration เลยสักที่ (วัดจริงใน task-15-report.md) คอลัมน์นี้จึงเก็บสตริงอะไรก็ได้ เช่น
+ * `'Members'` ซึ่งจะเดินทะลุ cast ที่ไม่ได้เช็คไปโผล่เป็น `400 validation_failed` เหมือนเดิม
+ * ทุกประการกับที่ `null` เคยทำ — แก้บั๊กเดิมได้ครึ่งเดียวไม่ใช่ทั้งหมด
+ *
+ * ตั้งใจไม่เขียน `value === 'members' ? 'members' : 'all'` แทน: วิธีนั้นจะกลืนค่า audience
+ * ตัวที่สามในอนาคตให้กลายเป็น `'all'` เงียบ ๆ ซึ่งสำหรับเมนูที่เล็งไปกลุ่มย่อยหมายถึงมันไปโผล่ให้
+ * ทุกคนเห็นแทน — อันตรายกว่าการตกเป็น `'all'` เพราะไม่รู้จักค่านั้นเยอะ อ่านจาก `enum` ของสคีมา
+ * ทำให้ค่าที่ประกาศเพิ่มถูกยอมรับทันทีที่ถูกประกาศ ไม่มีที่ที่สองให้ต้องจำแก้คู่กัน
+ *
+ * Task 16 fix round 2 — เดิม fallback ตอนอ่าน enum ไม่ได้คือ `?? []` ตรง ๆ ถ้า attribute
+ * `audience` หรือ `enum` ของมันหายไปจากสคีมาเมื่อไหร่ (ไฟล์ content-type ถูกแก้พัง, ถูกลบทิ้งผิด)
+ * `AUDIENCE_VALUES` จะกลายเป็น `[]` แล้ว `.includes()` จะปฏิเสธทุกค่าเสมอ — รวมถึง `'members'` ด้วย
+ * เมนูสมาชิกที่ยังลิงก์อยู่กับสมาชิกจริงใน LINE จะถูกอ่านเป็น `'all'` เงียบ ๆ นี่คือดีเฟกต์คลาสเดียวกับ
+ * ที่สามรอบแก้ก่อนหน้าของ branch นี้พยายามกำจัด (ดูคอมเมนต์ด้านบน) — fallback เดิม fail open ไปสู่
+ * ค่าที่อันตรายที่สุดแทนที่จะ fail ไปสู่ชุดที่รู้ว่าปลอดภัย จึงย้าย fallback ไปเป็น `KNOWN_AUDIENCE_VALUES`
+ * ด้านล่างแทน — คงพฤติกรรมเดิมไว้ทุกกรณีที่สคีมาอ่านได้ปกติ ต่างกันแค่กรณีอ่านไม่ได้เท่านั้น
+ */
+
+/**
+ * ชุดค่าที่รู้จักแน่ ๆ ตอนเขียนโค้ดนี้ — ใช้เป็น fallback เท่านั้นเมื่ออ่าน `enum` จากสคีมาจริงไม่ได้
+ * ไม่ใช่ทางหลัก ทางหลักยังคงเป็นการอ่านจาก `richMenu.schema.attributes['audience']?.enum` เหมือนเดิม
+ * (ดูเหตุผลที่คอมเมนต์ด้านบน) เพื่อให้ค่า audience ตัวที่สามในอนาคตยังถูกยอมรับทันทีที่ถูกประกาศ
+ * ไม่มีที่ที่สองให้ต้องจำแก้คู่กัน — ตัวนี้ครอบแค่กรณีที่สคีมาเองอ่านไม่ได้
+ *
+ * typed ตรงกับ `RichMenuRow['audience']` ไม่ใช่ `readonly string[]` เหมือน enum ดิบจากสคีมา —
+ * fallback จึงพิมพ์ผิดหรือหลุดจากสองค่าที่ core ประกาศไว้ไม่ได้เลยตอน compile time ต่างจากค่าที่อ่าน
+ * จากสคีมาซึ่งมาจาก object ที่ index ด้วย string ทั่วไป (ดู attributes: Record<string, AttributeSchema>
+ * ใน schema.ts) TypeScript เลย narrow ให้เป็น literal union ไม่ได้
+ */
+const KNOWN_AUDIENCE_VALUES: readonly RichMenuRow['audience'][] = ['all', 'members']
+
+/**
+ * แยกเป็นฟังก์ชัน export เพื่อให้เทสต์ป้อนสคีมาปลอมที่ไม่มี `audience` attribute หรือมีแต่ไม่มี
+ * `enum` ได้ตรง ๆ (repo.test.ts, "enum หาย/attribute หาย") โดยไม่ต้องไปแก้
+ * content-types/rich-menu.ts จริงให้พัง — พารามิเตอร์มีค่า default เป็นสคีมาจริงเสมอ ดังนั้นทุกจุด
+ * ที่เรียกแบบไม่ส่ง argument (เช่น `AUDIENCE_VALUES` ด้านล่าง) จะยังอ่านจากประกาศจริงเหมือนเดิม
+ * ทุกประการ — ฟังก์ชันนี้ไม่ได้กลายเป็นแหล่งความจริงใหม่ แค่ทำให้ fallback ทดสอบได้
+ */
+export function audienceValuesOf(schema: ContentTypeSchema = richMenu.schema): readonly RichMenuRow['audience'][] {
+  const declared = schema.attributes['audience']?.enum
+  return declared !== undefined && declared.length > 0
+    ? declared as RichMenuRow['audience'][]
+    : KNOWN_AUDIENCE_VALUES
+}
+
+const AUDIENCE_VALUES: readonly string[] = audienceValuesOf()
+
+/**
+ * `null`/`undefined` หรือสตริงที่ไม่อยู่ใน `enum` ที่ประกาศไว้จริง ต้องอ่านออกมาเป็น `'all'`
+ *
+ * `default: 'all'` ในสคีมา **ไม่เคย** กลายเป็น DEFAULT ของฐานข้อมูล — Strapi ใส่ค่านั้นให้ตอน
+ * *สร้างแถว* ผ่าน entity/document service เท่านั้น คอลัมน์จริงเป็น `varchar(255)` ที่ nullable
+ * และไม่มี default ทั้งบน SQLite และ PostgreSQL 16 (วัดจากแอปที่อัปเกรดจริงทั้งสี่ขา —
+ * task-15-report.md §"Step 2" มี DDL ที่ introspect มาแปะไว้) แถวที่มีอยู่ **ก่อน** คอลัมน์นี้
+ * ถูกเพิ่ม จึงถือ `NULL` ตลอดไป ไม่มีอะไรมาเติมให้
+ *
+ * `RichMenuRow['audience']` ประกาศว่าเป็น `'all' | 'members'` เท่านั้น การ cast ตรง ๆ โดยไม่เช็ค
+ * อะไรเลยจึงเป็นคำโกหกที่ขอบ: ค่าอะไรก็ได้เดินทะลุ type ที่บอกว่ามันเป็นไปไม่ได้ แล้วไปโผล่อีกสาม
+ * ชั้นถัดไปเป็น `400 validation_failed` บนฟิลด์ที่ผู้ใช้ไม่ได้แตะ (`z.enum([...]).optional()`
+ * ปฏิเสธ `null` — optional ไม่ใช่ nullable) แปลที่นี่ ซึ่งเป็นจุดเดียวที่ยังรู้ว่าค่านี้เพิ่งออกมา
+ * จากฐานข้อมูล — ตอนนี้ cast มี `.includes()` ค้ำอยู่ ไม่ใช่ยอมให้ผ่านเฉยๆ
+ *
+ * คู่กับ backfill ตอนบูต (bootstrap.ts) ไม่ใช่แทนกัน: backfill ซ่อมแถวที่มีอยู่แล้วให้จบไปทีเดียว
+ * ส่วนตัวนี้ครอบแถวที่มาถึง *หลัง* บูต — restore, dump เก่า, หรือเครื่องมืออื่นที่เขียนตารางตรง ๆ
+ */
+const audienceOrAll = (value: unknown): RichMenuRow['audience'] =>
+  typeof value === 'string' && AUDIENCE_VALUES.includes(value) ? value as RichMenuRow['audience'] : 'all'
+
+/**
  * ตัวช่วยประกาศ repo หนึ่งตัว — คู่ขนานกับ `define` ใน packages/strapi-v4/src/server/repo.ts
  * ต่างกันแค่ว่า id เดินทางใน object พารามิเตอร์แทนที่จะเป็น argument ตัวที่สอง และไม่มี
  * `Number()` ที่ไหนเลย เพราะ `documentId` เป็นสตริงอยู่แล้วทั้งขาเข้าและขาออก (สเปก §6.2)
@@ -56,20 +133,35 @@ function define<TRow extends { id: string }>(
     toRow(entity: Entity): TRow
     toData(patch: Partial<TRow>): Entity
     mapFilters?(filters: NonNullable<ListParams['filters']>): Record<string, unknown>
+    /** เหมือน mapFilters แต่สำหรับ `sort` — member repo ใช้แปล `id:asc` เป็น `documentId:asc` */
+    mapSort?(sort: string): string
     populate?: readonly string[]
   },
 ): Repo<TRow> {
   const populate = shape.populate === undefined ? {} : { populate: [...shape.populate] }
 
-  const params = (input?: ListParams): DocumentParams => ({
-    ...populate,
-    ...(input?.filters === undefined
-      ? {}
-      : { filters: shape.mapFilters === undefined ? input.filters : shape.mapFilters(input.filters) }),
-    ...(input?.sort === undefined ? {} : { sort: input.sort }),
-    ...(input?.limit === undefined ? {} : { limit: input.limit }),
-    ...(input?.start === undefined ? {} : { start: input.start }),
-  })
+  const params = (input?: ListParams): DocumentParams => {
+    // idGreaterThan อยู่นอก `filters` โดยตั้งใจในสเปกของ core (ดูคอมเมนต์ที่ ListParams ใน
+    // core/server/types.ts) — ไม่ใช่ equality key อีกตัว แต่ปลายทางจริงของมันคือเงื่อนไข WHERE
+    // เดียวกับ filters ทั้งหมด รวมเข้าด้วยกันตรงนี้ก่อนส่งให้ mapFilters เพราะถ้าไม่รวม mapFilters
+    // ของ member repo จะไม่มีทางเห็นค่านี้เลย (มันมองเห็นแค่ input.filters) — findMany จะคืน
+    // สมาชิกทั้งชุดทุก chunk แล้วงาน link-members จะวนไม่รู้จบ (ดู scheduler.ts / members.ts)
+    const rawFilters = input?.filters === undefined && input?.idGreaterThan === undefined
+      ? undefined
+      : { ...input?.filters, ...(input?.idGreaterThan === undefined ? {} : { idGreaterThan: input.idGreaterThan }) }
+
+    return {
+      ...populate,
+      ...(rawFilters === undefined
+        ? {}
+        : { filters: shape.mapFilters === undefined ? rawFilters : shape.mapFilters(rawFilters) }),
+      ...(input?.sort === undefined
+        ? {}
+        : { sort: shape.mapSort === undefined ? input.sort : shape.mapSort(input.sort) }),
+      ...(input?.limit === undefined ? {} : { limit: input.limit }),
+      ...(input?.start === undefined ? {} : { start: input.start }),
+    }
+  }
 
   return {
     async findMany(input) {
@@ -92,6 +184,9 @@ function define<TRow extends { id: string }>(
     },
     async update(id, data) {
       const updated = await strapi.documents(uid).update({ documentId: id, ...populate, data: shape.toData(data) })
+      // ไดรเวอร์คืน `null` เมื่อแถวหายไปแล้ว ไม่ใช่ throw — ปล่อยให้ `toRow(null)` ระเบิดเป็น
+      // TypeError คือทิ้งข้อเท็จจริงที่ผู้เรียกต้องใช้ (Task 19 item 3, เหตุผลเต็มที่ RowVanishedError)
+      if (updated === null || updated === undefined) throw new RowVanishedError(uid, id)
       return shape.toRow(updated as Entity)
     },
     async delete(id) {
@@ -110,6 +205,9 @@ export function createChannelRepo(strapi: StrapiV5): Repo<ChannelRow> {
       channelSecret: orNull<string>(entity['channelSecret']),
       accessTokenLast4: (entity['accessTokenLast4'] as string | undefined) ?? '',
       isDefault: entity['isDefault'] === true,
+      // Task 5 เพิ่มคอลัมน์นี้ไว้ในสคีมาแล้วแต่ไม่ได้ผูกเข้า repo — Task 7 (lifecycles.ts) เป็น
+      // ผู้บริโภคจริงคนแรก ต้องอ่านได้จริงถึงจะรู้ว่า channel นี้มีเมนูสำหรับสมาชิกหรือยัง
+      memberRichMenuId: orNull<string>(entity['memberRichMenuId']),
     }),
     toData: (patch) => ({ ...patch }),
   })
@@ -150,6 +248,9 @@ export function createMenuRepo(strapi: StrapiV5): Repo<RichMenuRow> {
         // `publishedAt` ในชั้น service คือคอลัมน์ `linePublishedAt` — ชื่อเดิมถูก Strapi จองไว้
         publishedAt: orNull<string>(entity['linePublishedAt']),
         lastError: orNull<string>(entity['lastError']),
+        // ไม่ cast ตรง ๆ เหมือนฟิลด์ enum บังคับตัวอื่น (status, size, chatBarMode) ข้างบน —
+        // ดูเหตุผลเต็มที่ `audienceOrAll` ด้านบน: `required: true` กับ `default: 'all'` ไม่เคยถึง DDL
+        audience: audienceOrAll(entity['audience']),
         // Strapi เขียน updatedAt ให้เอง — `toData` จึงไม่มีทางเขียนกลับ และไม่ควรมี
         updatedAt: (entity['updatedAt'] as string | undefined) ?? '',
       }
@@ -175,6 +276,11 @@ export function createMenuRepo(strapi: StrapiV5): Repo<RichMenuRow> {
         data['normalizedHeight'] = patch.normalizedSize === null ? null : patch.normalizedSize.height
       }
       if (patch.aliasId !== undefined) data['aliasId'] = patch.aliasId
+      // Task 13 ruling — `toRow` อ่านคอลัมน์นี้มาตั้งแต่ Task 11 (ดูคอมเมนต์ที่ toRow ข้างบน) แต่
+      // `toData` ไม่เคยเขียนกลับเลยสักครั้ง: `saveMenu` ส่ง `audience` เข้ามาใน patch ได้แล้ว
+      // (validation.ts) แต่ถ้าไม่เพิ่มบรรทัดนี้ด้วย มันจะหายไปเงียบ ๆ ตรงนี้แทน — allowlist ของ
+      // toData ไม่ auto-forward ฟิลด์ที่ไม่ได้ประกาศไว้
+      if (patch.audience !== undefined) data['audience'] = patch.audience
       if (patch.status !== undefined) data['status'] = patch.status
       if (patch.lineRichMenuId !== undefined) data['lineRichMenuId'] = patch.lineRichMenuId
       if (patch.publishedAt !== undefined) data['linePublishedAt'] = patch.publishedAt
@@ -202,6 +308,9 @@ export function createScheduleRepo(strapi: StrapiV5): Repo<ScheduleRow> {
       lockedBy: orNull<string>(entity['lockedBy']),
       lockedAt: orNull<string>(entity['lockedAt']),
       lastError: orNull<string>(entity['lastError']),
+      // คอลัมน์จริงยังไม่มีใน content-type นี้ — Task 5 เป็นคนเพิ่ม schema field ตัวนี้
+      // ตอนต่อสาย `link-members` เข้า scheduler ทำแค่ mapping ไว้ก่อนไม่ให้ type ของ core หลุด
+      cursor: orNull<string>(entity['cursor']),
     }),
     toData: (patch) => {
       const data: Entity = {}
@@ -212,6 +321,44 @@ export function createScheduleRepo(strapi: StrapiV5): Repo<ScheduleRow> {
       if (patch.lockedBy !== undefined) data['lockedBy'] = patch.lockedBy
       if (patch.lockedAt !== undefined) data['lockedAt'] = patch.lockedAt
       if (patch.lastError !== undefined) data['lastError'] = patch.lastError
+      if (patch.cursor !== undefined) data['cursor'] = patch.cursor
+      return data
+    },
+  })
+}
+
+export function createMemberRepo(strapi: StrapiV5): Repo<MemberRow> {
+  return define<MemberRow>(strapi, UID.member, {
+    populate: ['channel'],
+    mapFilters: (filters) => {
+      // `idGreaterThan`/`channelId` แปลไปคนละทาง แม้จะยิงผ่าน mapFilters ตัวเดียวกัน: channelId
+      // เป็น relation (เหมือน menu/schedule repo ด้านบน) ส่วน idGreaterThan เป็นเงื่อนไขบน
+      // documentId ของแถวเอง ไม่ใช่ relation — ต้อง $gt ไม่ใช่ equality ถึงจะเป็น "id มากกว่า" จริง
+      const { channelId, idGreaterThan, ...rest } = filters
+      const out: Record<string, unknown> = { ...rest }
+      if (channelId !== undefined && channelId !== null) out['channel'] = { documentId: String(channelId) }
+      if (idGreaterThan !== undefined && idGreaterThan !== null) out['documentId'] = { $gt: String(idGreaterThan) }
+      return out
+    },
+    // keyset ต้องเรียงตาม documentId เดียวกับที่ใช้กรอง `$gt` ไม่งั้นลำดับที่ได้กับเงื่อนไขที่กรอง
+    // เป็นคนละคอลัมน์กัน — `nextCursor` ใน linkMemberChunk (core) สมมติว่าแถวสุดท้ายของชุดคือ
+    // แถวที่ documentId มากที่สุด ถ้ายังเรียงด้วย id (primary key ตัวเลข) ข้อสมมตินั้นไม่จริงเสมอไป
+    mapSort: (sort) => sort.replace(/^id:/, 'documentId:'),
+    toRow: (entity) => ({
+      id: entity['documentId'] as string,
+      channelId: documentIdOf(entity['channel']) ?? '',
+      lineUserId: (entity['lineUserId'] as string | undefined) ?? '',
+      displayName: orNull<string>(entity['displayName']),
+      linkedRichMenuId: orNull<string>(entity['linkedRichMenuId']),
+      linkedAt: orNull<string>(entity['linkedAt']),
+    }),
+    toData: (patch) => {
+      const data: Entity = {}
+      if (patch.channelId !== undefined) data['channel'] = { set: [patch.channelId] }
+      if (patch.lineUserId !== undefined) data['lineUserId'] = patch.lineUserId
+      if (patch.displayName !== undefined) data['displayName'] = patch.displayName
+      if (patch.linkedRichMenuId !== undefined) data['linkedRichMenuId'] = patch.linkedRichMenuId
+      if (patch.linkedAt !== undefined) data['linkedAt'] = patch.linkedAt
       return data
     },
   })

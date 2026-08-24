@@ -9,6 +9,15 @@ export interface ChannelInput {
   channelAccessToken: string
   channelSecret?: string | null
   isDefault?: boolean
+  /**
+   * Task 9/10 — ไม่มีในสเปกเดิมของ `ChannelInput` เพราะไม่มีผู้เขียนคนไหนต้องการมันจนกว่าจะถึง
+   * ปุ่ม activate/deactivate ของ member audience `ChannelRow.memberRichMenuId` (types.ts) required
+   * มาตั้งแต่ Task 7/8 แต่ `update()` ไม่เคยรับพารามิเตอร์นี้เข้ามาเขียนเลย — ไม่มีทาง set/clear
+   * มันได้จริงนอกจากไปเขียน repo ตรง ๆ ซึ่ง `Services` (ทั้ง v4 และ v5) ไม่ได้ expose repo ดิบไว้
+   * ให้ controller เข้าถึง อยู่ที่นี่ (ไม่ใช่ซ้ำสองใน controllers/members.ts ของสอง adapter)
+   * เพราะเป็นข้อเท็จจริงเดียวกันของทั้งสอง adapter
+   */
+  memberRichMenuId?: string | null
 }
 
 export interface SecretChannelReader {
@@ -101,6 +110,7 @@ export function createChannelService(deps: { repo: Repo<ChannelRow>; key: Buffer
         ...(input.name === undefined ? {} : { name: input.name }),
         ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
         ...(input.isDefault === undefined ? {} : { isDefault: input.isDefault }),
+        ...(input.memberRichMenuId === undefined ? {} : { memberRichMenuId: input.memberRichMenuId }),
         ...resealed,
       })
       if (input.isDefault === true) await clearOtherDefaults(id)

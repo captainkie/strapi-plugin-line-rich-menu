@@ -264,7 +264,9 @@ export const primitives: UIPrimitives = {
 
   // `Toggle` ของ v2 ไม่มีพร็อพ `label` แล้ว (ย้ายไป Field) แต่ยังเป็น `<input>` จริงที่ส่ง
   // event ตามปกติ — ป้าย on/off เป็นข้อความที่ผู้ใช้เห็น จึงต้องผ่าน `t` เหมือนทุกข้อความในสเปก §12
-  Toggle: ({ name, checked, onChange, label }) => {
+  // `disabled` เพิ่มโดย Task 11 — `Toggle` ของ DS v2 extends props ของ `<input>` จริง (ดู
+  // Toggle.d.ts ของแพ็กเกจ) จึงรับ `disabled` มาตรฐานอยู่แล้ว ส่งต่อตรง ๆ
+  Toggle: ({ name, checked, onChange, label, disabled }) => {
     const { t } = usePort()
     const id = useLocalId('toggle')
     return (
@@ -273,6 +275,7 @@ export const primitives: UIPrimitives = {
         <DsToggle
           name={name}
           checked={checked}
+          disabled={disabled}
           onChange={(event) => onChange(event.currentTarget.checked)}
           onLabel={t('common.on')}
           offLabel={t('common.off')}

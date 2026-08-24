@@ -27,8 +27,17 @@ export async function runTick(strapi: StrapiV5, services: Services): Promise<Tic
     ops: {
       menus: services.menus,
       audit: services.audit,
+      // ต่อสายให้ 'link-members' ทำงานได้จริง — Task 4 ปล่อยฟิลด์นี้ว่างไว้เป็น optional และ
+      // ให้ scheduler โยน error ทันทีถ้างานเข้ามาแต่ไม่มีของจริงให้ใช้ (ดูคอมเมนต์ที่ SchedulerOps
+      // ใน core/server/scheduler.ts) นี่คือจุดที่ปิดช่องว่างนั้นฝั่ง Strapi 5
+      members: services.members,
       clientFor: async (channelId) =>
         services.clientFor(await services.channels.withSecrets().findOne(channelId)),
+      // (Task 19 item 5) งาน link-members ถามค่านี้ก่อนทุกชุดเพื่อหยุดเองเมื่อผู้ดูแลกดปิดกลางคัน
+      // อ่านผ่าน `channels.findOne` (ChannelRecord ไม่มีความลับ) ไม่ใช่ `withSecrets()` — งานนี้
+      // ต้องการแค่ pointer ไม่มีเหตุผลให้ถอดรหัส token เพิ่มอีกครั้งต่อชุด
+      memberRichMenuIdOf: async (channelId) =>
+        (await services.channels.findOne(channelId)).memberRichMenuId,
     },
     logger: services.logger,
     now: () => new Date(),

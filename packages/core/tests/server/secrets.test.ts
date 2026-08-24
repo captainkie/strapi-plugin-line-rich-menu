@@ -18,7 +18,7 @@ const SECRET = 'not-a-real-channel-secret-for-tests-only'
 function rowFrom(key: Buffer, overrides: Partial<ChannelRow> = {}): ChannelRow {
   const sealed = sealChannelSecrets({ channelAccessToken: TOKEN, channelSecret: SECRET }, key)
   return {
-    id: '1', name: 'ร้านทดสอบ', channelId: '1650000000', isDefault: true,
+    id: '1', name: 'ร้านทดสอบ', channelId: '1650000000', isDefault: true, memberRichMenuId: null,
     ...sealed, ...overrides,
   }
 }

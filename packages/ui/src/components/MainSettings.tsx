@@ -16,6 +16,19 @@ export interface MainSettingsValue {
    */
   startAt: string
   endAt: string
+  /**
+   * ใครควรเห็นเมนูนี้ (สเปก "Two menus, two audiences") — Task 14b item 1
+   *
+   * อยู่ใน `MainSettings` เพราะที่นี่คือกลุ่มของคำถาม "เมนูนี้คืออะไร" (ชื่อ, ช่วงเวลาแสดงผล)
+   * ไม่ใช่ "เมนูนี้หน้าตายังไง" — และก่อนหน้านี้ค่านี้ตั้งจากที่ไหนในผลิตภัณฑ์ไม่ได้เลย ทางเดียวคือ
+   * POST เองด้วยมือ (Task 14 พบตอนเขียนคู่มือ) ทั้ง ๆ ที่มันคือแนวคิดหลักของฟีเจอร์ทั้งอัน
+   *
+   * **ไม่ใช่** เรื่องเดียวกับสวิตช์ "เปิดใช้งานสำหรับสมาชิก" ใน `AudienceToggle` — ตัวนี้คือ *เจตนา*
+   * ที่ประกาศไว้บนแถวเมนู (เก็บในคอลัมน์ `audience`) ส่วนสวิตช์นั้นคือ *การกระทำ* ที่ทำให้เมนูนี้
+   * เป็นเมนูสมาชิกที่ live อยู่จริง (เขียน `channel.memberRichMenuId` แล้วสั่งผูกสมาชิกทุกคน)
+   * สวิตช์ทำงานได้ก็ต่อเมื่อค่านี้เป็น 'members' แล้วเท่านั้น (409 `menu_not_members_audience`)
+   */
+  audience: 'all' | 'members'
 }
 
 export interface MainSettingsProps {
@@ -58,6 +71,27 @@ export function MainSettings({ value, onChange, errors }: MainSettingsProps) {
         รูปทรงตาม LINE ตรง ๆ (docs/files/example-ui/): วันที่ + เวลาแยกกันคนละช่องต่อฝั่ง (4 ช่อง
         รวม) สองแถว (เริ่ม/สิ้นสุด) คั่นด้วย "~" ปุ่ม Clear เดิมยังอยู่
       */}
+      {/*
+        Task 14b item 1 — วาดด้วย `ui.RadioGroup`/`ui.Radio` ของ port ไม่ใช่ design system ตรง ๆ
+        (packages/ui ไม่เคย import DS เลย — ดูหัวไฟล์ port.ts) สองตัวเลือกเสมอ ไม่ใช่ checkbox
+        "เฉพาะสมาชิก" เพราะค่านี้เป็น enum สองค่าที่ทั้งคู่มีความหมายชัดเจนในตัว ไม่ใช่ธงเปิด/ปิด
+
+        ใช้คีย์ `audience.all` / `audience.members` ชุดเดียวกับคอลัมน์ Audience ของหน้ารายการ
+        (`RichMenuList`) ตั้งใจ — คนที่ตั้งค่าตรงนี้กับคนที่อ่านตารางต้องเห็นคำเดียวกันเป๊ะ
+      */}
+      <ui.RadioGroup
+        name="audience"
+        label={t('editor.audience')}
+        value={value.audience}
+        // ค่าที่กลับมาเป็น string ตามสัญญาของ port (adapter ไม่รู้จัก union ของเรา) — เทียบกับ
+        // 'members' ตรง ๆ แทนการ cast เพื่อให้ค่าแปลกปลอมตกไปที่ 'all' แทนที่จะเล็ดลอดเข้า state
+        // (แพทเทิร์นเดียวกับ `ChatBarSettings`)
+        onChange={(next) => set('audience', next === 'members' ? 'members' : 'all')}
+      >
+        <ui.Radio value="all">{t('audience.all')}</ui.Radio>
+        <ui.Radio value="members">{t('audience.members')}</ui.Radio>
+      </ui.RadioGroup>
+
       <ui.Typography variant="omega">{t('editor.displayPeriod')}</ui.Typography>
       <ui.Flex direction="column" gap={2}>
         <ui.Flex gap={2} alignItems="flex-end">

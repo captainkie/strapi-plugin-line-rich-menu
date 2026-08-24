@@ -20,4 +20,16 @@ export const endpoints = {
   botInfo: (base: string) => `${base}/v2/bot/info`,
   userRichMenu: (base: string, userId: string, id: string) =>
     `${base}/v2/bot/user/${e(userId)}/richmenu/${e(id)}`,
+  bulkLink: (base: string) => `${base}/v2/bot/richmenu/bulk/link`,
+  bulkUnlink: (base: string) => `${base}/v2/bot/richmenu/bulk/unlink`,
+  batch: (base: string) => `${base}/v2/bot/richmenu/batch`,
+  // ตรวจ operations ก่อนยิง batch จริง — batch จริงมีโควตาแค่ 3 ครั้ง/ชั่วโมง
+  // endpoint นี้ไม่นับรวมในโควตานั้น
+  validateBatch: (base: string) => `${base}/v2/bot/richmenu/validate/batch`,
+  batchProgress: (base: string, requestId: string) =>
+    `${base}/v2/bot/richmenu/progress/batch?requestId=${e(requestId)}`,
+  // URL เดียวกับ userRichMenu แต่ตัด richMenuId ท้ายออก — GET อ่านเมนูที่ผูกกับ user นี้อยู่
+  // (getUserRichMenu) และ DELETE เลิกผูก (unlinkFromUser) ใช้ path เดียวกัน ต่างกันแค่ method
+  // เหมือนคู่ clearDefault/defaultRichMenu ข้างบน
+  userRichMenuLink: (base: string, userId: string) => `${base}/v2/bot/user/${e(userId)}/richmenu`,
 } as const

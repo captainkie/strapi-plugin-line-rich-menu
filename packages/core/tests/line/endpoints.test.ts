@@ -18,12 +18,20 @@ describe('endpoints', () => {
     expect(endpoints.aliasList(B)).toBe('https://api.line.me/v2/bot/richmenu/alias/list')
     expect(endpoints.botInfo(B)).toBe('https://api.line.me/v2/bot/info')
     expect(endpoints.userRichMenu(B, 'U123', 'rm-1')).toBe('https://api.line.me/v2/bot/user/U123/richmenu/rm-1')
+    expect(endpoints.bulkLink(B)).toBe('https://api.line.me/v2/bot/richmenu/bulk/link')
+    expect(endpoints.bulkUnlink(B)).toBe('https://api.line.me/v2/bot/richmenu/bulk/unlink')
+    expect(endpoints.batch(B)).toBe('https://api.line.me/v2/bot/richmenu/batch')
+    expect(endpoints.validateBatch(B)).toBe('https://api.line.me/v2/bot/richmenu/validate/batch')
+    expect(endpoints.batchProgress(B, 'req-1')).toBe('https://api.line.me/v2/bot/richmenu/progress/batch?requestId=req-1')
+    expect(endpoints.userRichMenuLink(B, 'U123')).toBe('https://api.line.me/v2/bot/user/U123/richmenu')
   })
 
   it('เข้ารหัสค่าที่มาจากผู้ใช้ กัน path traversal', () => {
     expect(endpoints.richMenu(B, '../../admin')).toBe('https://api.line.me/v2/bot/richmenu/..%2F..%2Fadmin')
     expect(endpoints.aliasById(B, 'a/b')).toBe('https://api.line.me/v2/bot/richmenu/alias/a%2Fb')
     expect(endpoints.userRichMenu(B, 'U/1', 'r?x=1')).toBe('https://api.line.me/v2/bot/user/U%2F1/richmenu/r%3Fx%3D1')
+    expect(endpoints.userRichMenuLink(B, 'U/1')).toBe('https://api.line.me/v2/bot/user/U%2F1/richmenu')
+    expect(endpoints.batchProgress(B, 'a&b=1')).toBe('https://api.line.me/v2/bot/richmenu/progress/batch?requestId=a%26b%3D1')
   })
 
   it('รองรับ base URL ที่ชี้ไป line-mock ตอนทดสอบ', () => {

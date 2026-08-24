@@ -86,6 +86,7 @@ export function toChannelRecord(row: ChannelRow): ChannelRecord {
     channelId: row.channelId,
     accessTokenPreview: previewOf(row.accessTokenLast4),
     isDefault: row.isDefault,
+    memberRichMenuId: row.memberRichMenuId,
   }
 }
 

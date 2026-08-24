@@ -60,6 +60,22 @@ export const menuInputSchema = z.object({
   aliasId: z.string().regex(/^[a-z0-9_-]+$/).max(32).nullable(),
   startAt: isoDate.nullable(),
   endAt: isoDate.nullable(),
+  // Task 13 ruling รอบแรกใส่ `.default('all')` ไว้ตรงนี้ ซึ่งกลายเป็นบั๊ก (task-13-findings-2.md
+  // รอบ 3): มันแปลง "ฟิลด์ไม่ถูกส่งมา" ให้เป็น "ตั้งเป็น all" ตั้งแต่ก่อนที่ `saveMenu` จะรู้ตัวด้วยซ้ำ
+  // — ตอนนั้น editor's PUT body ไม่เคยส่ง `audience` มาเลย (ดู api.ts ของ ui) ดังนั้นทุกครั้งที่แก้เมนูสมาชิก
+  // (เปลี่ยนชื่อ, เปลี่ยนรูป ฯลฯ) ผ่านฟอร์ม ค่าจะถูกรีเซ็ตเป็น 'all' เงียบ ๆ ทั้งที่เมนูยัง live กับ
+  // สมาชิกจริงอยู่ — สถานะเดียวกับที่ guard ของ activate มีไว้กันไม่ให้เกิด แต่ผ่านทางอ้อม
+  //
+  // `.optional()` เฉย ๆ (ไม่มี default) ปล่อยให้ฟิลด์ที่ไม่ถูกส่งมาคงเป็น `undefined` จนถึง `saveMenu`
+  // ซึ่งไม่ใส่มันลง patch เมื่อเป็นแบบนั้น (ความหมายปกติของ partial update: "ไม่ส่งมา" คือ "ไม่เปลี่ยน"
+  // ไม่ใช่ "ตั้งเป็น default") เมนูใหม่ยังได้ 'all' เหมือนเดิม แต่มาจากคอลัมน์ default ของ content-type
+  // เอง (content-types/rich-menu.ts — `default: 'all', required: true`) ไม่ใช่จาก schema ชั้นนี้
+  // **Task 14b item 1 เปลี่ยนผู้เรียกไปแล้ว แต่ไม่เปลี่ยนกฎข้อนี้**: ฟอร์มมีช่อง "กลุ่มเป้าหมาย"
+  // แล้ว (MainSettings) และ PUT ของ editor ก็ส่ง `audience` มาทุกครั้งด้วยค่าที่ seed มาจากแถวเดิม
+  // — การกด Save โดยไม่แตะช่องนั้นจึงส่งค่าเดิมกลับมา ไม่ใช่ค่า default กฎ ".optional() ไม่มี
+  // default" ยังต้องอยู่เหมือนเดิม เพราะผู้เรียก API อื่น (สคริปต์, integration ของลูกค้า) ยังละคีย์
+  // นี้ได้และยังต้องแปลว่า "ไม่เปลี่ยน" — เทสต์ round 4 คุ้มครองเส้นนั้นอยู่
+  audience: z.enum(['all', 'members']).optional(),
 }).strict().superRefine((value, ctx) => {
   // สเปกงานนี้ #4 — บังคับที่ขอบของ route ด้วย ไม่ใช่แค่ในฟอร์ม: RBAC กันคนนอกได้ แต่ไม่ได้การันตี
   // ว่าผู้เรียกคือฟอร์มของเรา (ดูคอมเมนต์เต็มที่ isDisplayPeriodValid ใน packages/core)
@@ -84,3 +100,14 @@ export const listQuerySchema = z.object({
 }).strict()
 
 export const setDefaultBodySchema = z.object({}).strict().default({})
+
+/**
+ * `count` (จำนวนสมาชิกของ channel) คิดจาก `findMany` ทั้งตาราง — ไม่มี `Repo.count()` ให้ใช้
+ * (Task 11 fix round 1: เพิ่ม `Repo.count()` เป็นงานแยกต่างหาก ไม่ใช่ของ task นี้) จึงให้คำนวณ
+ * เฉพาะตอนถูกขอจริงผ่าน query นี้ ไม่ใช่ทุกครั้งที่เรียก `/channels/:id/audience` — endpoint นี้
+ * ถูกเรียกทุกครั้งที่เปิดหน้ารายการ (การ์ด + สวิตช์ทุกแถว) แต่ count มีประโยชน์แค่ตอนกล่องยืนยัน
+ * activate ของ `ui.AudienceToggle` กำลังจะเปิดเท่านั้น
+ */
+export const audienceQuerySchema = z.object({
+  count: z.literal('1').optional(),
+}).strict()

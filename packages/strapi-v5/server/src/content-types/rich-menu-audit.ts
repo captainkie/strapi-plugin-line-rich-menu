@@ -17,7 +17,13 @@ export const richMenuAudit: { schema: ContentTypeSchema } = {
       actorId: { type: 'integer' as const },
       action: {
         type: 'enumeration' as const,
-        enum: ['publish', 'set-default', 'clear-default', 'swap-alias', 'delete', 'channel-update'],
+        // ต้องครบทุกค่าของ AuditAction ใน core — enum ที่ขาดค่าไหนไป Strapi ปฏิเสธแถวนั้นตอน
+        // เขียน แล้ว persistQuietly ของ audit writer ก็กลืน error ให้เหลือแค่บรรทัด log
+        // ประวัติของงานสมาชิกจึงหายไปเงียบ ๆ ทั้งที่โค้ดเรียกเขียนอยู่จริง (lifecycles + scheduler)
+        enum: [
+          'publish', 'set-default', 'clear-default', 'swap-alias', 'delete', 'channel-update',
+          'link-members', 'unlink-members', 'unlink-all',
+        ],
         required: true,
       },
       richMenuId: { type: 'string' as const },

@@ -6,6 +6,13 @@ import type { Action, Bounds, RichMenuSize, RichMenuSizeName } from '../types.js
  */
 export interface ListParams {
   filters?: Record<string, string | number | boolean | null>
+  /**
+   * เพจแบบ keyset สำหรับ enrolment routine (members.ts, Task 2) — แยกจาก `filters` ที่เป็น
+   * equality-only โดยตั้งใจ เพราะ "id มากกว่าค่านี้" ไม่ใช่เงื่อนไขเท่ากับ จะยัดลงในแมพเดิม
+   * แล้วให้ adapter เดา key พิเศษก็ได้ แต่จะเป็นสัญญาที่ไม่ปรากฏใน type เลย — ผู้เขียน adapter
+   * ใหม่ (Task 5/6) ต้องเห็นจาก interface ตรง ๆ ว่านี่คือ WHERE id > ? ไม่ใช่ WHERE idGreaterThan = ?
+   */
+  idGreaterThan?: string
   sort?: string
   limit?: number
   start?: number
@@ -21,10 +28,12 @@ export interface Repo<T> {
 }
 
 export type MenuStatus = 'draft' | 'publishing' | 'published' | 'failed'
-export type ScheduleOp = 'set-default' | 'clear-default' | 'swap-alias'
+export type ScheduleOp =
+  | 'set-default' | 'clear-default' | 'swap-alias' | 'link-members' | 'unlink-members'
 export type ScheduleState = 'pending' | 'running' | 'done' | 'failed'
 export type AuditAction =
   | 'publish' | 'set-default' | 'clear-default' | 'swap-alias' | 'delete' | 'channel-update'
+  | 'link-members' | 'unlink-members' | 'unlink-all'
 export type AuditResult = 'success' | 'failure'
 
 /** แถวดิบจาก DB — ฟิลด์ลับยังเป็น envelope `v1.<iv>.<tag>.<ct>` ที่ยังไม่ได้ถอด */
@@ -41,6 +50,17 @@ export interface ChannelRow {
    */
   accessTokenLast4: string
   isDefault: boolean
+  /**
+   * เมนูที่ควรได้เมื่อ LINE user คนนั้นมีแถวใน line-member ของ channel นี้ — Task 5/6 เพิ่มคอลัมน์นี้
+   * ไว้ในสคีมาของทั้งสอง adapter แล้ว Task 7 (v5) และ Task 8 (v4) ผูกเข้า `toRow` ของ repo ตัวเอง
+   * ครบทั้งคู่แล้ว
+   *
+   * required ไม่ใช่ optional — เคย optional ไว้ชั่วคราวระหว่างที่ v4 ยังไม่ได้ผูกคอลัมน์นี้ เพื่อให้
+   * v4 คอมไพล์ผ่านโดยไม่ต้องแก้พร้อมกับ v5 ตอนนี้ทั้งสอง adapter ผูกครบแล้วจึงบังคับกลับมาเป็น
+   * required: adapter ตัวที่สามในอนาคตที่ลืมผูกคอลัมน์นี้เข้า `toRow` จะคอมไพล์ไม่ผ่านทันที
+   * แทนที่จะเงียบแล้วไปโผล่เป็น `undefined` ที่ runtime
+   */
+  memberRichMenuId: string | null
 }
 
 /** สิ่งที่ออกจาก service ได้ — ไม่มีฟิลด์ลับ ไม่ว่าจะเป็น plaintext หรือ ciphertext */
@@ -51,6 +71,7 @@ export interface ChannelRecord {
   /** `••••••••abcd` — สี่ตัวท้ายของ access token เท่านั้น (สเปก §11.2) */
   accessTokenPreview: string
   isDefault: boolean
+  memberRichMenuId: string | null
 }
 
 export interface ChannelWithSecrets extends ChannelRecord {
@@ -88,6 +109,13 @@ export interface RichMenuRow {
   lineRichMenuId: string | null
   publishedAt: string | null
   lastError: string | null
+  /**
+   * 'members' คือเมนูที่คนใน line-member เห็น ส่วน 'all' คือค่าเริ่มต้นเดิมที่ทุกคนเห็นเหมือนกัน —
+   * คอลัมน์นี้มีอยู่ในสคีมาของทั้งสอง adapter มาตั้งแต่ Task 5/6 แต่ไม่เคยถูกผูกเข้า `RichMenuRow`
+   * เลย (Task 11 พบว่า `toRow` ทั้งคู่ข้ามฟิลด์นี้ไป) — เพิ่มตอนนี้เพราะคอลัมน์ Audience ของหน้า
+   * รายการ (`RichMenuSummary.audience`) อ่านค่านี้ตรง ๆ ไม่มีทางอื่นให้ค่ามันไหลไปถึง UI ได้เลย
+   */
+  audience: 'all' | 'members'
   /** Strapi เขียนให้เอง — `RichMenuSummary` ใน packages/ui/src/api.ts ต้องการฟิลด์นี้ */
   updatedAt: string
 }
@@ -101,12 +129,33 @@ export interface ScheduleRow {
   lockedBy: string | null
   lockedAt: string | null
   lastError: string | null
+  /**
+   * id ของสมาชิกคนสุดท้ายที่ประมวลผลแล้ว ของงาน `link-members` — **ไม่ใช่ offset** (ดู
+   * เหตุผลเต็มที่ `linkMemberChunk` ใน members.ts) งานชนิดอื่นไม่ใช้ฟิลด์นี้และปล่อยเป็น null
+   * ตลอดอายุงาน ส่วน `link-members` เป็น null ก่อนเริ่ม pass แรกเท่านั้น
+   *
+   * `unlink-members` คืองานที่*ดูเหมือน*ควรมี cursor คู่กันแต่ต้องไม่มี — ชุดงานของมันหดเอง
+   * ทุกแถวที่ปลดสำเร็จ (ดู `unlinkMemberChunk`) การเติม cursor ให้ "ให้เหมือนกัน" คือการทำให้พังขึ้น
+   */
+  cursor: string | null
 }
 
 export interface AuditRow {
   id: string
   actorId: string | null
   action: AuditAction
+  /**
+   * ความหมายขึ้นกับ `action` และนั่นตั้งใจ ไม่ใช่ความไม่สม่ำเสมอที่หลุดมา:
+   * - งานระดับเมนู (`publish`/`set-default`/`swap-alias`/`delete`) เก็บ **id ของแถวเมนูใน
+   *   ฐานข้อมูลเรา** เพราะสิ่งที่ถูกกระทำคือแถวนั้น หน้าจอต้องลิงก์กลับไปหามันได้ และเมนูที่
+   *   publish ไม่ผ่านก็ยังไม่มี id ฝั่ง LINE ให้เก็บด้วยซ้ำ (`clear-default` เป็น null เพราะเป็น
+   *   งานระดับ channel ไม่ผูกกับเมนูตัวใดตัวหนึ่ง)
+   * - งานระดับสมาชิก (`link-members`/`unlink-members`/`unlink-all`) เก็บ **id ฝั่ง LINE** เพราะ
+   *   คำถามหลังเกิดเหตุคือ "ตอนนี้ใครยังถือเมนูตัวไหนอยู่" ซึ่งเทียบกับคอลัมน์ `linkedRichMenuId`
+   *   ของแถวสมาชิกตรง ๆ ค่าที่บันทึกไว้จึงต้องเป็นค่าเดียวกับในคอลัมน์นั้น ไม่ใช่ค่าที่ต้องแปลง
+   *   อีกทอด — `unlink-all` (Task 12) เข้ากลุ่มนี้ด้วยแม้จะไม่มีแถวสมาชิกให้เทียบเลยสักแถว เพราะ
+   *   มันตอบคำถามเดียวกัน (ใครถือเมนูนี้อยู่บน LINE) แค่ผ่าน batch แทนที่จะเทียบทีละแถวในตารางเรา
+   */
   richMenuId: string | null
   channelId: string
   before: unknown

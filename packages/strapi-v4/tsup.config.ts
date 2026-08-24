@@ -26,7 +26,7 @@ export default defineConfig([
     clean: true,
     sourcemap: true,
     removeNodeProtocol: false,
-    external: ['@strapi/strapi', 'sharp'],
+    external: ['@strapi/strapi', '@strapi/utils', 'sharp'],
     noExternal: [/^@fosivo\//],
   },
   {

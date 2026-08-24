@@ -167,3 +167,118 @@ describe('LineClient เส้นทางปกติ', () => {
     expect(calledWith).toBe('https://api.line.me/v2/bot/user/all/richmenu')
   })
 })
+
+// เมนูสำหรับสมาชิก: bulk/batch/per-user endpoints — ฉีด fetchImpl ตรง ๆ แทน msw เพราะแต่ละเทสต์
+// สนใจ body/URL/header ของคำขอเดียวที่ยิงออกไป ไม่ใช่พฤติกรรม retry (นั่นคือหน้าที่ของ retry.test.ts)
+function clientWith(fetchImpl: typeof fetch) {
+  return new LineClient({ accessToken: 'test-token', fetchImpl })
+}
+
+describe('LineClient เมนูสำหรับสมาชิก (bulk/batch/per-user)', () => {
+  it('bulkLink ยิง POST /v2/bot/richmenu/bulk/link พร้อม richMenuId และ userIds', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const client = clientWith(async (url, init) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body)) })
+      return new Response('{}', { status: 202 })
+    })
+    await client.bulkLink('rm-1', ['U1', 'U2'])
+    expect(calls[0]!.url).toBe('https://api.line.me/v2/bot/richmenu/bulk/link')
+    expect(calls[0]!.body).toEqual({ richMenuId: 'rm-1', userIds: ['U1', 'U2'] })
+  })
+
+  it('bulkLink ปฏิเสธเกิน 500 ก่อนยิง — LINE ตอบ 400 ที่อ่านไม่ออกว่าเกิดจากอะไร', async () => {
+    const client = clientWith(async () => new Response('{}', { status: 202 }))
+    const tooMany = Array.from({ length: 501 }, (_, i) => `U${i}`)
+    await expect(client.bulkLink('rm-1', tooMany)).rejects.toThrow(/500/)
+  })
+
+  // ขอบเขตพอดี 500 ต้องผ่าน — กันการเผลอเขียน >= แทน > ตอนเช็คเพดาน
+  it('bulkLink รับ 500 userId พอดีได้ ไม่ปฏิเสธที่ขอบเขต', async () => {
+    const client = clientWith(async () => new Response('{}', { status: 202 }))
+    const exactly500 = Array.from({ length: 500 }, (_, i) => `U${i}`)
+    await expect(client.bulkLink('rm-1', exactly500)).resolves.toBeUndefined()
+  })
+
+  it('bulkUnlink ยิง POST /v2/bot/richmenu/bulk/unlink พร้อม userIds', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const client = clientWith(async (url, init) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body)) })
+      return new Response('{}', { status: 202 })
+    })
+    await client.bulkUnlink(['U1', 'U2'])
+    expect(calls[0]!.url).toBe('https://api.line.me/v2/bot/richmenu/bulk/unlink')
+    expect(calls[0]!.body).toEqual({ userIds: ['U1', 'U2'] })
+  })
+
+  // LINE ระบุไว้ตรง ๆ ว่า bulk/unlink รับสูงสุด 500 userId เท่ากับ bulk/link — เพดานเดียวกัน
+  it('bulkUnlink ปฏิเสธเกิน 500 ก่อนยิง เหมือน bulkLink', async () => {
+    const client = clientWith(async () => new Response('{}', { status: 202 }))
+    const tooMany = Array.from({ length: 501 }, (_, i) => `U${i}`)
+    await expect(client.bulkUnlink(tooMany)).rejects.toThrow(/500/)
+  })
+
+  it('getUserRichMenu คืน null เมื่อ LINE ตอบ 404 ไม่ใช่โยน', async () => {
+    const client = clientWith(async () => new Response('{"message":"not found"}', { status: 404 }))
+    expect(await client.getUserRichMenu('U1')).toBeNull()
+  })
+
+  it('getUserRichMenu คืน richMenuId ที่ user ผูกอยู่ ณ ตอนนี้', async () => {
+    const client = clientWith(async () => new Response('{"richMenuId":"rm-9"}', { status: 200 }))
+    expect(await client.getUserRichMenu('U1')).toBe('rm-9')
+  })
+
+  it('unlinkFromUser ยิง DELETE ไปที่ /v2/bot/user/{id}/richmenu', async () => {
+    const seen: { url: string; method?: string }[] = []
+    const client = clientWith(async (url, init) => {
+      seen.push({ url: String(url), method: init?.method })
+      return new Response('{}', { status: 200 })
+    })
+    await client.unlinkFromUser('U1')
+    expect(seen[0]).toEqual({ url: 'https://api.line.me/v2/bot/user/U1/richmenu', method: 'DELETE' })
+  })
+
+  it('validateBatch ยิง POST /v2/bot/richmenu/validate/batch พร้อม operations เท่านั้น ไม่มี resumeRequestKey', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const client = clientWith(async (url, init) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body)) })
+      return new Response(null, { status: 200 })
+    })
+    await client.validateBatch([{ type: 'link', from: 'U1', to: 'rm-1' }])
+    expect(calls[0]!.url).toBe('https://api.line.me/v2/bot/richmenu/validate/batch')
+    expect(calls[0]!.body).toEqual({ operations: [{ type: 'link', from: 'U1', to: 'rm-1' }] })
+  })
+
+  it('batchControl ยิง POST /v2/bot/richmenu/batch พร้อม operations และ resumeRequestKey แล้วคืน request id จาก header', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const client = clientWith(async (url, init) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body)) })
+      return new Response('{}', { status: 202, headers: { 'x-line-request-id': 'req-1' } })
+    })
+    const requestId = await client.batchControl(
+      [{ type: 'unlink', from: 'U1' }, { type: 'unlinkAll' }],
+      'resume-key-1',
+    )
+    expect(calls[0]!.url).toBe('https://api.line.me/v2/bot/richmenu/batch')
+    expect(calls[0]!.body).toEqual({
+      operations: [{ type: 'unlink', from: 'U1' }, { type: 'unlinkAll' }],
+      resumeRequestKey: 'resume-key-1',
+    })
+    expect(requestId).toBe('req-1')
+  })
+
+  // batch ตอบ 202 เปล่า ๆ ได้จริงตามสเปกของ LINE — ต้องคืน null ไม่ใช่โยนหรือคืนสตริงว่าง
+  it('batchControl คืน null เมื่อ LINE ไม่แนบ x-line-request-id มาด้วย', async () => {
+    const client = clientWith(async () => new Response('{}', { status: 202 }))
+    expect(await client.batchControl([{ type: 'unlinkAll' }], 'resume-key-2')).toBeNull()
+  })
+
+  it('batchProgress อ่าน requestId ผ่าน query string แล้วคืน phase ตรงตามที่ LINE ตอบ', async () => {
+    let seenUrl = ''
+    const client = clientWith(async (url) => {
+      seenUrl = String(url)
+      return new Response(JSON.stringify({ phase: 'ongoing' }), { status: 200 })
+    })
+    expect(await client.batchProgress('req-9')).toBe('ongoing')
+    expect(seenUrl).toBe('https://api.line.me/v2/bot/richmenu/progress/batch?requestId=req-9')
+  })
+})

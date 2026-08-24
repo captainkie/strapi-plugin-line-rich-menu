@@ -11,6 +11,9 @@ export interface MockStore {
   menus: Map<string, StoredMenu>
   aliases: Map<string, string>
   defaultMenuId: string | null
+  // userId -> richMenuId ที่ผูกอยู่ตอนนี้ — จุดเดียวที่ /bulk/link, /bulk/unlink, /richmenu/batch,
+  // และ POST/GET/DELETE /user/:userId/richmenu ทั้งหมดอ่าน-เขียน ไม่มี state คู่ขนานที่อาจเพี้ยนกัน
+  links: Map<string, string>
   nextId(): string
 }
 
@@ -26,6 +29,7 @@ export function createStore(nextId: () => string): MockStore {
     menus: new Map(),
     aliases: new Map(),
     defaultMenuId: null,
+    links: new Map(),
     nextId,
   }
 }

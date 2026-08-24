@@ -25,6 +25,12 @@ interface MenuDetail {
   aliasId: string | null
   startAt: string | null
   endAt: string | null
+  /**
+   * Task 14b item 1 — `toDetail` (controllers/menus.ts) คืนทั้งแถวอยู่แล้ว คอลัมน์นี้จึงมาถึงที่นี่
+   * ตั้งแต่ Task 11 เพียงแต่ไม่มีใครอ่าน ต้องประกาศไว้ที่นี่ ไม่งั้นการเปิดเมนูสมาชิกมาแก้จะ seed
+   * ฟอร์มด้วย 'all' แล้วการกด Save ครั้งเดียวโดยไม่แตะอะไรเลยจะถอดป้ายของมันทิ้ง
+   */
+  audience: 'all' | 'members'
 }
 
 /**
@@ -83,6 +89,7 @@ export function EditorPage() {
           title: detail.name,
           startAt: detail.startAt ?? '',
           endAt: detail.endAt ?? '',
+          audience: detail.audience,
           templateKey: detail.templateKey,
           areas: detail.areas.map((area) => fromAction(area.action)),
           bounds: detail.areas.map((area) => area.bounds),
@@ -109,6 +116,16 @@ export function EditorPage() {
       chatBarMode: next.chatBar.mode,
       selected: next.chatBar.selected,
       templateKey: next.templateKey,
+      // Task 14b item 1 — ส่งค่าที่ผู้ใช้เลือกจริงทั้งตอนสร้างและตอนแก้
+      //
+      // **ไม่ใช่การนำ Critical ของ 5c8621e กลับมา**: บั๊กตัวนั้นคือ editor ไม่เคยส่งคีย์นี้เลย
+      // *และ* zod แปลง "ไม่ส่งมา" เป็น 'all' ให้ (`.default('all')` ใน validation.ts) เมนูสมาชิก
+      // จึงถูกรีเซ็ตเงียบ ๆ ทุกครั้งที่แก้ชื่อ ที่นี่ส่งค่าที่ผู้ใช้เลือก *จริง* ซึ่งถูก seed มาจาก
+      // แถวเดิม (ดู `audience: detail.audience` ใน useEffect ข้างบน) การกด Save โดยไม่แตะช่องนี้
+      // จึงส่งค่าเดิมกลับไป ไม่ใช่ค่า default — `menuInputSchema` ยัง `.optional()` ไม่มี default
+      // และ `saveMenu` ยังใส่คีย์ลง patch เฉพาะตอนถูกส่งมา ตามเดิมทั้งคู่ (ผู้เรียก API อื่นที่ละคีย์นี้
+      // ไว้ยังหมายถึง "ไม่เปลี่ยน" เหมือนเดิม — เทสต์ round 4 ของ Task 13 คุ้มครองเส้นนั้นอยู่)
+      audience: next.audience,
       // `bounds` กับ `areas` ของ draft เรียงตรงกันตาม index เสมอ (สัญญาของ CanvasEditor ใน Plan 02)
       areas: next.bounds.map((bounds, index) => {
         const state = next.areas[index]
@@ -126,7 +143,17 @@ export function EditorPage() {
       ? await http.post<MenuDetail>(ENDPOINTS.menus, body)
       : await http.put<MenuDetail>(ENDPOINTS.menu(id), body)
 
-    if (publish) await http.post(ENDPOINTS.menuPublish(menu.id), { setAsDefault: true })
+    // Task 17 / final review BLOCKER — `setAsDefault` คือการทำให้เมนูนี้เป็น default ของบัญชี ซึ่ง
+    // ผู้ติดตาม **ทุกคน** เห็น ไม่ใช่แค่สมาชิก ก่อนหน้านี้บรรทัดนี้ส่ง `true` ตายตัว และสวิตช์สมาชิก
+    // ทำงานได้ก็ต่อเมื่อเมนู publish แล้วเท่านั้น — เมนูสมาชิกทุกตัวจึงถูกยัดให้ผู้ติดตามทุกคน
+    // **ก่อน** จะได้เป็นของสมาชิก โดยไม่มีทางเลี่ยงเลย เพราะนี่คือปุ่ม publish ปุ่มเดียวที่มี
+    //
+    // ส่งตามกลุ่มเป้าหมายที่ผู้ใช้เลือกไว้ ไม่ใช่ถามผู้ใช้เพิ่มอีกคำถาม: เซิร์ฟเวอร์ปฏิเสธ
+    // `setAsDefault: true` บนเมนูสมาชิกด้วย 409 `menu_not_all_audience` อยู่แล้ว (assertAllAudience
+    // ใน core) — ถ้า UI ยังส่ง true ตายตัว ผู้ใช้จะเจอ error จากตัวเลือกที่ตัว UI เลือกให้เอง
+    if (publish) {
+      await http.post(ENDPOINTS.menuPublish(menu.id), { setAsDefault: next.audience === 'all' })
+    }
     navigate(BASE)
   }
 

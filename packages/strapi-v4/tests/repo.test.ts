@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
+import { RowVanishedError } from '@fosivo/line-rich-menu-core'
+import type { RichMenuRow } from '@fosivo/line-rich-menu-core'
+import { richMenu } from '../src/server/content-types/rich-menu.js'
 import { UID } from '../src/server/content-types/index.js'
+import type { ContentTypeSchema } from '../src/server/content-types/schema.js'
 import { readDisplayPeriod, writeDisplayPeriod } from '../src/server/menu-write.js'
-import { createAuditRepo, createChannelRepo, createMenuRepo, createScheduleRepo } from '../src/server/repo.js'
+import {
+  audienceValuesOf, createAuditRepo, createChannelRepo, createMemberRepo, createMenuRepo,
+  createScheduleRepo,
+} from '../src/server/repo.js'
 import type { StrapiV4 } from '../src/server/strapi.js'
 
 type PopulateParams = { populate?: unknown } | undefined
@@ -75,6 +82,9 @@ const menuEntity = {
   lineRichMenuId: 'richmenu-a',
   linePublishedAt: '2026-08-20T00:00:00.000Z',
   lastError: null,
+  // 'members' ไม่ใช่ 'all' โดยตั้งใจ — Task 16 ทำให้ `toRow` แปลง null/undefined เป็น 'all'
+  // ถ้าฟิกซ์เจอร์ตัวนี้เป็น 'all' ด้วย เทสต์ข้างล่างจะเขียวเท่ากันไม่ว่าการแปลงนั้นจะกลืนค่าจริงทิ้งหรือไม่
+  audience: 'members',
   updatedAt: '2026-08-20T09:00:00.000Z',
 }
 
@@ -85,6 +95,7 @@ describe('createChannelRepo', () => {
     expect(row).toEqual({
       id: '10', name: 'ร้าน', channelId: '1650000000',
       channelAccessToken: 'v1.a.b.c', channelSecret: null, accessTokenLast4: 'WXYZ', isDefault: true,
+      memberRichMenuId: null,
     })
   })
 
@@ -93,6 +104,26 @@ describe('createChannelRepo', () => {
     await createChannelRepo(strapi).findMany({ filters: { isDefault: true } })
     expect(calls[0]!.uid).toBe(UID.channel)
     expect(calls[0]!.args[0]).toMatchObject({ filters: { isDefault: true } })
+  })
+
+  // Task 8 ปิดช่องว่างฝั่ง v4 ของคอลัมน์นี้ (v5 ปิดไปแล้วที่ Task 7 — ดูคอมเมนต์ที่
+  // ChannelRow.memberRichMenuId ใน core) — ต้องอ่านค่าที่ตั้งไว้จริงกลับมาได้ ไม่ใช่แค่ไม่พังตอน
+  // เป็น undefined
+  it('อ่าน memberRichMenuId ที่ตั้งไว้จริงกลับมาได้', async () => {
+    const { strapi } = fakeStrapi({
+      findOne: {
+        id: 10, name: 'ร้าน', channelId: '1650000000', channelAccessToken: 'v1.a.b.c',
+        channelSecret: null, accessTokenLast4: 'WXYZ', isDefault: true, memberRichMenuId: 'richmenu-member',
+      },
+    })
+    const row = await createChannelRepo(strapi).findOne('10')
+    expect(row!.memberRichMenuId).toBe('richmenu-member')
+  })
+
+  it('channel ที่ยังไม่ได้ตั้งเมนูสำหรับสมาชิก อ่าน memberRichMenuId เป็น null ไม่ใช่ undefined หลุดออกไป', async () => {
+    const { strapi } = fakeStrapi({ findOne: { id: 10, name: 'ร้าน', channelId: '1650000000', channelAccessToken: 'v1.a.b.c', channelSecret: null, accessTokenLast4: 'WXYZ', isDefault: true } })
+    const row = await createChannelRepo(strapi).findOne('10')
+    expect(row!.memberRichMenuId).toBeNull()
   })
 })
 
@@ -119,6 +150,7 @@ describe('createMenuRepo', () => {
       lineRichMenuId: 'richmenu-a',
       publishedAt: '2026-08-20T00:00:00.000Z',
       lastError: null,
+      audience: 'members',
       updatedAt: '2026-08-20T09:00:00.000Z',
     })
   })
@@ -173,6 +205,39 @@ describe('createMenuRepo', () => {
       .toEqual({ channelId: '10', imageFileId: 11, normalizedFileId: 900 })
   })
 
+  /**
+   * (Task 19 item 8, final-tests H1) `toData` เป็น allowlist ที่ไม่ auto-forward — ลบบรรทัด
+   * `if (patch.audience !== undefined) data['audience'] = patch.audience` ออกจาก **ทั้งสอง adapter**
+   * แล้วเทสต์ทั้ง 1379 ตัวยังเขียวหมด (พิสูจน์แล้วโดยผู้รีวิว) เพราะ `menu-write.test.ts` วิ่งกับ
+   * repo ปลอมที่ไม่เคยเรียก `toData` เลย ส่วน `repo.test.ts` ทดสอบแค่ขาอ่าน — ไม่มีอะไรคุมรอยต่อ
+   * ระหว่างสองอย่างนั้นเลยสักตัว นี่คือเทสต์ที่ปิดรอยต่อนั้น
+   */
+  describe('audience — ขาเขียน (รอยต่อที่ไม่มีอะไรคุมมาก่อน)', () => {
+    it("update ส่ง audience ลง data ที่ entityService ได้รับจริง", async () => {
+      const { strapi, calls } = fakeStrapi({ findOne: menuEntity })
+      await createMenuRepo(strapi).update('7', { audience: 'members' })
+      expect((calls[0]!.args[1] as { data: Record<string, unknown> }).data['audience']).toBe('members')
+    })
+
+    it("เปลี่ยนกลับเป็น 'all' ก็ต้องเดินทางถึงเหมือนกัน ไม่ใช่แค่ค่า members ที่ผ่าน", async () => {
+      const { strapi, calls } = fakeStrapi({ findOne: menuEntity })
+      await createMenuRepo(strapi).update('7', { audience: 'all' })
+      expect((calls[0]!.args[1] as { data: Record<string, unknown> }).data['audience']).toBe('all')
+    })
+
+    it('create ก็ส่งผ่าน toData ตัวเดียวกัน — เมนูสมาชิกที่สร้างใหม่ต้องเกิดมาพร้อมป้ายของมัน', async () => {
+      const { strapi, calls } = fakeStrapi({ findOne: menuEntity })
+      await createMenuRepo(strapi).create({ name: 'เมนูสมาชิก', channelId: '10', audience: 'members' })
+      expect((calls[0]!.args[0] as { data: Record<string, unknown> }).data['audience']).toBe('members')
+    })
+
+    it('ไม่ส่ง audience มาเลย → ไม่มีคีย์นี้ใน data ("ไม่ส่ง" = "ไม่เปลี่ยน" ไม่ใช่ "ตั้งเป็น all")', async () => {
+      const { strapi, calls } = fakeStrapi({ findOne: menuEntity })
+      await createMenuRepo(strapi).update('7', { name: 'ชื่อใหม่' })
+      expect((calls[0]!.args[1] as { data: Record<string, unknown> }).data).not.toHaveProperty('audience')
+    })
+  })
+
   it('filter ด้วย channelId ถูกแปลงเป็น filter บน relation', async () => {
     const { strapi, calls } = fakeStrapi({ findMany: [] })
     await createMenuRepo(strapi).findMany({ filters: { channelId: '10' } })
@@ -210,7 +275,7 @@ describe('createScheduleRepo', () => {
 })
 
 describe('createAuditRepo', () => {
-  it('เขียนตัวเลขลงคอลัมน์ตัวเลข ไม่ใช่สตริง', async () => {
+  it('เขียนตัวเลขลงคอลัมน์ actorId/channelId ไม่ใช่สตริง', async () => {
     const { strapi, calls } = fakeStrapi({ create: { id: 1 } })
     await createAuditRepo(strapi).create({
       actorId: '3', action: 'publish', richMenuId: '7', channelId: '10',
@@ -218,7 +283,7 @@ describe('createAuditRepo', () => {
     })
     expect(calls[0]!.args[0]).toEqual({
       data: {
-        actorId: 3, action: 'publish', richMenuId: 7, channelId: 10,
+        actorId: 3, action: 'publish', richMenuId: '7', channelId: 10,
         before: null, after: null, result: 'success', errorCode: null,
       },
     })
@@ -231,6 +296,113 @@ describe('createAuditRepo', () => {
       before: null, after: null, result: 'success', errorCode: null,
     })
     expect(calls[0]!.args[0]).toMatchObject({ data: { actorId: null, richMenuId: null } })
+  })
+
+  /**
+   * Task 10 — repro ตรงของบั๊กที่เจอผ่านเทสต์รอบเต็มของ members controller: richMenuId ของงาน
+   * ระดับสมาชิก (link-members/unlink-members) คือ id ฝั่ง LINE ซึ่งเป็นสตริงที่ไม่ใช่ตัวเลข ก่อนแก้
+   * `numberOrNull` ที่นี่บังคับผ่าน `Number('line-rm-1')` ได้ `NaN` ซึ่ง Strapi จริงปฏิเสธคอลัมน์
+   * integer แล้ว `persistQuietly` กลืน error ทิ้งไปเงียบ ๆ — แถวถูกเขียนแต่ไม่มีใครเห็นว่ามันหาย
+   */
+  it('richMenuId ที่เป็น id ฝั่ง LINE (ไม่ใช่ตัวเลข) เขียนผ่านตรง ๆ ไม่กลายเป็น NaN', async () => {
+    const { strapi, calls } = fakeStrapi({ create: { id: 1 } })
+    await createAuditRepo(strapi).create({
+      actorId: null, action: 'unlink-members', richMenuId: 'line-rm-1', channelId: '10',
+      before: null, after: { unlinked: 2 }, result: 'success', errorCode: null,
+    })
+    expect(calls[0]!.args[0]).toMatchObject({ data: { richMenuId: 'line-rm-1' } })
+  })
+})
+
+describe('createMemberRepo', () => {
+  it('แปลง relation channel ที่ populate มาเป็น channelId ของชั้น service', async () => {
+    const { strapi } = fakeStrapi({
+      findMany: [{
+        id: 5, lineUserId: `U${'a'.repeat(32)}`,
+        channel: { id: 10 }, displayName: null, linkedRichMenuId: null, linkedAt: null,
+      }],
+    })
+    const rows = await createMemberRepo(strapi).findMany()
+    expect(rows[0]).toMatchObject({ id: '5', channelId: '10' })
+  })
+
+  it('populate ขอ channel เสมอ — ไม่งั้น channelId จะหายไปทุกแถว', async () => {
+    const { strapi, calls } = fakeStrapi({ findMany: [] })
+    await createMemberRepo(strapi).findMany()
+    expect((calls[0]!.args[0] as { populate: string[] }).populate).toEqual(['channel'])
+  })
+
+  it('กรองด้วย channelId แปลงเป็นเงื่อนไขบน relation ตัวเลข — แพทเทิร์นเดียวกับ menu/schedule', async () => {
+    const { strapi, calls } = fakeStrapi({ findMany: [] })
+    await createMemberRepo(strapi).findMany({ filters: { channelId: '10' } })
+    expect(calls[0]!.args[0]).toMatchObject({ filters: { channel: 10 } })
+  })
+
+  /**
+   * รูปทรงการเรียกจริงจาก `linkMemberChunk` (core/server/members.ts) — `idGreaterThan` เป็น
+   * property ระดับบนสุดของ `ListParams`, **ไม่ได้อยู่ใน** `filters` (ดูคอมเมนต์ที่ ListParams
+   * ใน core/server/types.ts ว่าทำไมถึงแยกกันโดยตั้งใจ) เทสต์นี้จึงเรียกด้วยรูปทรงนั้นตรง ๆ —
+   * ถ้า mapFilters เห็นแต่ input.filters เฉย ๆ (ไม่ผ่านการรวมใน define()) มันจะไม่มีทางเห็น
+   * ค่านี้เลย แล้ว findMany จะคืนสมาชิกทั้งชุดทุก chunk เงียบ ๆ — คือบั๊กที่ row-count assertion
+   * ใด ๆ จับไม่ได้ เพราะจำนวนแถวที่ได้ยังดูสมเหตุสมผล
+   */
+  it('idGreaterThan (นอก filters) กลายเป็นเงื่อนไข $gt ตัวเลขของ id — keyset ไม่ใช่ offset', async () => {
+    const { strapi, calls } = fakeStrapi({ findMany: [] })
+    await createMemberRepo(strapi).findMany({
+      filters: { channelId: '10' }, idGreaterThan: '5', sort: 'id:asc', limit: 500,
+    })
+    expect(calls[0]!.args[0]).toEqual({
+      populate: ['channel'],
+      filters: { channel: 10, id: { $gt: 5 } },
+      sort: 'id:asc',
+      limit: 500,
+    })
+  })
+
+  it('ไม่มี idGreaterThan ก็ไม่มี id filter ติดมาเอง', async () => {
+    const { strapi, calls } = fakeStrapi({ findMany: [] })
+    await createMemberRepo(strapi).findMany({ filters: { channelId: '10' }, sort: 'id:asc' })
+    expect(calls[0]!.args[0]).toMatchObject({ filters: { channel: 10 }, sort: 'id:asc' })
+    expect((calls[0]!.args[0] as { filters: Record<string, unknown> }).filters['id']).toBeUndefined()
+  })
+
+  // ต่างจาก v5 ที่ต้องมี mapSort แปล `id:asc` -> `documentId:asc` เพราะ id ของชั้น service กับ id
+  // ที่ entityService เรียงให้เป็นคนละคอลัมน์กัน — v4 ใช้ id ตัวเลขคอลัมน์เดียวทั้งกรองและเรียง
+  // จึงไม่มีช่องว่างแบบนั้นให้ปิด `sort` จึงไม่ถูกแตะเลยไม่ว่าค่าจะเป็นอะไร
+  it('sort ผ่านไปตามเดิมเสมอ ไม่มีการแปล', async () => {
+    const { strapi, calls } = fakeStrapi({ findMany: [] })
+    await createMemberRepo(strapi).findMany({ sort: 'lineUserId:asc' })
+    expect((calls[0]!.args[0] as { sort: unknown }).sort).toBe('lineUserId:asc')
+  })
+
+  it('เขียน relation ของ channel ด้วยตัวเลขดิบครบทุกฟิลด์', async () => {
+    const { strapi, calls } = fakeStrapi({ create: { id: 5 } })
+    await createMemberRepo(strapi).create({
+      channelId: '10', lineUserId: `U${'a'.repeat(32)}`, displayName: 'คุณเอ',
+      linkedRichMenuId: 'richmenu-a', linkedAt: '2026-08-22T00:00:00.000Z',
+    })
+    expect(calls[0]!.args[0]).toEqual({
+      populate: ['channel'],
+      data: {
+        channel: 10,
+        lineUserId: `U${'a'.repeat(32)}`,
+        displayName: 'คุณเอ',
+        linkedRichMenuId: 'richmenu-a',
+        linkedAt: '2026-08-22T00:00:00.000Z',
+      },
+    })
+  })
+
+  // ฟิลด์ที่ optional เหล่านี้หายไปทั้งคีย์ (undefined) ไม่ใช่ตั้งเป็น null ไว้ — จำลองแถวที่ยังไม่เคย
+  // ตั้งค่าฟิลด์พวกนี้เลย พิสูจน์ว่า orNull ทำงานจริง ไม่ใช่แค่ null เข้า null ออกโดยบังเอิญ
+  it('ฟิลด์ที่หายไปทั้งคีย์ (undefined) กลายเป็น null ไม่ใช่หลุดเป็น undefined ติดไปกับ row', async () => {
+    const { strapi } = fakeStrapi({
+      findOne: { id: 5, lineUserId: `U${'a'.repeat(32)}`, channel: { id: 10 } },
+    })
+    expect(await createMemberRepo(strapi).findOne('5')).toEqual({
+      id: '5', channelId: '10', lineUserId: `U${'a'.repeat(32)}`,
+      displayName: null, linkedRichMenuId: null, linkedAt: null,
+    })
   })
 })
 
@@ -331,6 +503,45 @@ describe('round trip: ช่วงเวลาแสดงผล (startAt/endAt)
     expect(await readDisplayPeriod(schedules, '7')).toEqual({ startAt: null, endAt: '2026-09-30T00:00:00.000Z' })
   })
 
+  /**
+   * (Task 19 item 6) ตารางนี้เคยมีแค่สอง op ตอนที่ `writeDisplayPeriod` เขียนว่า "ลบทุกแถว pending
+   * ของเมนูนี้" ซึ่งถูกต้อง ณ ตอนนั้น — แบรนช์นี้เพิ่ม `link-members`/`unlink-members` เข้ามาใน
+   * ตารางเดียวกันโดยไม่ได้แคบเงื่อนไขตาม ผลคือ **กด Save เมนูธรรมดา ๆ ลบงานผูกสมาชิกของตัวเองทิ้ง**
+   * สวิตช์ยังอ่านว่าเปิด (pointer ไม่ถูกแตะ) แต่ไม่มีงานเหลือให้ใครวิ่ง ไม่มี error ไม่มี log
+   *
+   * ตรวจทั้งสองด้าน: งานสมาชิกยังอยู่ครบ **และ** แถวช่วงเวลาเก่ายังถูกแทนที่จริงเหมือนเดิม —
+   * การเลิกลบอะไรเลยก็ทำให้ครึ่งแรกเขียวได้เหมือนกัน
+   */
+  it('ไม่ลบงาน link-members/unlink-members ที่ pending อยู่ — Save เมนูต้องไม่ทิ้งงานสมาชิก', async () => {
+    const schedules = createScheduleRepo(statefulScheduleStrapi())
+    const link = await schedules.create({
+      richMenuId: '7', runAt: '2026-09-01T00:00:00.000Z', op: 'link-members', state: 'pending',
+      lockedBy: null, lockedAt: null, lastError: null, cursor: 'mem0499',
+    })
+    const unlink = await schedules.create({
+      richMenuId: '7', runAt: '2026-09-01T00:00:00.000Z', op: 'unlink-members', state: 'pending',
+      lockedBy: null, lockedAt: null, lastError: null, cursor: null,
+    })
+    await writeDisplayPeriod(schedules, '7', {
+      startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-09-30T00:00:00.000Z',
+    })
+    // Save รอบที่สองด้วยช่วงเวลาใหม่ — จุดที่การลบเกิดขึ้นจริง
+    await writeDisplayPeriod(schedules, '7', {
+      startAt: '2026-10-01T00:00:00.000Z', endAt: '2026-10-31T00:00:00.000Z',
+    })
+
+    const pending = await schedules.findMany({ filters: { richMenuId: '7', state: 'pending' } })
+    expect(pending.filter((row) => row.op === 'link-members'))
+      .toEqual([expect.objectContaining({ id: link.id, cursor: 'mem0499' })])
+    expect(pending.filter((row) => row.op === 'unlink-members'))
+      .toEqual([expect.objectContaining({ id: unlink.id })])
+    // และแถวช่วงเวลายังถูก "แทนที่" ไม่ใช่สะสม — ครึ่งที่กันไม่ให้ "เลิกลบอะไรเลย" ผ่านด่านนี้
+    expect(pending.filter((row) => row.op === 'set-default' || row.op === 'clear-default')).toHaveLength(2)
+    expect(await readDisplayPeriod(schedules, '7')).toEqual({
+      startAt: '2026-10-01T00:00:00.000Z', endAt: '2026-10-31T00:00:00.000Z',
+    })
+  })
+
   it('เมนูอื่นมี schedule ของตัวเอง ไม่ปนกับเมนูนี้', async () => {
     const schedules = createScheduleRepo(statefulScheduleStrapi())
     await writeDisplayPeriod(schedules, '7', { startAt: '2026-09-01T00:00:00.000Z', endAt: null })
@@ -339,5 +550,151 @@ describe('round trip: ช่วงเวลาแสดงผล (startAt/endAt)
     expect(await readDisplayPeriod(schedules, '8')).toEqual({
       startAt: '2026-10-01T00:00:00.000Z', endAt: '2026-10-31T00:00:00.000Z',
     })
+  })
+})
+
+/**
+ * Task 16 — แถวที่มีอยู่ก่อนคอลัมน์ `audience` ถูกเพิ่มเข้าตาราง ถือ `NULL` ตลอดไป
+ *
+ * `default: 'all'` บน content-type ไม่เคยกลายเป็น DEFAULT ของฐานข้อมูล Strapi ใส่ค่านั้นให้ตอน
+ * *สร้างแถว* เท่านั้น (วัดบน SQLite และ PostgreSQL 16 ทั้ง Strapi 4 และ 5 — task-15-report.md
+ * §"Step 2") เทสต์อื่นทั้งไฟล์ป้อน entity ที่ `audience` ถูกต้องอยู่แล้ว จึงไม่มีตัวไหนแตะเส้นนี้เลย
+ *
+ * นี่คือครึ่งขาอ่านของคู่ที่อีกครึ่งคือ `backfillLegacyAudience` (tests/bootstrap.test.ts) —
+ * คนละไฟล์ คนละของปลอม โดยตั้งใจ ตัวไหนพังต้องแดงคนละดวง ไม่ใช่ให้อีกตัวปิดให้
+ */
+describe('createMenuRepo — audience ของแถวที่เก่ากว่าคอลัมน์', () => {
+  const legacyEntity = (audience: unknown) => ({
+    id: 7, name: 'เมนูเก่า', channel: { id: 10 }, size: 'large', chatBarText: 'x',
+    chatBarMode: 'default', selected: true, status: 'published', audience,
+  })
+
+  it("แถวที่ audience เป็น null อ่านออกมาเป็น 'all' ไม่ใช่ null ที่หลุดผ่าน type ที่บอกว่าเป็นไปไม่ได้", async () => {
+    const { strapi } = fakeStrapi({ findOne: legacyEntity(null) })
+    expect((await createMenuRepo(strapi).findOne('7'))!.audience).toBe('all')
+  })
+
+  it('ขา findMany ต้องแปลงด้วย — หน้ารายการอ่านผ่านทางนี้ ไม่ใช่ findOne', async () => {
+    const { strapi } = fakeStrapi({ findMany: [legacyEntity(null), legacyEntity('members')] })
+    const rows = await createMenuRepo(strapi).findMany()
+    expect(rows.map((row) => row.audience)).toEqual(['all', 'members'])
+  })
+
+  it("'members' ต้องไม่ถูกกลืนเป็น 'all' ระหว่างทาง — การแปลงนี้ครอบแค่ค่าที่ไม่มี", async () => {
+    const { strapi } = fakeStrapi({ findOne: legacyEntity('members') })
+    expect((await createMenuRepo(strapi).findOne('7'))!.audience).toBe('members')
+  })
+
+  /**
+   * Task 16 fix round 1 — ตัวจริงของด่านนี้ เดินตาม `enum` ที่ประกาศไว้ใน content-types/rich-menu.ts
+   * ตรง ๆ แทนที่จะเขียนรายการ `['all', 'members']` ซ้ำไว้ในเทสต์เอง เพื่อผูกเทสต์นี้เข้ากับ
+   * ประกาศจริงของสคีมา — วันที่มีคนเพิ่มค่า audience ตัวที่สามเข้าไปใน `enum` เทสต์ข้อนี้จะเดิน
+   * ทดสอบค่าใหม่นั้นเองโดยไม่ต้องมีใครมาแก้ไฟล์เทสต์เพิ่ม ถ้า `audienceOrAll` ยังไม่รู้จักค่านั้น
+   * (เช่นเพราะยังเขียนเช็คแบบฮาร์ดโค้ดอยู่) เทสต์นี้จะแดงเอง
+   */
+  const declaredAudienceValues = richMenu.schema.attributes['audience']?.enum ?? []
+
+  it('enum ของ audience ต้องประกาศไว้จริง ไม่ใช่ชุดว่าง — กันเทสต์ข้างล่างเขียวเปล่าเพราะไม่มีอะไรให้วน', () => {
+    expect(declaredAudienceValues.length).toBeGreaterThan(0)
+  })
+
+  it.each(declaredAudienceValues)(
+    "ค่าที่ประกาศไว้ใน enum ('%s') ต้องรอดผ่าน audienceOrAll มาไม่เปลี่ยน",
+    async (value) => {
+      const { strapi } = fakeStrapi({ findOne: legacyEntity(value) })
+      expect((await createMenuRepo(strapi).findOne('7'))!.audience).toBe(value)
+    },
+  )
+
+  // ตั้งชื่อเคสนี้ไว้ตรง ๆ ตามที่ finding ข้อ 2 ขอ — เดิม toMatchObject ในเทสต์อื่นของไฟล์นี้
+  // (บรรทัด ~209) ไม่ได้ใส่ audience ไว้ในอ็อบเจกต์ที่เทียบเลย จึงไม่ได้พิสูจน์อะไรเกี่ยวกับ
+  // undefined เลยสักนิด
+  it("audience ที่เป็น undefined อ่านออกมาเป็น 'all' เหมือน null", async () => {
+    const { strapi } = fakeStrapi({ findOne: legacyEntity(undefined) })
+    expect((await createMenuRepo(strapi).findOne('7'))!.audience).toBe('all')
+  })
+
+  // ตัวแทนของแถวที่มาจาก restore/dump เก่า/เครื่องมืออื่นที่เขียนตารางตรง ๆ — Strapi ไม่สร้าง CHECK
+  // constraint ให้คอลัมน์ enumeration เลย คอลัมน์นี้จึงรับสตริงอะไรก็ได้จริง ๆ ไม่ใช่แค่ทางทฤษฎี
+  it("สตริงที่ไม่ใช่ enum เช่น 'Members' ต้องกลายเป็น 'all' ไม่ใช่เดินทะลุ cast ที่ไม่ได้เช็ค", async () => {
+    const { strapi } = fakeStrapi({ findOne: legacyEntity('Members') })
+    expect((await createMenuRepo(strapi).findOne('7'))!.audience).toBe('all')
+  })
+})
+
+/**
+ * Task 16 fix round 2 — พิสูจน์ว่า fallback ตอนอ่าน `enum` ของ `audience` จากสคีมาไม่ได้เลย
+ * (attribute หายไปทั้งตัว หรือมีอยู่แต่ไม่มี `enum`) ไม่ทำให้ `'members'` ถูกปฏิเสธเงียบ ๆ เหมือนที่
+ * `?? []` เดิมเคยทำ — ครอบ `audienceValuesOf` ตรง ๆ ไม่ผ่าน `createMenuRepo`/`fakeStrapi` เพราะ
+ * `AUDIENCE_VALUES` ระดับโมดูลใน repo.ts ผูกกับ `richMenu.schema` จริงตายตัวตั้งแต่โหลดไฟล์ —
+ * ไม่มีทางสับเปลี่ยนสคีมาที่ `createMenuRepo` เห็นได้จากเทสต์เลย `audienceValuesOf` ที่ export
+ * มาคือจุดเดียวที่ยัดสคีมาปลอมเข้าไปพิสูจน์เส้นทาง fallback ได้จริง
+ *
+ * `audienceOrAllUsing` จำลองตรรกะของ `audienceOrAll` ใน repo.ts ทุกตัวอักษร (`typeof value ===
+ * 'string' && values.includes(value) ? value : 'all'`) — ใช้ผลลัพธ์จริงจาก `audienceValuesOf`
+ * ไม่ใช่ชุดค่าที่เทสต์เขียนเองแยกต่างหาก เพื่อพิสูจน์ว่าเส้นทางที่ `audienceOrAll` จริงจะเดินเมื่อ
+ * สคีมาพังแบบนี้ ให้ผลลัพธ์แบบเดียวกับที่เทสต์นี้ตรวจ
+ */
+describe('audienceValuesOf — fallback ตอนอ่าน enum ของ audience จากสคีมาไม่ได้', () => {
+  const audienceOrAllUsing = (values: readonly RichMenuRow['audience'][], value: unknown) =>
+    typeof value === 'string' && values.includes(value as RichMenuRow['audience']) ? value : 'all'
+
+  it("สคีมาที่ไม่มี attribute 'audience' เลย ต้องยังให้ 'members' รอดผ่าน audienceOrAll ไม่ใช่กลายเป็นชุดว่าง", () => {
+    const schema: ContentTypeSchema = {
+      kind: 'collectionType',
+      collectionName: 'rich_menus',
+      info: { singularName: 'rich-menu', pluralName: 'rich-menus', displayName: 'Rich menu' },
+      attributes: { name: { type: 'string', required: true } },
+    }
+    const values = audienceValuesOf(schema)
+    expect(audienceOrAllUsing(values, 'members')).toBe('members')
+  })
+
+  it("attribute 'audience' ที่ไม่มี key 'enum' ต้องยังให้ 'members' รอดผ่าน audienceOrAll ไม่ใช่กลายเป็นชุดว่าง", () => {
+    const schema: ContentTypeSchema = {
+      kind: 'collectionType',
+      collectionName: 'rich_menus',
+      info: { singularName: 'rich-menu', pluralName: 'rich-menus', displayName: 'Rich menu' },
+      attributes: { audience: { type: 'enumeration', required: true, default: 'all' } },
+    }
+    const values = audienceValuesOf(schema)
+    expect(audienceOrAllUsing(values, 'members')).toBe('members')
+  })
+})
+
+/**
+ * (Task 19 item 3) ไดรเวอร์ของทั้งสอง Strapi คืน `null` เมื่อ id ที่ส่งไปไม่มีแถวอยู่แล้ว ไม่ throw
+ * — v4 `entityService.update` มี `if (!entityToUpdate) return null` ตั้งแต่ต้นฟังก์ชัน (ตรวจกับ
+ * `@strapi/strapi` ตัวจริงที่ติดตั้งอยู่) `null` ก้อนนั้นเคยเดินทางต่อเข้า `toRow` แล้วระเบิดเป็น
+ * TypeError ที่ `linkMemberChunk` แยกไม่ออกจากบั๊กจริง จนงาน enrolment ทั้งงานล้มเพราะสมาชิกหายไปคนเดียว
+ */
+describe('Repo.update เมื่อแถวหายไปแล้ว', () => {
+  function nullUpdateStrapi() {
+    const calls: string[] = []
+    const strapi = {
+      entityService: {
+        update: async (uid: string, id: number | string) => {
+          calls.push(`${uid}:${String(id)}`)
+          return null
+        },
+      },
+    } as unknown as StrapiV4
+    return { strapi, calls }
+  }
+
+  it('members: คืน RowVanishedError ที่มี code/rowId ไม่ใช่ TypeError จาก toRow', async () => {
+    const { strapi, calls } = nullUpdateStrapi()
+    const promise = createMemberRepo(strapi).update('11', { linkedRichMenuId: 'rm-1' })
+
+    await expect(promise).rejects.toBeInstanceOf(RowVanishedError)
+    await expect(promise).rejects.toMatchObject({ code: 'row_vanished', rowId: '11' })
+    // ยิงไปจริงก่อนแล้วค่อยล้ม ไม่ใช่ปฏิเสธตั้งแต่ยังไม่ได้เรียกไดรเวอร์
+    expect(calls).toEqual([`${UID.member}:11`])
+  })
+
+  it('menus: กติกาเดียวกัน — repo ทุกตัวใช้ define() ตัวเดียวกัน', async () => {
+    const { strapi } = nullUpdateStrapi()
+    await expect(createMenuRepo(strapi).update('7', { status: 'published' }))
+      .rejects.toBeInstanceOf(RowVanishedError)
   })
 })

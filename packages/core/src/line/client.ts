@@ -31,6 +31,15 @@ export interface AliasSummary {
   richMenuId: string
 }
 
+/**
+ * operation หนึ่งตัวใน POST /v2/bot/richmenu/batch — รูปตรงกับ union ที่ LINE ต้องการ
+ * `unlinkAll` ไม่มีฟิลด์อื่นเพราะเป็นคำสั่ง "เลิกผูกทุกเมนูของทุกคน" ไม่เจาะจง user
+ */
+export type BatchOperation =
+  | { type: 'link'; from: string; to: string }
+  | { type: 'unlink'; from: string }
+  | { type: 'unlinkAll' }
+
 interface RequestSpec {
   method: 'GET' | 'POST' | 'DELETE'
   url: string
@@ -50,6 +59,13 @@ export const DEFAULT_MAX_ATTEMPTS = 3
  * จึงหยุดรอที่ 60 วินาที แล้วปล่อยให้ typed error ขึ้นไปหาผู้เรียกแทนการนอนรอ
  */
 export const MAX_RETRY_AFTER_SECONDS = 60
+
+/**
+ * เพดานจำนวน userId ต่อคำขอ bulk link — มาจากโควตาจริงของ LINE (ดู spec 2026-08-22)
+ * แหล่งเดียวของเลขนี้ในทั้ง repo: enrolment routine (Task 2) import ค่านี้ไปใช้เป็นขนาด chunk แทนที่
+ * จะประกาศ 500 ซ้ำอีกที่ — เลขซ้ำสองที่คือจุดที่มันจะเพี้ยนกันวันหลัง
+ */
+export const MAX_BULK_USER_IDS = 500
 
 export class LineClient {
   readonly #token: string
@@ -158,6 +174,83 @@ export class LineClient {
 
   async linkToUser(userId: string, richMenuId: string): Promise<void> {
     await this.#send({ method: 'POST', url: endpoints.userRichMenu(this.#base, userId, richMenuId) })
+  }
+
+  /**
+   * LINE เองปฏิเสธคำขอเกิน 500 userId ด้วย 400 ที่ไม่บอกว่าเกิดจากอะไร — เช็คที่นี่ก่อนยิง
+   * เพราะจุดเรียกนี้จุดเดียวที่รู้ว่าเงื่อนไขที่ผิดคือจำนวน ไม่ใช่ payload อื่น
+   */
+  async bulkLink(richMenuId: string, userIds: readonly string[]): Promise<void> {
+    if (userIds.length > MAX_BULK_USER_IDS) {
+      throw new Error(`bulk link accepts at most ${MAX_BULK_USER_IDS} user ids`)
+    }
+    await this.#send({
+      method: 'POST',
+      url: endpoints.bulkLink(this.#base),
+      body: JSON.stringify({ richMenuId, userIds }),
+      contentType: 'application/json',
+    })
+  }
+
+  /** เพดานเดียวกับ bulkLink — LINE ระบุไว้ตรง ๆ ว่า bulk/unlink ก็รับสูงสุด 500 userId เท่ากัน */
+  async bulkUnlink(userIds: readonly string[]): Promise<void> {
+    if (userIds.length > MAX_BULK_USER_IDS) {
+      throw new Error(`bulk unlink accepts at most ${MAX_BULK_USER_IDS} user ids`)
+    }
+    await this.#send({
+      method: 'POST',
+      url: endpoints.bulkUnlink(this.#base),
+      body: JSON.stringify({ userIds }),
+      contentType: 'application/json',
+    })
+  }
+
+  async unlinkFromUser(userId: string): Promise<void> {
+    await this.#send({ method: 'DELETE', url: endpoints.userRichMenuLink(this.#base, userId) })
+  }
+
+  /** `null` = user นี้ยังไม่ได้ผูกกับเมนูไหนเลย (ยืมพฤติกรรมเดียวกับ getDefault/getAlias) */
+  async getUserRichMenu(userId: string): Promise<string | null> {
+    return this.#readRichMenuId(endpoints.userRichMenuLink(this.#base, userId))
+  }
+
+  async validateBatch(operations: BatchOperation[]): Promise<void> {
+    await this.#send({
+      method: 'POST',
+      url: endpoints.validateBatch(this.#base),
+      body: JSON.stringify({ operations }),
+      contentType: 'application/json',
+    })
+  }
+
+  /**
+   * batch จริงมีโควตาแค่ 3 คำขอ/ชั่วโมงต่อ account — resumeRequestKey ให้ปลอดภัยเวลาต้องยิงซ้ำ
+   * (เช่น timeout ไม่รู้ผล) โดยไม่เสียโควตาซ้ำสอง
+   *
+   * request id อ่านจาก response header `x-line-request-id` — **ไม่ใช่ข้อเท็จจริงที่ยืนยันแล้ว**
+   * LINE reference ของ POST .../richmenu/batch ไม่เคยบอกรูป response ตรง ๆ ว่า request id (ที่
+   * progress/batch ต้องใช้ไปโพล) มาจากไหน สิ่งที่มีคือ narrowcast progress API ตัวอื่นที่ LINE
+   * เอกสารไว้ชัดเจนว่าอ่าน request id จาก header เดียวกันนี้ — นี่คือการตีความที่มีหลักฐานสนับสนุน
+   * ดีที่สุดเท่าที่หาได้ ไม่ใช่สเปกที่ระบุตรงสำหรับ endpoint นี้
+   *
+   * เพราะไม่ verified: ผู้เรียกห้ามถือ progress เป็นเงื่อนไขความสำเร็จของ batch เอง — request id
+   * ที่เป็น null (header หายไป) ต้องแปลว่า "โพลไม่ได้" เท่านั้น ไม่ใช่ "batch ล้มเหลว" ปฏิบัติการที่ใช้
+   * batch (เช่น unlink-all ของ Task 12) ต้องถือว่าสำเร็จได้แม้อ่าน progress ไม่ได้เลย
+   */
+  async batchControl(operations: BatchOperation[], resumeRequestKey: string): Promise<string | null> {
+    const res = await this.#send({
+      method: 'POST',
+      url: endpoints.batch(this.#base),
+      body: JSON.stringify({ operations, resumeRequestKey }),
+      contentType: 'application/json',
+    })
+    return res.headers.get('x-line-request-id')
+  }
+
+  async batchProgress(requestId: string): Promise<'ongoing' | 'succeeded' | 'failed'> {
+    const res = await this.#send({ method: 'GET', url: endpoints.batchProgress(this.#base, requestId) })
+    const json = (await res.json()) as { phase: 'ongoing' | 'succeeded' | 'failed' }
+    return json.phase
   }
 
   async #send(spec: RequestSpec): Promise<Response> {

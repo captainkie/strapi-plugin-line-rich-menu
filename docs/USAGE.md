@@ -15,6 +15,7 @@ working install.
 - [Publish](#publish)
 - [Tabbed menus with aliases](#tabbed-menus-with-aliases)
 - [Scheduling](#scheduling)
+- [Two menus, two audiences](#two-menus-two-audiences)
 - [When LINE and Strapi disagree](#when-line-and-strapi-disagree)
 - [Troubleshooting](#troubleshooting)
 
@@ -160,6 +161,150 @@ curl -X POST https://your-strapi/line-rich-menu/schedules/tick \
 That route requires `publish` like every other route that touches LINE. It is not public, and
 calling it more often than necessary is harmless — jobs that are not due are skipped.
 
+## Two menus, two audiences
+
+Every menu has an **audience**: `all` or `members`. `all` is the default, and it is exactly what
+this plugin always did — whichever menu you set as the account default, by hand or through
+[Scheduling](#scheduling), is what everyone who opens the chat sees. `members` is for showing a
+*second*, different menu to a specific list of LINE users without touching that default. The
+current-menu card at the top of the rich menu list shows both at once — who "Everyone" is seeing
+right now and who "Members" is seeing — each read live from LINE rather than guessed from the
+database, so it can never disagree with what a user actually has open.
+
+### Setting a menu's audience
+
+**Audience** is a two-option field in the rich menu editor, in **Main settings** next to the title
+and the display period: **Everyone** or **Members**. New menus start on Everyone, so a members menu
+is always something you chose rather than something you ended up with. Opening an existing menu
+fills the field in from what that menu already is, so renaming it or swapping its image and pressing
+Save leaves the audience alone.
+
+Setting the field is not the same as switching the menu on. Audience is a *label* — what this menu
+is for. The [members toggle](#the-members-toggle) below is the *action* that makes it the menu your
+members actually hold. A menu on Everyone cannot be switched on at all; its toggle stays disabled
+and says so, rather than letting you press a button that is guaranteed to fail.
+
+If you drive the API directly instead, `POST`/`PUT /line-rich-menu/menus` accepts `audience` as
+`"all"` or `"members"`. Leaving the key out of the body means *unchanged* — never *reset to
+`all`* — so a partial update from a script cannot quietly demote a members menu.
+
+Menus that already existed before you upgraded to this version are set to Everyone once, on the
+first boot after the upgrade, and the plugin says how many it changed:
+
+```
+info: line-rich-menu: audience backfill updated 12 pre-existing rich menu row(s) to 'all'
+```
+
+Every boot after that reports `0`. The line is not a warning — it is there so "nothing needed
+repairing" and "the repair never ran" cannot look the same in your logs.
+
+#### Turning a live members menu back to Everyone
+
+Once a menu is switched on for members, changing its audience back to Everyone is refused with
+**409 `menu_active_for_members`**. It is not a bug to work around: a menu labelled Everyone while
+your members are still holding it is invisible on this screen — "active" for an Everyone menu is
+read from LINE's account default, not from the members pointer — so nothing would show you the real
+state, and there would be no way to switch it off from the UI either.
+
+**Turn the members toggle off first, then change the audience.** The plugin deliberately will not
+do that for you: switching the toggle off unlinks every member from the menu, and that is a decision
+about real people's chats, not a detail to be inferred from an edit to a form field.
+
+#### The other things a members menu will not do
+
+Same rule, same remedy, in four more places:
+
+- **A members menu is never made the account default.** The account default is what every follower
+  sees, not what members see. Pressing **Save and publish** on a Members menu publishes it without
+  touching the default — that is what makes it available to the toggle — and asking for the default
+  explicitly (through the API) is refused with `menu_not_all_audience`.
+- **A menu that is switched on for members cannot be published again.** LINE issues a *new* rich
+  menu id every time you publish, and the old one is deleted, so republishing in place would drop
+  every member onto a menu that no longer exists while the plugin still believed they held it.
+  Turn the toggle off, publish, turn it back on. Everyone has to be re-linked either way; this just
+  makes that visible rather than silent.
+- **A menu that is switched on for members cannot be deleted.** Turning it off is what releases it.
+- **A menu that has been published cannot be moved to another channel.** Its rich menu lives on the
+  original channel's LINE account, so the move would not mean anything.
+- **A menu set to Members cannot have a display period.** A display period is a scheduled account
+  default — it makes the menu everyone's menu at its start time — so it contradicts Members
+  directly. Use the toggle for members and the display period for Everyone menus.
+
+### Creating members
+
+**LINE member** is a content type you can see and edit in Content Manager — unlike every other
+content type this plugin defines, which stay hidden — because managing that list by hand is the
+whole feature: there is no webhook, no CSV import, and no separate REST endpoint of its own for
+adding people. Each row needs a **channel** and a **LINE user ID**. The channel is required, not
+just convenient: a LINE user ID is scoped to one Official Account, so the same person following two
+of your channels holds two different, unrelated IDs — a member row with no channel would be an ID
+nobody could resolve back to an account.
+
+Add a member while that channel's members menu is already switched on, and the plugin links that
+one person to LINE immediately, inside the same save — it does not wait for the background job
+described next. Delete a member who was linked, and the plugin unlinks them the same way. Both are
+best-effort: a LINE failure here is logged and written to the audit trail rather than blocking the
+edit, because Content Manager already told you the row saved successfully, and undoing that to
+match a failed LINE call would throw away work that already succeeded.
+
+### The members toggle
+
+Once a menu is published and its audience is `members`, its row in the rich menu list grows a
+working **Enable for members** toggle. Every row has one, but it stays disabled until the menu is
+both published and set to Members, because activating it in any other state answers with an error
+the plugin already knows is coming; a menu on Everyone says as much in a line under its toggle.
+Turning it on asks how many members are on file for that channel,
+shows you the number so you know what you are about to do, and — once you confirm — links every one
+of them to the menu; LINE's own default for everyone else is left untouched. Turning it off unlinks
+everyone currently held to that menu.
+
+Linking goes through LINE's bulk-link endpoint, which accepts at most 500 user IDs per request, so
+turning the toggle on for a channel with more members than that runs as a background job, 500 at a
+time, rather than inside the request that pressed the toggle — a channel with fifty thousand members
+would otherwise mean a hundred LINE calls and ten thousand row updates inside one HTTP request,
+which is exactly what a proxy timeout or a mid-deploy restart cuts off part way through. That job
+remembers where it stopped: each chunk's position is saved before the next one starts, so if LINE
+hard-fails partway through — a real error, not a timeout — the job stops and waits for you to press
+the toggle again to resume from that point, rather than silently retrying forever or starting over
+from the first member. Turning the toggle off does not need the same bookkeeping, because its job
+draws from "everyone still holding this menu," a set that shrinks by itself every time a chunk
+succeeds — re-running it after a crash just continues, by definition, with nothing to remember in
+between.
+
+### "Sent," not "delivered"
+
+Every place this feature reports on an action — the toggle above, and **Unlink everyone** below —
+says the command was **sent**, never that it was delivered or applied. That word choice is
+deliberate, not vague: LINE's bulk-link and bulk-unlink calls both answer with an empty `202` the
+instant they accept the request, and there is no way to ask afterwards whether any given user
+actually received the change. Saying "delivered" would be reporting something this plugin has no
+way to check.
+
+You can check one member at a time, though, from outside Content Manager: `GET /members/:id/verify`
+calls LINE's `GET /v2/bot/user/{userId}/richmenu` for that person and returns which menu LINE says
+they are currently holding. There is no button for this anywhere in the admin — Content Manager's
+generic screen is the only UI this feature has for members (see
+[Creating members](#creating-members) above) — so reaching this endpoint means calling it directly,
+with the `publish` permission. It is a spot check rather than a report, because that endpoint only
+ever answers for one user per call — there is no bulk version of *reading back* what happened, only
+of asking LINE to make it happen.
+
+### Unlink everyone, at most three times an hour
+
+The toggle's off switch only reaches people the plugin's own member rows still point at. If a row
+went missing some other way — LINE was unreachable when someone unfollowed and the record never
+caught up, or a person was linked to this menu before this feature existed — that job has nothing
+left to find them by. **Unlink everyone**, on the rich menu list, reaches past the plugin's own
+records entirely and asks LINE directly to drop this one menu from every user still holding it,
+known to this plugin or not.
+
+That directness has a cost. It goes through `POST /v2/bot/richmenu/batch`, which LINE caps at
+**three requests per hour, per account** — not per menu, not per plugin instance. A fourth attempt
+inside the same hour fails, reported the same generic way as any other failure here, without
+repeating LINE's reason back to you — so if you have pressed this three times in the last hour, the
+fix is to wait for the hour to turn over, not to keep retrying. It is meant to be a rare maintenance
+action, which is why the confirmation dialog spells the limit out before you spend one of the three.
+
 ## When LINE and Strapi disagree
 
 They will, eventually: someone deletes a menu in LINE's own console, a publish dies at exactly the
@@ -178,6 +323,36 @@ Reconcile only reads, apart from the delete you explicitly press. Requires `publ
 **"Could not save" with no field marked.** The server rejected the whole payload. Every field-level
 problem marks its own field, so a bare toast means the shape was wrong — usually a menu with no
 areas at all.
+
+**"Could not save" on a menu you have not touched since upgrading**, with the audience field
+marked. The one-time repair described under
+[Setting a menu's audience](#setting-a-menus-audience) did not finish — look for
+`line-rich-menu: audience backfill failed` in the boot log, which names the cause. Boot is never
+blocked by it, and the next boot tries again. To unblock a single menu in the meantime, pick either
+Audience option in the editor and save; that writes a real value and the menu is healthy from then
+on.
+
+**"Could not save" on a menu that is switched on for members.** If the only thing you changed was
+the audience — Members back to Everyone — the server refused it with `menu_active_for_members`,
+because that menu is still the one your members are holding. Turn its **Enable for members** toggle
+off first, then change the audience. See
+[Turning a live members menu back to Everyone](#turning-a-live-members-menu-back-to-everyone).
+
+**"Could not save" on a Members menu with a start or end date filled in.** Refused with
+`menu_display_period_not_allowed`: a display period is a scheduled account default, which would push
+the menu to every follower at its start time. Clear both dates, or set the audience to Everyone.
+
+**"Could not publish" on a menu whose toggle is on.** Refused with `menu_active_for_members`.
+Publishing creates a new rich menu on LINE and deletes the old one, so your members would be left
+holding something that no longer exists. Turn the toggle off, publish, turn it back on.
+
+**"Could not delete" a menu whose toggle is on.** Same refusal, same fix — turn the toggle off
+first. See [The other things a members menu will not do](#the-other-things-a-members-menu-will-not-do).
+
+**The members toggle is greyed out.** It needs both things: the menu must be published, and its
+audience must be **Members**. If the audience is the problem, a line under the toggle says so; if
+there is no such line, the menu has not been published yet — or its audience is still loading, or
+that read failed; both leave the line absent too.
 
 **A blank title.** Title is required on every save path including drafts. It is not filled in for
 you, because a database full of "Untitled" is worse than being asked once.

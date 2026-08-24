@@ -133,6 +133,38 @@ describe('menuInputSchema', () => {
       })).not.toThrow()
     })
   })
+
+  /**
+   * Task 13 fix round 4 (task-13-findings-3.md) — the schema half of the guard whose acceptance
+   * half lives in examples/v5-app/tests/acceptance.spec.ts (audience สมาชิก). Reverting
+   * `menuInputSchema` alone (re-adding `.default('all')`) brings the whole Critical back even with
+   * `saveMenu`'s conditional-spread fix untouched: zod would turn "absent" into `'all'` *before*
+   * `saveMenu` ever sees `input.audience === undefined`, so the round-3 unit test in
+   * menu-write.test.ts — which calls `saveMenu` directly and never runs zod — cannot catch it.
+   *
+   * Assert the key is absent, not `=== undefined`. Both forms actually go red under the mutation
+   * below: `saveMenu`'s spread omits the key entirely rather than writing `undefined`, and
+   * `repo.ts` guards `patch.audience !== undefined` a second time, so `{audience: undefined}` and
+   * `{}` reach the database identically. `in` is preferred because it states the contract itself —
+   * zod must not synthesise the key at all — rather than passing by accident of two downstream
+   * guards that a later refactor could remove.
+   * `menu` above never included an `audience` key — that omission is the whole point here.
+   *
+   * Task 14b item 1 changed *who* sends that shape, not whether it must keep working. The editor
+   * now has an Audience control and its PUT always carries `audience` (seeded from the row it
+   * loaded), so this body is no longer the editor's — it is every *other* caller: scripts,
+   * customer integrations, anything issuing a partial update. For them "absent" must still mean
+   * "unchanged", which is exactly what this test pins. The assertion is unchanged; only this
+   * sentence is, because leaving a comment that names the wrong caller is how the next person
+   * checking gets stopped by something false.
+   *
+   * Mutation check (required by task-13-findings-3.md): re-add `.default('all')` to
+   * `menuInputSchema` here, confirm this test goes RED, revert.
+   */
+  it('ไม่ส่ง audience มาเลย — คีย์นี้ต้องหายไปจากผลลัพธ์ ไม่ใช่ถูกเติมเป็น all', () => {
+    const parsed = menuInputSchema.parse(menu)
+    expect('audience' in parsed, 'zod ต้องไม่เติม audience ให้เอง — omitted แปลว่าไม่แก้').toBe(false)
+  })
 })
 
 describe('listQuerySchema', () => {

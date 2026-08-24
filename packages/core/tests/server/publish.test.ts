@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { LineNotFoundError, LineServerError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
 import {
-  MenuNotFoundError, MenuNotReadyError, PublishAlreadyRunningError, PublishRateLimitedError,
+  MenuActiveForMembersError, MenuNotAllAudienceError, MenuNotFoundError, MenuNotReadyError,
+  PublishAlreadyRunningError, PublishRateLimitedError,
 } from '../../src/server/errors.js'
 import { createRateLimiter } from '../../src/server/rate-limit.js'
 import { reconcileChannel } from '../../src/server/menu-ops.js'
@@ -23,7 +24,7 @@ function menuRow(overrides: Partial<RichMenuRow> = {}): RichMenuRow {
     normalizedFileId: 900, normalizedMime: 'image/jpeg',
     normalizedSize: { width: 2500, height: 1686 },
     aliasId: null, status: 'draft', lineRichMenuId: null, publishedAt: null, lastError: null,
-    updatedAt: '2026-08-20T00:00:00.000Z',
+    updatedAt: '2026-08-20T00:00:00.000Z', audience: 'all',
     ...overrides,
   }
 }
@@ -191,7 +192,7 @@ describe('publishMenu — เส้นทางที่สำเร็จ', () 
     const menus = menuRepo([menuRow({ aliasId: 'tab-a' })])
     const { deps: d } = deps(line, menus)
 
-    await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })
+    await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true, memberRichMenuId: null })
 
     expect(line.calls).toEqual(['validate', 'create', 'upload', 'createAlias', 'setDefault'])
   })
@@ -207,7 +208,7 @@ describe('publishMenu — เส้นทางที่สำเร็จ', () 
     }
     const { deps: d } = deps(line, menus)
 
-    await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })
+    await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })
 
     expect(seenAtUpload).toEqual(['richmenu-new-1'])
   })
@@ -218,7 +219,7 @@ describe('publishMenu — เส้นทางที่สำเร็จ', () 
     const menus = menuRepo([menuRow({ lineRichMenuId: 'richmenu-old' })])
     const { deps: d } = deps(line, menus)
 
-    const outcome = await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })
+    const outcome = await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })
 
     expect(outcome.status).toBe('published')
     expect(menus.rows[0]!.status).toBe('published')
@@ -230,7 +231,7 @@ describe('publishMenu — เส้นทางที่สำเร็จ', () 
     const menus = menuRepo([menuRow()])
     const { deps: d } = deps(line, menus)
 
-    await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })
+    await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })
 
     expect((d.store as { write: ReturnType<typeof vi.fn> }).write).not.toHaveBeenCalled()
   })
@@ -240,7 +241,7 @@ describe('publishMenu — เส้นทางที่สำเร็จ', () 
     const menus = menuRepo([menuRow()])
     const { deps: d, audit } = deps(line, menus)
 
-    await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })
+    await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })
 
     expect(audit.rows).toHaveLength(1)
     expect(audit.rows[0]!.result).toBe('success')
@@ -251,6 +252,118 @@ describe('publishMenu — เส้นทางที่สำเร็จ', () 
   })
 })
 
+/**
+ * ===================== Task 17 — ด่านของ publish ที่รักษาสมการสามฝ่าย =====================
+ *
+ * `audience` ของเมนู, `channel.memberRichMenuId` และ `lineRichMenuId` ของเมนู ต้องตรงกันเสมอ
+ * publish เป็นทางที่ขยับสองในสามตัวนี้ได้พร้อมกันโดยไม่มีใครดูตัวที่สามเลย (final review BLOCKER + H1)
+ *
+ * ทุกเคสที่ปฏิเสธมี **คู่ที่ต้องผ่าน** อยู่ติดกันเสมอ — ต่างกันจุดเดียวคือจุดที่ผู้ใช้แก้ได้จริง
+ * ยามที่ปฏิเสธทุกอย่างผ่านเทสต์ครึ่งแรกได้เหมือนกัน และเคยเกิดมาแล้วจริงบนสาขานี้
+ */
+describe('publishMenu — audience กับ pointer ของ channel', () => {
+  it('setAsDefault: true บนเมนู audience: members ถูกปฏิเสธก่อนแตะ LINE', async () => {
+    const line = fakeLine()
+    const menus = menuRepo([menuRow({ audience: 'members' })])
+    const { deps: d, audit } = deps(line, menus)
+
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true, memberRichMenuId: null }))
+      .rejects.toBeInstanceOf(MenuNotAllAudienceError)
+
+    // ไม่แตะ LINE เลยสักคำสั่ง และแถวไม่ถูกเขียนเป็น 'publishing' ค้างไว้ — การปฏิเสธที่เกิดหลัง
+    // `create` ไปแล้วคือความเสียหายเดิมบวก exception ไม่ใช่การป้องกัน
+    expect(line.calls).toEqual([])
+    expect(menus.rows[0]!.status).toBe('draft')
+    expect(audit.rows).toHaveLength(0)
+  })
+
+  /**
+   * คู่ของเคสข้างบน — เมนูสมาชิกยัง publish ได้ตามปกติ แค่ไม่ตั้งเป็น default ของบัญชี
+   * นี่คือเส้นทางจริงของฟีเจอร์ทั้งฟีเจอร์: สวิตช์สมาชิกทำงานได้ก็ต่อเมื่อเมนู publish แล้วเท่านั้น
+   * ถ้าด่านข้างบนปฏิเสธ publish ของเมนูสมาชิกทั้งหมด ฟีเจอร์นี้จะไม่มีทางถูกเปิดใช้ได้เลย
+   */
+  it('เมนู audience: members publish ได้ตามปกติเมื่อไม่ขอตั้ง default', async () => {
+    const line = fakeLine()
+    const menus = menuRepo([menuRow({ audience: 'members' })])
+    const { deps: d } = deps(line, menus)
+
+    const outcome = await publishMenu(
+      d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })
+
+    expect(outcome.status).toBe('published')
+    expect(line.calls).toEqual(['validate', 'create', 'upload'])
+    expect(line.state.defaultId).toBe(null)
+  })
+
+  it('เมนู audience: all ตั้ง default ตอน publish ได้เหมือนเดิม', async () => {
+    const line = fakeLine()
+    const menus = menuRepo([menuRow({ audience: 'all' })])
+    const { deps: d } = deps(line, menus)
+
+    await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true, memberRichMenuId: null })
+
+    expect(line.state.defaultId).toBe('richmenu-new-1')
+  })
+
+  /**
+   * H1 — publish ซ้ำบนเมนูที่เป็นเมนูสมาชิกของ channel อยู่ตอนนี้
+   *
+   * `previousLineRichMenuId` ทำให้ plan() ต่อท้ายด้วย `deleteOld` เมนูเก่าที่สมาชิกทุกคนถืออยู่จึง
+   * ถูกลบทิ้งจริง ๆ ขณะที่ `channel.memberRichMenuId` ยังชี้ id เดิมที่ไม่มีอยู่แล้ว — เช็คว่าเมนู
+   * บน LINE **ยังอยู่ครบ** หลังถูกปฏิเสธ ไม่ใช่แค่ว่ามี exception
+   */
+  it('publish ซ้ำบนเมนูที่ pointer ของ channel ชี้อยู่ ถูกปฏิเสธ และเมนูเดิมบน LINE ยังอยู่', async () => {
+    const line = fakeLine({ defaultId: null })
+    line.state.menus.add('richmenu-live')
+    const menus = menuRepo([menuRow({ audience: 'members', status: 'published', lineRichMenuId: 'richmenu-live' })])
+    const { deps: d } = deps(line, menus)
+
+    await expect(publishMenu(
+      d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: 'richmenu-live' },
+    )).rejects.toBeInstanceOf(MenuActiveForMembersError)
+
+    expect(line.calls).toEqual([])
+    expect(line.state.menus.has('richmenu-live'),
+      'เมนูที่สมาชิกทุกคนถืออยู่ต้องยังอยู่บน LINE หลังคำขอถูกปฏิเสธ').toBe(true)
+    expect(menus.rows[0]!.lineRichMenuId).toBe('richmenu-live')
+  })
+
+  /**
+   * คู่ของเคสข้างบน — "ปิดสวิตช์สมาชิกก่อน" ที่ข้อความของ 409 บอกให้ทำ คือการล้าง pointer ตัวนี้
+   * พอดี หลังจากนั้น publish ซ้ำต้องทำได้จริง ไม่งั้นด่านข้างบนคือการล็อกเมนูสมาชิกไว้ตลอดกาล
+   * ห้ามแก้รูป ห้ามแก้ปุ่ม
+   */
+  it('ปิดสวิตช์แล้ว (pointer เป็น null) publish ซ้ำเมนูเดิมได้ตามปกติ', async () => {
+    const line = fakeLine({ defaultId: null })
+    line.state.menus.add('richmenu-live')
+    const menus = menuRepo([menuRow({ audience: 'members', status: 'published', lineRichMenuId: 'richmenu-live' })])
+    const { deps: d } = deps(line, menus)
+
+    const outcome = await publishMenu(
+      d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })
+
+    expect(outcome.status).toBe('published')
+    expect(line.calls).toEqual(['validate', 'create', 'upload', 'deleteRichMenu'])
+    expect(menus.rows[0]!.lineRichMenuId).toBe('richmenu-new-1')
+  })
+
+  /**
+   * pointer ชี้เมนูสมาชิก **ตัวอื่น** ของ channel เดียวกัน — เมนูนี้ไม่ใช่ตัวที่ใครถืออยู่ publish
+   * ซ้ำได้ตามปกติ ถ้าด่านนี้ดูแค่ "channel มีเมนูสมาชิกอยู่ไหม" ทุกเมนูใน channel นั้นจะ publish
+   * ไม่ได้เลยตลอดเวลาที่สวิตช์เปิดอยู่
+   */
+  it('pointer ชี้เมนูสมาชิกตัวอื่นอยู่ — เมนูนี้ publish ซ้ำได้', async () => {
+    const line = fakeLine({ defaultId: null })
+    const menus = menuRepo([menuRow({ status: 'published', lineRichMenuId: 'richmenu-mine' })])
+    const { deps: d } = deps(line, menus)
+
+    const outcome = await publishMenu(
+      d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: 'richmenu-somebody-else' })
+
+    expect(outcome.status).toBe('published')
+  })
+})
+
 describe('publishMenu — เส้นทางที่ล้ม', () => {
   it('อัปรูปล้ม → ลบเมนูที่เพิ่งสร้าง สถานะเป็น failed และมีแถว audit ที่ล้ม', async () => {
     const line = fakeLine()
@@ -258,7 +371,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow()])
     const { deps: d, audit } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false }))
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null }))
       .rejects.toBeInstanceOf(LineServerError)
 
     expect(line.state.menus.size).toBe(0)
@@ -277,7 +390,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow({ aliasId: 'tab-a' })])
     const { deps: d } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true, memberRichMenuId: null })).rejects.toThrow()
 
     expect(line.state.aliases.has('tab-a')).toBe(false)
     expect(line.state.menus.size).toBe(0)
@@ -289,7 +402,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow({ aliasId: 'tab-a' })])
     const { deps: d } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true, memberRichMenuId: null })).rejects.toThrow()
 
     expect(line.state.aliases.get('tab-a')).toBe('richmenu-previous')
   })
@@ -300,7 +413,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow({ lineRichMenuId: 'richmenu-old' })])
     const { deps: d } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true, memberRichMenuId: null })).rejects.toThrow()
 
     expect(line.state.defaultId).toBe('richmenu-old')
   })
@@ -309,7 +422,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const line = fakeLine()
     const { deps: d, audit } = deps(line, menuRepo([]))
 
-    await expect(publishMenu(d, { menuId: 'ไม่มีจริง', actorId: '3', setAsDefault: false }))
+    await expect(publishMenu(d, { menuId: 'ไม่มีจริง', actorId: '3', setAsDefault: false, memberRichMenuId: null }))
       .rejects.toBeInstanceOf(MenuNotFoundError)
 
     expect(line.calls).toEqual([])
@@ -321,7 +434,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow({ normalizedFileId: null, normalizedMime: null })])
     const { deps: d, audit } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false }))
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null }))
       .rejects.toBeInstanceOf(MenuNotReadyError)
 
     expect(line.calls).toEqual([])
@@ -340,7 +453,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow({ status: 'published', lineRichMenuId: 'richmenu-old' })])
     const { deps: d } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true, memberRichMenuId: null })).rejects.toThrow()
 
     expect(menus.rows[0]!.status).toBe('failed')
     expect(menus.rows[0]!.lineRichMenuId).toBe('richmenu-old')
@@ -360,7 +473,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow({ status: 'published', lineRichMenuId: 'richmenu-old' })])
     const { deps: d } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true, memberRichMenuId: null })).rejects.toThrow()
 
     const report = await reconcileChannel(d as never, { channelId: '10' })
     expect(report.orphans).toEqual([])
@@ -380,7 +493,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow({ status: 'published', lineRichMenuId: 'richmenu-old' })])
     const { deps: d, audit } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true, memberRichMenuId: null })).rejects.toThrow()
 
     // สิ่งที่ห้ามเกิดเด็ดขาด: default ชี้ id ที่ไม่มีอยู่ในชุดเมนูบน LINE
     expect(line.state.defaultId).toBe('richmenu-new-1')
@@ -409,7 +522,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow({ aliasId: 'tab-a', status: 'published', lineRichMenuId: 'richmenu-old' })])
     const { deps: d, audit } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })).rejects.toThrow()
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })).rejects.toThrow()
 
     // ไม่ได้เรียกร้องว่า alias ต้องกลับไปถูกที่ (การคืนค่าล้มไปแล้ว) แต่เรียกร้องว่าปลายทางของมัน
     // ต้องยังมีอยู่จริงบน LINE — alias ที่ชี้เมนูที่ถูกลบไปแล้วจะพัง `richmenuswitch` ของเมนู **อื่น**
@@ -431,7 +544,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow()])
     const { deps: d } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true, memberRichMenuId: null })).rejects.toThrow()
 
     expect(line.state.menus.size).toBe(0)
   })
@@ -447,7 +560,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow({ status: 'published', lineRichMenuId: 'richmenu-old' })])
     const { deps: d } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true })).rejects.toThrow()
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: true, memberRichMenuId: null })).rejects.toThrow()
 
     expect(line.state.defaultId).toBe('richmenu-old')
     expect(line.state.menus.has(line.state.defaultId!)).toBe(true)
@@ -464,7 +577,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow({ aliasId: 'tab-a' })])
     const { deps: d } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })).rejects.toThrow()
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })).rejects.toThrow()
 
     expect(line.state.aliases.has('tab-a')).toBe(false)
     expect(line.state.menus.size).toBe(0)
@@ -482,7 +595,7 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const menus = menuRepo([menuRow({ aliasId: 'tab-a' })])
     const { deps: d } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })).rejects.toThrow()
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })).rejects.toThrow()
 
     expect(line.calls).toContain('deleteAlias')
     expect(line.state.menus.size).toBe(0)
@@ -494,11 +607,11 @@ describe('publishMenu — เส้นทางที่ล้ม', () => {
     const { deps: d, audit } = deps(line, menus)
     d.limiter = createRateLimiter({ capacity: 1, refillPerMinute: 1 })
 
-    await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })
+    await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })
     line.calls.length = 0
     audit.rows.length = 0
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false }))
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null }))
       .rejects.toBeInstanceOf(PublishRateLimitedError)
 
     expect(line.calls).toEqual([])
@@ -519,7 +632,7 @@ describe('publishMenu — กันการ publish ซ้อนของเม
     const menus = menuRepo([menuRow({ status: 'publishing', updatedAt: '2026-08-20T23:59:00.000Z' })])
     const { deps: d, audit } = deps(line, menus)
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false }))
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null }))
       .rejects.toBeInstanceOf(PublishAlreadyRunningError)
 
     expect(line.calls).toEqual([])
@@ -534,7 +647,7 @@ describe('publishMenu — กันการ publish ซ้อนของเม
     const menus = menuRepo([menuRow({ status: 'publishing', updatedAt: '2026-08-20T00:00:00.000Z' })])
     const { deps: d } = deps(line, menus)
 
-    const outcome = await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })
+    const outcome = await publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })
 
     expect(outcome.status).toBe('published')
     expect(menus.rows[0]!.status).toBe('published')
@@ -556,13 +669,13 @@ describe('publishMenu — กันการ publish ซ้อนของเม
     const menus = menuRepo([menuRow({ updatedAt: '2026-08-20T23:59:30.000Z' })])
     const { deps: d } = deps(line, menus)
 
-    const first = publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false })
+    const first = publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null })
     // ไม่ใช้ sleep เดาเวลา — รอจนกว่า repo จะเห็นสถานะ publishing ที่ตัวแรกเขียนจริง ๆ ด้วย vi.waitFor
     await vi.waitFor(() => {
       if (menus.rows[0]!.status !== 'publishing') throw new Error('ยังไม่ถึงสถานะ publishing')
     })
 
-    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false }))
+    await expect(publishMenu(d, { menuId: '1', actorId: '3', setAsDefault: false, memberRichMenuId: null }))
       .rejects.toBeInstanceOf(PublishAlreadyRunningError)
     // ตัวที่สองต้องไม่แตะ LINE เลย — ตัวแรกยังค้างอยู่ที่ validate หนึ่งครั้งเท่านั้น
     expect(line.calls).toEqual([])
@@ -619,7 +732,7 @@ describe('property: ล้มที่ขั้นไหนก็ไม่ทิ
           })])
           const { deps: d } = deps(line, menus)
 
-          const failed = await publishMenu(d, { menuId: '1', actorId: null, setAsDefault: scenario.setAsDefault })
+          const failed = await publishMenu(d, { menuId: '1', actorId: null, setAsDefault: scenario.setAsDefault, memberRichMenuId: null })
             .then(() => false, () => true)
 
           const after = {

@@ -18,6 +18,11 @@ export interface RichMenuDraft {
   title: string
   startAt: string
   endAt: string
+  /**
+   * Task 14b item 1 — เดินคู่กับ `MainSettingsValue.audience` (ดูคอมเมนต์เต็มที่นั่น) `MainSettings`
+   * เป็นเจ้าของช่องที่ผู้ใช้กด ส่วนที่นี่คือค่าที่ `onSave` ส่งต่อให้ adapter ใส่ลง body จริง
+   */
+  audience: 'all' | 'members'
   templateKey: string | null
   areas: ActionFormState[]
   bounds: Bounds[]
@@ -31,6 +36,9 @@ export function emptyDraft(): RichMenuDraft {
     title: '',
     startAt: '',
     endAt: '',
+    // เมนูใหม่เป็นของทุกคนโดย default — ค่าเดียวกับคอลัมน์ `audience` ของ content-type
+    // (`default: 'all'`) เมนูสมาชิกต้องเป็นการเลือกที่ตั้งใจเสมอ ไม่ใช่สิ่งที่ได้มาโดยไม่รู้ตัว
+    audience: 'all',
     templateKey: null,
     areas: [],
     bounds: [],
@@ -334,7 +342,9 @@ export function RichMenuEditor({ initial, aliasOptions, onSave, onCancel }: Rich
         {formError === null ? null : <ui.Alert variant="danger">{formError}</ui.Alert>}
 
         <MainSettings
-          value={{ title: draft.title, startAt: draft.startAt, endAt: draft.endAt }}
+          value={{
+            title: draft.title, startAt: draft.startAt, endAt: draft.endAt, audience: draft.audience,
+          }}
           onChange={(next) => setDraft((prev) => ({ ...prev, ...next }))}
           errors={mainErrors}
         />

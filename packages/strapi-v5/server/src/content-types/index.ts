@@ -1,4 +1,5 @@
 import { lineChannel } from './line-channel.js'
+import { lineMember } from './line-member.js'
 import { richMenu } from './rich-menu.js'
 import { richMenuAudit } from './rich-menu-audit.js'
 import { richMenuSchedule } from './rich-menu-schedule.js'
@@ -9,6 +10,7 @@ export const UID = {
   menu: 'plugin::line-rich-menu.rich-menu',
   schedule: 'plugin::line-rich-menu.rich-menu-schedule',
   audit: 'plugin::line-rich-menu.rich-menu-audit',
+  member: 'plugin::line-rich-menu.line-member',
 } as const
 
 export const contentTypes = {
@@ -16,4 +18,5 @@ export const contentTypes = {
   'rich-menu': richMenu,
   'rich-menu-schedule': richMenuSchedule,
   'rich-menu-audit': richMenuAudit,
+  'line-member': lineMember,
 }

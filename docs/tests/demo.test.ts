@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -213,15 +214,46 @@ describe('docs/DEMO.md', () => {
     expect(demoDoc).toMatch(/cf-ray/i)
   })
 
-  // ด่านเดิมเช็คชื่อลูกค้าชื่อเดียวในไฟล์เดียว แต่กฎที่มันยืนแทนกว้างกว่านั้น: repo นี้เป็น public
+  // ด่านเดิมเช็คชื่อลูกค้าชื่อเดียวในไฟล์เดียว แต่กฎที่มันยืนแทนกว้างกว่านั้นมาก: repo นี้เป็น public
   // ชื่อ service ภายในของใครก็ตามไม่ควรอยู่ในนี้ ไม่ว่าจะของลูกค้าหรือของผู้เผยแพร่เอง เพราะการ
-  // ประกาศว่ามี host อะไรอยู่บนโดเมนไหนบ้างคือการแจก reconnaissance ให้ฟรี ๆ — เคยหลุดมาแล้ว
-  // ทั้ง DEMO.md, render.yaml, entrypoint และตัวไฟล์เทสต์นี้เอง จึงต้องกวาดทุกไฟล์ ไม่ใช่ไฟล์เดียว
-  it('ไม่มีชื่อ infrastructure ส่วนตัวหลุดเข้ามาในไฟล์ไหนเลย', () => {
+  // ประกาศว่ามี host อะไรอยู่บนโดเมนไหนบ้างคือการแจก reconnaissance ให้ฟรี ๆ — เคยหลุดมาแล้วทั้ง
+  // DEMO.md, render.yaml, entrypoint และตัวไฟล์เทสต์นี้เอง จึงต้องกวาดทุกไฟล์ ไม่ใช่ไฟล์เดียว
+  //
+  // Task 20 item 1 (final-review-consolidated.md S1) — ด่านที่แก้ไว้ก่อนหน้านี้ "กวาดทุกไฟล์"
+  // ด้วยการต่อรายชื่อไฟล์ไว้เอง (Object.entries หกไฟล์ที่นี่ + สองไฟล์แยกที่ release.test.ts
+  // รวมแปดไฟล์) ซึ่งเป็นข้อบกพร่องแบบเดียวกับที่คอมเมนต์ข้างบนกำลังบ่นถึง แค่ตัวยาวขึ้น — พิสูจน์แล้ว
+  // โดยผู้ทวนโค้ด: เติมชื่อลูกค้าลงใน README.md กับ "portainer" ลงใน docs/USAGE.md (ทั้งคู่ไม่อยู่ใน
+  // รายชื่อแปดไฟล์นั้นเลย) แล้ว suite เดิมทั้งชุดผ่าน 72 ล้ม 0 — README.md ยิ่งสำคัญกว่าที่ตัวเลขความ
+  // รุนแรงบอก: .github/workflows/release.yml คัดลอกมันเข้า npm tarball ทั้งสองแพ็กเกจก่อน publish
+  // ทุกครั้ง ชื่อที่หลุดเข้าไปตรงนั้นจึงติดอยู่บนหน้า npmjs.com ถาวร ถอนไม่ได้ — gitleaks ไม่ครอบ
+  // ของประเภทนี้เพราะมันล่าความลับ ไม่ใช่ล่าชื่อ
+  //
+  // ด่านนี้จึงกวาด **ทุกไฟล์ที่ git track ไว้จริง** ผ่าน `git ls-files` แทนรายชื่อที่เลือกมือ — ไฟล์ใหม่
+  // ที่เพิ่มเข้า repo ถูกด่านนี้ครอบตั้งแต่วันที่ commit เข้ามา ไม่ต้องมีใครจำได้ว่าต้องมาแก้ด่านนี้ด้วย
+  it('ไม่มีชื่อ infrastructure ส่วนตัวหลุดเข้ามาในไฟล์ที่ track อยู่ไฟล์ไหนเลย (กวาดทั้ง repo)', () => {
     const forbidden = /roddonjai|autoflow|siteops|portainer|grafana/i
-    for (const [name, text] of Object.entries({ demoDoc, renderYaml, entrypoint, dockerfile, dockerignore, demoWorkflow })) {
-      expect(text, `${name} มีชื่อ infrastructure ส่วนตัวอยู่`).not.toMatch(forbidden)
-    }
+
+    // ยกเว้นแค่ไฟล์เดียว: ไฟล์นี้เอง — ซอร์สของด่านนี้ต้องมี pattern ข้างบนอยู่ตามตัวอักษร (และ
+    // ต้องพูดถึงชื่อต้องห้ามในคอมเมนต์อธิบายด้วย) ไม่ยกเว้นด้วยเหตุผลอื่นเลย
+    const SELF = 'docs/tests/demo.test.ts'
+
+    // ไฟล์ binary ที่ track ไว้ (โลโก้/สกรีนช็อตใต้ docs/assets, docs/screenshots) อ่านเป็น utf8
+    // ไม่ได้และไม่ใช่ที่ที่ชื่อ host จะหลุดไปอยู่ในรูปข้อความอ่านออกอยู่แล้ว — ข้ามด้วยนามสกุลไฟล์
+    // ไม่ใช่ด้วยชื่อไฟล์หรือโฟลเดอร์ เพื่อไม่ให้ต้องมาแก้ที่นี่ทุกครั้งที่มีคนเพิ่มไฟล์ binary ใหม่
+    const BINARY_EXT = /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf|eot|pdf)$/i
+
+    const tracked = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' })
+      .split('\n')
+      .map((f) => f.trim())
+      .filter(Boolean)
+      .filter((f) => f !== SELF && !BINARY_EXT.test(f))
+
+    // พิสูจน์ก่อนเชื่อผลลบว่า `git ls-files` เห็น repo จริง ไม่ใช่ cwd ผิดที่คืน [] เงียบ ๆ แล้ว
+    // ทำให้ loop ข้างล่างไม่รันเลยสักครั้งและด่านทั้งหมดเขียวลอย ๆ
+    expect(tracked.length, 'git ls-files ต้องคืนรายชื่อไฟล์จริงจาก repo ไม่ใช่ว่างเปล่า').toBeGreaterThan(100)
+
+    const offending = tracked.filter((path) => forbidden.test(readFileSync(`${root}${path}`, 'utf8')))
+    expect(offending, offending.join('\n')).toEqual([])
   })
 })
 

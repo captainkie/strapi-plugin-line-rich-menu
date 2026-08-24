@@ -2,12 +2,13 @@ import {
   LineClient, createAuditWriter, createChannelService, createRateLimiter,
   createScheduleLock, createScrubbedLogger, resolveEncryptionKey,
   type AuditWriter, type ChannelService, type ChannelWithSecrets, type ImageStore,
-  type KnexLike, type LoggerLike, type PluginConfig, type RateLimiter, type Repo,
+  type KnexLike, type LoggerLike, type MemberRow, type PluginConfig, type RateLimiter, type Repo,
   type RichMenuRow, type ScheduleLock, type ScheduleRow,
 } from '@fosivo/line-rich-menu-core'
 import { readConfig } from './config.js'
 import {
-  createAuditRepo, createChannelRepo, createImageStore, createMenuRepo, createScheduleRepo,
+  createAuditRepo, createChannelRepo, createImageStore, createMemberRepo, createMenuRepo,
+  createScheduleRepo,
 } from './repo.js'
 import type { StrapiV5 } from './strapi.js'
 
@@ -31,6 +32,7 @@ export interface Services {
   channels: ChannelService
   menus: Repo<RichMenuRow>
   schedules: Repo<ScheduleRow>
+  members: Repo<MemberRow>
   audit: AuditWriter
   limiter: RateLimiter
   store: ImageStore
@@ -72,6 +74,7 @@ export function getServices(strapi: StrapiV5): Services {
     channels: createChannelService({ repo: createChannelRepo(strapi), key }),
     menus: createMenuRepo(strapi),
     schedules: createScheduleRepo(strapi),
+    members: createMemberRepo(strapi),
     audit: createAuditWriter({ repo: createAuditRepo(strapi), logger }),
     limiter: createRateLimiter(config.publishRateLimit),
     store: createImageStore(strapi),

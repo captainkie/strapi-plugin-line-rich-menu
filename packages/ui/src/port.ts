@@ -53,7 +53,13 @@ export interface UIPrimitives {
    */
   RadioGroup: ComponentType<{ name: string; value: string; onChange: (value: string) => void; label?: string; children?: ReactNode }>
   Radio: ComponentType<{ value: string; children?: ReactNode }>
-  Toggle: ComponentType<{ name: string; checked: boolean; onChange: (checked: boolean) => void; label?: string }>
+  /**
+   * `disabled` เพิ่มเข้ามาโดย Task 11 — `AudienceToggle` ต้องปิดสวิตช์ระหว่างที่คำขอค้างอยู่ (กันกด
+   * ซ้ำสองครั้งพร้อมกัน) และตอนที่เมนูยังไม่ publish (`lineRichMenuId` เป็น null ให้ activate ไม่ได้
+   * อยู่แล้ว) ทั้ง DS v1 (`ToggleInput`) และ DS v2 (`Toggle` ซึ่ง extends `<input>` props) รับพร็อพ
+   * นี้อยู่แล้วจริง ๆ ที่ runtime (ตรวจจาก source ของทั้งคู่ ไม่ใช่แค่เดา) จึงแค่ส่งต่อตรง ๆ
+   */
+  Toggle: ComponentType<{ name: string; checked: boolean; onChange: (checked: boolean) => void; label?: string; disabled?: boolean }>
   Modal: ComponentType<{ open: boolean; onClose: () => void; title: string; footer?: ReactNode; children?: ReactNode }>
   /**
    * `variant` คุมแค่ขนาด/น้ำหนักตัวอักษร ส่วน `as` คือ element ที่ออกมาจริง — ต้องแยกกัน เพราะ

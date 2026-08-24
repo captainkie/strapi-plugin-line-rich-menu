@@ -13,11 +13,27 @@ const SENSITIVE_KEY = /(token|secret|authorization|password|credential)/i
  */
 const BEARER = /Bearer\s+[A-Za-z0-9._~+/=-]+/gi
 
+/**
+ * Task 20 item 5 (final-review-consolidated.md S5) — เผื่อ credential ที่ฝังอยู่ในสตริงรูปแบบ URL
+ * (`scheme://user:password@host`) ไม่ใช่แค่ Bearer token: error ของ driver ชั้นล่าง (เช่น knex/pg
+ * ตอน connection ล้ม) มักพก connection string เต็มมาในข้อความ error ตรง ๆ เป็นสตริงยาวก้อนเดียว
+ * ไม่ได้อยู่ใต้คีย์ไหนเลยที่ SENSITIVE_KEY จะจับได้ — measured ก่อนแก้: `scrub(new
+ * Error('connect ECONNREFUSED postgres://strapi:PW@host/db'))` คืนข้อความเดิมทั้งดุ้น
+ *
+ * เก็บ scheme กับ user ไว้ (เหมือน `Bearer` ที่เก็บคำว่า Bearer ไว้) ตัดเฉพาะ password ทิ้ง —
+ * ยังพอบอกได้ว่า error มาจาก connection ไหน โดยไม่หลุด credential ออกไป
+ */
+const URL_CREDENTIAL = /(:\/\/[^\s:@/]+):([^\s@]+)@/g
+
 /** ลึกเกินนี้แปลว่าเป็นโครงสร้างที่ไม่ได้ตั้งใจ log อยู่แล้ว ตัดทิ้งดีกว่าไล่ต่อ */
 const MAX_DEPTH = 8
 
 function walk(value: unknown, depth: number, seen: WeakSet<object>): unknown {
-  if (typeof value === 'string') return value.replace(BEARER, `Bearer ${REDACTED}`)
+  if (typeof value === 'string') {
+    return value
+      .replace(BEARER, `Bearer ${REDACTED}`)
+      .replace(URL_CREDENTIAL, (_match, schemeAndUser: string) => `${schemeAndUser}:${REDACTED}@`)
+  }
   if (value === null || typeof value !== 'object') return value
   if (depth >= MAX_DEPTH) return REDACTED
   if (seen.has(value)) return '[circular]'

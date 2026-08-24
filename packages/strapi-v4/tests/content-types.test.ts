@@ -5,9 +5,38 @@ import { contentTypes } from '../src/server/content-types/index.js'
 const RESERVED = ['id', 'createdAt', 'updatedAt', 'createdBy', 'updatedBy', 'publishedAt', 'localizations']
 
 describe('ทุก content type', () => {
-  it('มีครบสี่ตัวตามสเปก §7.1', () => {
+  it('มีครบห้าตัว — line-member เพิ่มเข้ามาใน Task 6', () => {
     expect(Object.keys(contentTypes).sort())
-      .toEqual(['line-channel', 'rich-menu', 'rich-menu-audit', 'rich-menu-schedule'])
+      .toEqual(['line-channel', 'line-member', 'rich-menu', 'rich-menu-audit', 'rich-menu-schedule'])
+  })
+
+  // line-member คือตัวเดียวที่เปิดให้เห็นใน Content Manager โดยตั้งใจ (การจัดการรายชื่อด้วยมือ
+  // คือทั้งหมดของฟีเจอร์นี้) — ต้องยืนยันว่ามันเป็น "ข้อยกเว้นตัวเดียว" ไม่ใช่แค่ "มี visible: true"
+  // เพราะถ้าเผลอเปิดตัวอื่นเพิ่มด้วย เทสต์ที่เช็คแค่ line-member เฉย ๆ จะจับไม่ได้เลย
+  it('line-member เป็นตัวเดียวในปลั๊กอินที่เปิดให้เห็นใน Content Manager', () => {
+    const visible = Object.entries(contentTypes)
+      .filter(([, entry]) => (entry.schema.pluginOptions?.['content-manager'] as { visible?: boolean } | undefined)?.visible === true)
+      .map(([key]) => key)
+    expect(visible).toEqual(['line-member'])
+    expect(contentTypes['line-member'].schema.pluginOptions?.['content-type-builder']).toEqual({ visible: false })
+  })
+
+  /**
+   * Task 20 item 3 (final-review-consolidated.md S3) — ด่านข้างบนกรองด้วย `.visible === true` เท่านั้น
+   * แปลว่าคีย์ `pluginOptions['content-manager']` ที่หายไปทั้งคีย์ (ไม่ใช่ `{ visible: false }` ตรง ๆ)
+   * ผ่านด่านนั้นไปเงียบ ๆ ทั้งที่ Strapi ถือว่าคีย์ที่หายไปแปลว่า **visible** ไม่ใช่ hidden — v5 มี
+   * assertion แบบนี้อยู่แล้ว (content-types.test.ts) แต่ v4 ไม่มี พิสูจน์แล้วโดยผู้ทวนโค้ด: ลบบรรทัด
+   * `pluginOptions` ออกจาก line-channel.ts ทำให้ v5 แดง แต่ v4 ยังเขียวอยู่ ทั้งที่ผลจริงคือ
+   * channelAccessToken/channelSecret ที่เข้ารหัสไว้กับ accessTokenLast4/channelId ของ line-channel
+   * จะโผล่ให้ admin คนไหนก็ตามที่มีสิทธิ์ content-manager (ไม่ใช่ settings ของปลั๊กอินนี้) เห็นได้ใน
+   * Content Manager ทันที ข้ามสิทธิ์ settings ไปเลย — เช็คทั้งก้อนด้วย toEqual ไม่ใช่แค่ `?.visible`
+   * เพื่อจับทั้งกรณี false ตรง ๆ และกรณีคีย์หายไปทั้งคีย์
+   */
+  it('ทุกตัวยกเว้น line-member ประกาศ pluginOptions ซ่อนจาก content manager ไว้ตรง ๆ (ไม่ใช่แค่ไม่ true)', () => {
+    for (const [key, definition] of Object.entries(contentTypes)) {
+      if (key === 'line-member') continue
+      expect(definition.schema.pluginOptions?.['content-manager'], key).toEqual({ visible: false })
+    }
   })
 
   it('ตรึงชื่อตารางไว้เอง ไม่ปล่อยให้ Strapi เดา', () => {
@@ -42,6 +71,10 @@ describe('line-channel', () => {
 
   it('channelId ห้ามซ้ำ', () => {
     expect(attributes['channelId']).toMatchObject({ type: 'string', required: true, unique: true })
+  })
+
+  it('memberRichMenuId เป็น string ธรรมดา ไม่ใช่ relation', () => {
+    expect(attributes['memberRichMenuId']).toMatchObject({ type: 'string' })
   })
 })
 
@@ -78,6 +111,12 @@ describe('rich-menu', () => {
     expect(attributes['aliasId']).toMatchObject({ type: 'string' })
     expect((attributes['aliasId'] as { unique?: boolean }).unique).toBeUndefined()
   })
+
+  it('มี audience แบบ enum required ที่ default เป็น all — เมนูเก่าที่ไม่เคยตั้งค่าต้องยังทำงานแบบเดิม', () => {
+    expect(attributes['audience']).toMatchObject({
+      type: 'enumeration', enum: ['all', 'members'], default: 'all', required: true,
+    })
+  })
 })
 
 describe('rich-menu-schedule', () => {
@@ -92,29 +131,66 @@ describe('rich-menu-schedule', () => {
     expect(attributes['lastError']).toMatchObject({ type: 'text' })
   })
 
-  it('op ตรงกับ ScheduleOp', () => {
+  it('op ตรงกับ ScheduleOp รวม link-members และ unlink-members', () => {
     expect(attributes['op']).toMatchObject({
-      type: 'enumeration', enum: ['set-default', 'clear-default', 'swap-alias'], required: true,
+      type: 'enumeration',
+      enum: ['set-default', 'clear-default', 'swap-alias', 'link-members', 'unlink-members'],
+      required: true,
     })
+  })
+
+  it('มีคอลัมน์ cursor สำหรับ keyset paging ของงาน link-members', () => {
+    expect(attributes['cursor']).toMatchObject({ type: 'string' })
+  })
+})
+
+describe('line-member', () => {
+  const attributes = contentTypes['line-member'].schema.attributes
+
+  it('channel เป็น relation required, lineUserId required, ที่เหลือ optional', () => {
+    expect(attributes['channel']).toMatchObject({
+      type: 'relation', relation: 'manyToOne', target: 'plugin::line-rich-menu.line-channel', required: true,
+    })
+    expect(attributes['lineUserId']).toMatchObject({ type: 'string', required: true })
+    for (const field of ['displayName', 'linkedRichMenuId', 'linkedAt']) {
+      expect(attributes[field]?.required, field).not.toBe(true)
+    }
+    expect(attributes['linkedAt']).toMatchObject({ type: 'datetime' })
   })
 })
 
 describe('rich-menu-audit', () => {
   const attributes = contentTypes['rich-menu-audit'].schema.attributes
 
-  it('เก็บผู้กระทำและของที่ถูกกระทำเป็นตัวเลข ไม่ใช่ relation — ประวัติต้องอยู่รอดหลังของถูกลบ', () => {
+  it('เก็บผู้กระทำและ channel เป็นตัวเลข ไม่ใช่ relation — ประวัติต้องอยู่รอดหลังของถูกลบ', () => {
     expect(attributes['actorId']).toMatchObject({ type: 'integer' })
     expect(attributes['channelId']).toMatchObject({ type: 'integer', required: true })
-    expect(attributes['richMenuId']).toMatchObject({ type: 'integer' })
     for (const key of Object.keys(attributes)) {
       expect((attributes[key] as { type: string }).type).not.toBe('relation')
     }
   })
 
-  it('action ครอบทั้งหกอย่างตามสเปก §11.5', () => {
+  // Task 10 — richMenuId เดิมเป็น integer เพราะตอนนั้นมีความหมายเดียว (id แถวเมนูของเราเอง)
+  // แต่ตอนนี้งานระดับสมาชิก (link-members/unlink-members) เก็บ id ฝั่ง LINE ซึ่งเป็นสตริง
+  // (ดูคอมเมนต์เต็มที่ AuditRow.richMenuId ใน core/server/types.ts) คอลัมน์ integer เดิมบังคับ
+  // `Number('line-rm-1')` ที่ repo.ts ได้ NaN แล้วโดน Strapi ปฏิเสธแถวเงียบ ๆ — อีกสาเหตุหนึ่ง
+  // (นอกจาก enum ที่ขาดหาย) ที่ทำให้ audit ของงานสมาชิกไม่เคยถูกบันทึกเลยตั้งแต่ Task 8
+  it('richMenuId เป็น string ไม่ใช่ integer — ต้องรองรับทั้ง id แถวเมนูของเราและ id ฝั่ง LINE', () => {
+    expect(attributes['richMenuId']).toMatchObject({ type: 'string' })
+  })
+
+  // Task 10 — enum เดิมมีแค่หกค่าตามสเปก §11.5 ขาดสองค่าของงานสมาชิก (link-members/unlink-members)
+  // ที่ Task 8 เพิ่มเข้า schedule op แล้วแต่ลืมเติมที่นี่ ทำให้ audit ของงานสมาชิกทุกแถวถูก Strapi
+  // ปฏิเสธแล้วหายไปเงียบ ๆ ผ่าน persistQuietly (ดู audit.ts) — เทสต์นี้ต้องครอบ AuditAction ของ
+  // core ทั้งเก้าค่า (Task 12 เพิ่ม 'unlink-all') ไม่ใช่แค่หกค่าเดิม ไม่งั้น regression แบบเดียวกัน
+  // จะไม่ถูกจับอีก
+  it('action ครอบทั้งเก้าอย่างของ AuditAction รวมสองงานสมาชิกและ unlink-all', () => {
     expect(attributes['action']).toMatchObject({
       type: 'enumeration',
-      enum: ['publish', 'set-default', 'clear-default', 'swap-alias', 'delete', 'channel-update'],
+      enum: [
+        'publish', 'set-default', 'clear-default', 'swap-alias', 'delete', 'channel-update',
+        'link-members', 'unlink-members', 'unlink-all',
+      ],
       required: true,
     })
   })

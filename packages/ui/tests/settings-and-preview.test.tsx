@@ -12,7 +12,7 @@ const wrap = (node: React.ReactNode) => render(<PortProvider value={port}>{node}
 const template = TEMPLATES['RICH_MENU_TEMPLATE_201']!
 
 describe('MainSettings', () => {
-  const value = { title: '', startAt: '', endAt: '' }
+  const value = { title: '', startAt: '', endAt: '', audience: 'all' as const }
 
   it('จำกัดชื่อไว้ 30 ตัว — คนละตัวกับ name ใน payload ที่ยอมได้ 300', () => {
     wrap(<MainSettings value={value} onChange={vi.fn()} />)
@@ -57,7 +57,7 @@ describe('MainSettings', () => {
   it('ค่า ISO ที่ตั้งไว้เดิมแยกกลับเป็นวันที่ + เวลาในสองช่องถูกต้อง ไม่ใช่ช่องว่างเปล่า', () => {
     wrap(
       <MainSettings
-        value={{ title: '', startAt: '2026-08-20T09:05:00.000Z', endAt: '' }}
+        value={{ ...value, startAt: '2026-08-20T09:05:00.000Z' }}
         onChange={vi.fn()}
       />,
     )
@@ -91,12 +91,63 @@ describe('MainSettings', () => {
     const onChange = vi.fn()
     wrap(
       <MainSettings
-        value={{ title: 'เมนู', startAt: '2026-08-20T00:00:00.000Z', endAt: '2026-08-26T23:59:00.000Z' }}
+        value={{ ...value, title: 'เมนู', startAt: '2026-08-20T00:00:00.000Z', endAt: '2026-08-26T23:59:00.000Z' }}
         onChange={onChange}
       />,
     )
     fireEvent.click(screen.getByTestId('clear-period'))
-    expect(onChange).toHaveBeenCalledWith({ title: 'เมนู', startAt: '', endAt: '' })
+    expect(onChange).toHaveBeenCalledWith({ ...value, title: 'เมนู', startAt: '', endAt: '' })
+  })
+
+  /**
+   * Task 14b item 1 — ก่อนหน้านี้ไม่มีอะไรใน `packages/ui/src` เขียน `audience` เลยสักจุด
+   * (Task 14 พบตอนเขียนคู่มือ: ทางเดียวที่จะได้เมนูสมาชิกคือ POST เองด้วยมือ) กลุ่มนี้จึงเป็น
+   * ทางเข้าเดียวของแนวคิดหลักของฟีเจอร์ทั้งอัน
+   *
+   * ต้องเป็น "กลุ่ม" ที่มีชื่อของตัวเองจริง ๆ (role=radiogroup ที่ accessible name ตรงกับ label)
+   * ไม่ใช่ radio สองตัวลอย ๆ — เหตุผลเดียวกับที่ `ChatBarSettings` ทดสอบเรื่องนี้ไว้ (ดู
+   * คอมเมนต์ที่ `UIPrimitives.RadioGroup` ใน port.ts): คนใช้ screen reader ต้องรู้ว่าตัวเลือก
+   * สองตัวนี้คู่กัน ไม่ใช่ได้ยินสวิตช์สองตัวที่ไม่รู้ว่าเกี่ยวอะไรกัน
+   */
+  describe('กลุ่มเป้าหมาย (Task 14b item 1)', () => {
+    it('เป็นกลุ่มที่มีชื่อของตัวเอง มีสองตัวเลือก — ทุกคน กับ สมาชิก', () => {
+      wrap(<MainSettings value={value} onChange={vi.fn()} />)
+      const group = screen.getByRole('radiogroup', { name: 'editor.audience' })
+      expect(within(group).getAllByRole('radio')).toHaveLength(2)
+      expect(within(group).getByLabelText('audience.all')).toBeInTheDocument()
+      expect(within(group).getByLabelText('audience.members')).toBeInTheDocument()
+    })
+
+    it('ตัวเลือกที่ตรงกับค่าปัจจุบันถูกติ๊กไว้ตัวเดียว ไม่ใช่ทุกตัวหรือไม่มีเลย', () => {
+      wrap(<MainSettings value={{ ...value, audience: 'members' }} onChange={vi.fn()} />)
+      expect(screen.getByLabelText('audience.members')).toBeChecked()
+      expect(screen.getByLabelText('audience.all')).not.toBeChecked()
+    })
+
+    // ยามหลักของงานนี้: ค่าที่ผู้ใช้เลือกต้องไหลออกไปทาง onChange จริง ไม่ใช่ radio ที่กดแล้วสวย
+    // แต่ไม่มีอะไรเกิดขึ้น (ซึ่งเป็นสิ่งที่จะได้ถ้า `set('audience', ...)` ไม่ถูกต่อไว้)
+    it('เลือก "สมาชิก" แล้วรายงาน audience: members กลับไป โดยไม่แตะฟิลด์อื่น', () => {
+      const onChange = vi.fn()
+      wrap(<MainSettings value={{ ...value, title: 'เมนู' }} onChange={onChange} />)
+      fireEvent.click(screen.getByLabelText('audience.members'))
+      expect(onChange).toHaveBeenCalledWith({ ...value, title: 'เมนู', audience: 'members' })
+    })
+
+    it('เลือกกลับมาที่ "ทุกคน" แล้วรายงาน audience: all', () => {
+      const onChange = vi.fn()
+      wrap(<MainSettings value={{ ...value, audience: 'members' }} onChange={onChange} />)
+      fireEvent.click(screen.getByLabelText('audience.all'))
+      expect(onChange).toHaveBeenCalledWith({ ...value, audience: 'all' })
+    })
+
+    // ปุ่ม clear ล้าง "ช่วงเวลาแสดงผล" ไม่ใช่ทั้งฟอร์ม — มันสร้าง object ใหม่จาก `...value` เอง
+    // (ไม่ผ่าน `set`) ฟิลด์ใหม่ทุกตัวจึงมีสิทธิ์หล่นหายตรงนี้โดยไม่มีอะไรเตือน
+    it('ปุ่ม clear ไม่แตะกลุ่มเป้าหมาย', () => {
+      const onChange = vi.fn()
+      wrap(<MainSettings value={{ ...value, audience: 'members', startAt: '2026-08-20T00:00:00.000Z' }} onChange={onChange} />)
+      fireEvent.click(screen.getByTestId('clear-period'))
+      expect(onChange).toHaveBeenCalledWith({ ...value, audience: 'members', startAt: '', endAt: '' })
+    })
   })
 
   it('ส่ง error มาครบสามฟิลด์ ต้องขึ้นครบทั้งสาม ไม่ใช่แค่ title', () => {

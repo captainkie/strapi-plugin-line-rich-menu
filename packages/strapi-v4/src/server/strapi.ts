@@ -13,6 +13,72 @@ export interface StrapiLogger {
   error(...args: unknown[]): void
 }
 
+/**
+ * รูปทรงขั้นต่ำของ event ที่ `db.lifecycles` ส่งเข้า subscriber แต่ละตัว — v4 ใช้ `@strapi/database`
+ * ตัวเดียวกับ v5 เป๊ะ (`db.lifecycles.subscribe` ไม่ใช่ของ v5 เท่านั้น) รูปทรง event จึงเหมือนกัน
+ * ทุกประการ ต่างแค่ว่า relation/primary key ที่อยู่ในนั้นเป็นเลข id ตัวเลขของ v4 ไม่ใช่ documentId
+ * ของ v5 — ไม่มีเอกสารระบุตรง ๆ ว่าที่ระดับนี้ (ก่อน entityService แนบ relation ให้) ค่าจะเป็น
+ * เลข id ดิบ, object ที่ populate แล้ว (`{id}`), หรือรูป `{connect:[...]}`/`{set:[...]}`
+ * ผู้เรียก (`lifecycles.ts`) ต้องเผื่อเองแทนที่จะเชื่อ type ที่แคบเกินจริง
+ *
+ * `state` คือช่องทางเดียวที่ `@strapi/database` มีไว้ให้ hook คู่ before/after ส่งของถึงกัน:
+ * provider เก็บ `event.state` ที่ hook ตัวหน้าตั้งไว้ลง Map ที่คีย์ด้วย subscriber แล้วส่งกลับ
+ * มาเป็น `event.state` ของ hook ตัวหลังในคำสั่งเดียวกัน (`createLifecyclesProvider` ของ 4.25.11
+ * ที่ติดตั้งอยู่จริง เหมือน 5.x บรรทัดต่อบรรทัด) Map ใบนั้นเกิดใหม่ต่อหนึ่งคำสั่ง ค่าที่ฝากไว้จึง
+ * ถูกคีย์ด้วยตัวคำสั่งเองอยู่แล้ว การลบที่วิ่งพร้อมกันมองไม่เห็น state ของกันและกันโดยโครงสร้าง
+ */
+export interface LifecycleEvent {
+  params: { data?: Record<string, unknown>; where?: Record<string, unknown> }
+  result?: Record<string, unknown>
+  state?: Record<string, unknown>
+}
+
+/**
+ * Query Engine เท่าที่ adapter นี้ใช้จริง — v4 มี `strapi.db.query(uid)` ตัวเดียวกับ v5 เป๊ะ
+ * (`@strapi/database` แพ็กเกจเดียวกัน) แต่จนถึงตอนนี้ยังไม่มีใครในฝั่ง v4 ต้องใช้มันเลย
+ * ชั้น repo ทั้งชั้นเดินผ่าน `entityService` ซึ่งพูดทีละแถวเสมอ
+ *
+ * `updateMany` คืน `{ count }` จาก knex `.update()` ตรง ๆ ใน entity-manager — บน MySQL นั่นคือ
+ * `affectedRows` ซึ่งขึ้นกับ driver ว่านับ "แถวที่ตรง WHERE" หรือ "แถวที่ค่าจริงเปลี่ยน" (ยังไม่ได้
+ * วัดบน MySQL จริง ต่างจาก SQLite/PostgreSQL ที่วัดแล้วใน task-15-report.md) ตัวเลขที่
+ * `backfillLegacyAudience` (bootstrap.ts) log ถูกต้องอยู่ดีไม่ว่า driver จะนับแบบไหน เพราะคู่
+ * WHERE/SET ของคำสั่งนั้นเจาะจงเฉพาะ (`audience IS NULL` กับ `audience = 'all'`) ทำให้แถวที่ตรง
+ * เงื่อนไขเปลี่ยนค่าจริงทุกแถวเสมอ — "ตรง" กับ "เปลี่ยน" จึงเป็นตัวเลขเดียวกันสำหรับคำสั่งนี้โดย
+ * เฉพาะ ไม่ใช่เพราะ knex รับประกันคุณสมบัตินี้ทั่วไป
+ */
+export interface DbQuery {
+  updateMany(params: {
+    where: Record<string, unknown>
+    data: Record<string, unknown>
+  }): Promise<{ count: number }>
+  /**
+   * Task 19 item 1 — `beforeDeleteMany` ได้ `where` มาเป็น query ของ Query Engine ที่ยังไม่ถูกรัน
+   * (`{ $and: [{ id: { $in: [...] } }] }` เมื่อมาจาก Content Manager) ไม่ใช่แถวที่กำลังจะหาย และ
+   * `afterDeleteMany` ได้แค่ `{ count }` — ตัวเดียวที่แปล where เป็นแถวจริงได้คือชั้นนี้ เพราะ
+   * `entityService.findMany` พูดภาษา filters ของ REST ไม่ใช่ภาษา where ของ Query Engine
+   */
+  findMany(params: { where?: Record<string, unknown> }): Promise<Record<string, unknown>[]>
+}
+
+export type LifecycleSubscriber = {
+  models: string[]
+  beforeCreate?(event: LifecycleEvent): Promise<void>
+  beforeUpdate?(event: LifecycleEvent): Promise<void>
+  afterCreate?(event: LifecycleEvent): Promise<void>
+  beforeDelete?(event: LifecycleEvent): Promise<void>
+  afterDelete?(event: LifecycleEvent): Promise<void>
+  /**
+   * Task 19 item 1 — คู่ `*Many` **ไม่ใช่** ทางเลือกที่จะลงทะเบียนหรือไม่ก็ได้บน v4: การลบหลายแถว
+   * ผ่าน Content Manager (ติ๊กหลายแถวแล้วกด Delete) เดินทาง `entityService.deleteMany` →
+   * `db.query().deleteMany` ซึ่งยิงเฉพาะสองตัวนี้ ไม่เคยยิง `beforeDelete`/`afterDelete` เลยสักครั้ง
+   * (ตรวจกับ `@strapi/database` 4.25.11 ตัวจริงที่ติดตั้งอยู่: `deleteMany` เรียก
+   * `lifecycles.run('beforeDeleteMany'|'afterDeleteMany')` เท่านั้น) — subscriber ที่ลงแค่คู่เดี่ยว
+   * จึงปล่อยให้สมาชิกที่ถูกลบยกชุดถือเมนูค้างบน LINE ตลอดไปโดยไม่มี log สักบรรทัด
+   */
+  beforeDeleteMany?(event: LifecycleEvent): Promise<void>
+  afterDeleteMany?(event: LifecycleEvent): Promise<void>
+}
+
 export interface StrapiV4 {
   log: StrapiLogger
   config: { get<T>(path: string, defaultValue?: T): T }
@@ -24,7 +90,13 @@ export interface StrapiV4 {
     update(uid: string, id: number | string, params: { data: unknown }): Promise<unknown>
     delete(uid: string, id: number | string): Promise<unknown>
   }
-  db: { connection: unknown }
+  db: {
+    connection: unknown
+    /** Task 16 — `bootstrap.ts` ใช้ตัวนี้ backfill คอลัมน์ audience ของแถวที่มีมาก่อนคอลัมน์ */
+    query(uid: string): DbQuery
+    /** Task 8 — `lifecycles.ts` ใช้ตัวนี้ผูก link/unlink สมาชิกเข้ากับ create/delete ของ line-member */
+    lifecycles: { subscribe(subscriber: LifecycleSubscriber): void }
+  }
   admin: { services: { permission: { actionProvider: { registerMany(actions: unknown[]): Promise<void> } } } }
   cron: { add(jobs: Record<string, unknown>): void }
   /** ใช้อ่านไฟล์ของ upload provider แบบ local ที่คืน url สัมพัทธ์ */

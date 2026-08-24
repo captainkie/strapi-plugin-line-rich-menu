@@ -5,7 +5,8 @@
   Templates, a drag-and-drop canvas, multi-tab menus via aliases, scheduled display periods,
   and a publish path that cleans up after itself when
   <a href="https://developers.line.biz/en/docs/messaging-api/rich-menus-overview/">LINE</a>
-  says no. One plugin, <b>Strapi 4 and Strapi 5</b>.
+  says no. Menus can target everyone or just your LINE members, linked and unlinked for you in the
+  background. One plugin, <b>Strapi 4 and Strapi 5</b>.
 </p>
 
 <p align="center">
@@ -138,7 +139,7 @@ screens ever decrypts it.
 
 ## Known limits
 
-Five things worth knowing before you find them the hard way.
+Seven things worth knowing before you find them the hard way.
 
 **Images are normalised when you save, not when you publish.** A hard-to-compress image
 walks the whole size ladder through mozjpeg; several composed areas can together take
@@ -171,6 +172,19 @@ reopening a saved menu shows an empty image field even though the menu has an im
 without touching it keeps the existing image — unless you switch to a template with a
 different canvas size, which drops it, because it no longer fits. Nothing is lost silently;
 it just looks emptier than it is.
+
+**A members menu that is live refuses to be changed underneath its members.** While a menu
+is the one your members are holding, the plugin will not re-publish it, delete it, move it
+to another channel, or accept a display period for it — each answers `409` and tells you to
+turn the members toggle off first. That is not caution for its own sake: LINE issues a *new*
+rich menu id on every publish, so every member has to be re-linked regardless. Refusing makes
+that cost visible instead of destroying several thousand links behind a Save button.
+
+**Nobody can confirm a member actually received the menu.** LINE's bulk link endpoint answers
+`202` with an empty body and no request id, so the plugin says **sent**, never *delivered*,
+and timestamps the moment it sent. Enrolment runs in the background in chunks of 500, and
+`Unlink everyone` uses LINE's batch endpoint, which LINE limits to **three calls per hour per
+account**. Members themselves live in Content Manager — the plugin adds no member screens.
 
 ## Security
 

@@ -1,6 +1,6 @@
 {
   "name": "strapi-plugin-line-rich-menu-v4",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "LINE rich menu builder for Strapi 4.25.x — a bridge while you migrate to Strapi 5",
   "license": "Apache-2.0",
   "author": "Fosivo Labs Co., Ltd. <https://fosivo.com>",
@@ -66,6 +66,7 @@
     "@strapi/helper-plugin": "^4.25.0",
     "@strapi/icons": "^1.19.0",
     "@strapi/strapi": "^4.25.0",
+    "@strapi/utils": "^4.25.0",
     "react": "^17.0.0 || ^18.0.0",
     "react-dom": "^17.0.0 || ^18.0.0",
     "react-intl": "^6.4.1",
@@ -79,6 +80,7 @@
     "@strapi/design-system": "^1.19.0",
     "@strapi/helper-plugin": "^4.25.23",
     "@strapi/icons": "^1.19.0",
+    "@strapi/utils": "^4.26.2",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@types/react-router-dom": "^5.3.3",

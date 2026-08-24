@@ -163,6 +163,7 @@ declare module '@strapi/design-system' {
     label?: string
     onLabel: string
     offLabel: string
+    disabled?: boolean
   }>
 
   export const ModalLayout: ComponentType<{

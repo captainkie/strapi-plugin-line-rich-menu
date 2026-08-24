@@ -14,6 +14,25 @@ export const ENDPOINTS = {
   menu: (id: string) => `/line-rich-menu/menus/${id}`,
   menuPublish: (id: string) => `/line-rich-menu/menus/${id}/publish`,
   menuSetDefault: (id: string) => `/line-rich-menu/menus/${id}/default`,
+  // Task 11 — :id ของสองเส้นนี้คือ "เมนู" (สลับเมนูของสมาชิกให้ชี้มาที่แถวนี้) ส่วน channelAudience
+  // ใช้ :id ของ "channel" (บอกว่าตอนนี้ทุกคน/สมาชิกกำลังเห็นเมนูไหน) — คนละ resource กัน แม้ path
+  // จะขึ้นต้นด้วย "audience" เหมือนกันก็ตาม
+  menuAudienceActivate: (id: string) => `/line-rich-menu/menus/${id}/audience/activate`,
+  menuAudienceDeactivate: (id: string) => `/line-rich-menu/menus/${id}/audience/deactivate`,
+  /**
+   * Task 12 — การบำรุงรักษาที่ตั้งใจให้หายาก: ปลดทุกคนที่ LINE รู้ว่ายังถือเมนูนี้อยู่ ผ่าน
+   * POST /v2/bot/richmenu/batch (โควตา 3 ครั้ง/ชม./account) ต่างจาก deactivate ข้างบนที่ปลด
+   * เฉพาะคนที่แถว line-member ของเรายังอ้างถึง — :id คือ "เมนู" เหมือนสองเส้นข้างบน
+   */
+  menuAudienceUnlinkAll: (id: string) => `/line-rich-menu/menus/${id}/audience/unlink-all`,
+  /**
+   * `count: true` เป็น opt-in — `memberCount` มาจาก `findMany` ทั้งตารางฝั่งเซิร์ฟเวอร์ (ไม่มี
+   * `Repo.count()` ให้ใช้) endpoint นี้ถูกเรียกทุกครั้งที่เปิดหน้ารายการ (ผ่านทั้ง `CurrentMenuCard`
+   * และ `AudienceToggle` ทุกแถว) จึงส่ง `count` เฉพาะตอนที่ผลลัพธ์จะถูกใช้จริง คือตอนกล่องยืนยัน
+   * activate กำลังจะเปิด (Task 11 fix round 1) ไม่ใช่ทุกครั้งที่เรียกเพื่ออ่านแค่ default/memberRichMenuId
+   */
+  channelAudience: (id: string, opts?: { count?: boolean }) =>
+    `/line-rich-menu/channels/${id}/audience${opts?.count === true ? '?count=1' : ''}`,
   upload: '/upload',
 } as const
 
@@ -47,6 +66,33 @@ export interface RichMenuSummary {
   imageUrl: string | null
   startAt: string | null
   endAt: string | null
+  /** ใครควรเห็นเมนูนี้ — คอลัมน์ Audience ของหน้ารายการอ่านค่านี้ตรง ๆ (Task 11) */
+  audience: 'all' | 'members'
+  /**
+   * id ฝั่ง LINE ของเมนูนี้ (ไม่ใช่ id แถวของเรา) — `null` จนกว่าจะ publish สำเร็จครั้งแรก
+   * `CurrentMenuCard`/`AudienceToggle` เทียบค่านี้กับ `ChannelAudience.defaultRichMenuId`/
+   * `memberRichMenuId` เพื่อบอกว่าแถวนี้คือเมนูที่ "active" อยู่ตอนนี้หรือไม่ (Task 11 — สเปก
+   * "Active is derived, never stored" เทียบสด ไม่มีคอลัมน์ isActive เก็บไว้ที่ไหนเลย)
+   */
+  lineRichMenuId: string | null
+}
+
+/**
+ * ผลของ `GET /channels/:id/audience` (Task 9/10) — ใครกำลังเห็นเมนูไหนอยู่ ณ ตอนนี้จริง ๆ
+ * `defaultRichMenuId` มาจากการถาม LINE ตรง ๆ (`GET /v2/bot/user/all/richmenu`) ส่วน
+ * `memberRichMenuId` มาจาก `channel.memberRichMenuId` — ทั้งคู่เป็น id ฝั่ง LINE เหมือนกัน
+ * `null` แปลว่า "ยังไม่ได้ตั้ง" ทั้งคู่ ไม่ใช่ error
+ */
+export interface ChannelAudience {
+  defaultRichMenuId: string | null
+  memberRichMenuId: string | null
+  /**
+   * จำนวนแถว line-member ของ channel นี้ — กล่องยืนยันก่อน activate ใช้บอกว่าจะกระทบกี่คน
+   * `null` เมื่อไม่ได้ขอผ่าน `ENDPOINTS.channelAudience(id, { count: true })` (Task 11 fix
+   * round 1 — คำนวณแพงจาก `findMany` ทั้งตาราง เซิร์ฟเวอร์จึงข้ามให้เมื่อไม่มีใครขอ) ไม่ใช่ 0
+   * ซึ่งมีความหมายต่างกัน (0 = นับแล้วไม่มีใครเลย)
+   */
+  memberCount: number | null
 }
 
 export interface BotInfo {
