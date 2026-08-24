@@ -284,6 +284,44 @@ describe('toHttpError', () => {
 })
 
 /**
+ * คู่ขนานกับ describe ชื่อเดียวกันใน packages/strapi-v5/tests/controllers.test.ts (Task 20 item 6)
+ *
+ * `guard()` เดิมของ v4 ไม่ log อะไรเลยตอนจับ error — ทดสอบทั้งสองทาง: error ที่ไม่มี code จริง
+ * (บั๊กภายใน) ต้องถูก log และ error ที่มี code รู้จักแล้ว (ผู้ใช้ทำผิดเอง หรือ 404 ที่ controller
+ * ตั้งเองโดยไม่ throw เลย) ต้องไม่ถูก log — ไม่งั้น log จะเต็มไปด้วย "ปัญหา" ที่ไม่ใช่ปัญหาจริง
+ */
+describe('guard — 500 ถูก log ผ่าน scrubbed logger เสมอ ไม่ใช่กลืนเงียบ ๆ (Task 20 item 6)', () => {
+  // `fakeStrapi().strapi` ถูก cast เป็น `never` โดยตั้งใจ (ดูคอมเมนต์ที่ fakeStrapi) เพื่อให้ผ่านชนิด
+  // `StrapiV4` ทั้งก้อนโดยไม่ต้องประกาศ fake ให้ครบ — เทสต์อื่นในไฟล์นี้ไม่เคยอ่านค่ากลับจาก `strapi`
+  // เอง มีแต่ส่งต่อให้ controller เท่านั้น ที่นี่ต้อง cast กลับก่อนอ่าน `.log.error` ที่ mock ไว้จริง
+  const logOf = (strapi: unknown) => (strapi as { log: { error: ReturnType<typeof vi.fn> } }).log.error
+
+  it('error ที่ไม่มี code (บั๊กภายในจริง) ตอบ 500 และถูก log ผ่าน strapi.log.error', async () => {
+    const { strapi } = fakeStrapi()
+    const boom = new TypeError('cannot read properties of undefined')
+    // จำลองบั๊กภายในจริง — entityService.findOne เองพังก่อนจะได้คืนแถวด้วยซ้ำ
+    ;(strapi as unknown as { entityService: { findOne: () => never } }).entityService.findOne = () => { throw boom }
+
+    const context = ctx({ params: { id: '1' } })
+    await controllers.menus({ strapi }).findOne(context)
+
+    expect(context.status).toBe(500)
+    const logError = logOf(strapi)
+    expect(logError).toHaveBeenCalled()
+    expect(logError.mock.calls[0]?.[0]).toContain('unhandled error')
+  })
+
+  it('error ที่มี code รู้จักแล้ว (เช่น 404 menu_not_found) ไม่ถูก log — ไม่ใช่ความผิดปกติของเซิร์ฟเวอร์', async () => {
+    const { strapi } = fakeStrapi()
+    const context = ctx({ params: { id: '999' } })
+    await controllers.menus({ strapi }).findOne(context)
+
+    expect(context.status).toBe(404)
+    expect(logOf(strapi)).not.toHaveBeenCalled()
+  })
+})
+
+/**
  * คู่ขนานกับ describe ชื่อเดียวกันใน packages/strapi-v5/tests/controllers.test.ts
  *
  * ต้องมีทั้งสองฝั่ง ไม่ใช่ฝั่งเดียว: `toSummary` เป็นโค้ดคนละก้อนกันในสองอะแดปเตอร์ (คนละ

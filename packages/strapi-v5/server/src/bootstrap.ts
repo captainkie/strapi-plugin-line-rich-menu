@@ -41,9 +41,14 @@ export async function registerPermissions(strapi: StrapiV5): Promise<void> {
  * เรียก — คนที่กำลังไล่ว่าทำไมเมนูเก่ายังแก้ไม่ได้ ต้องอ่านจาก log ได้ว่ามันรันแล้วและเจอกี่แถว
  */
 export async function backfillLegacyAudience(strapi: StrapiV5): Promise<void> {
-  // scrub ทุก level ตามสเปก §11.2 — error ของ knex ที่หลุดออกมาจาก UPDATE พก config ของ connection
-  // (รวม password ของ Postgres) ติดมาด้วยได้ ไม่ผ่าน getServices เพราะตัวนั้นล้มได้เองตอนบูต
-  // (เช่นยังไม่ได้ตั้ง APP_KEYS) และการซ่อมข้อมูลต้องยังทำงานในสภาพนั้น
+  // scrub ตามสเปก §11.2 ผ่าน createScrubbedLogger — ครอบคีย์ที่ชื่อเข้าข่าย (token/secret/password/...),
+  // Bearer token ที่ฝังในสตริง, และ (Task 20 item 5) credential แบบ scheme://user:password@host ที่
+  // ฝังอยู่ในสตริง เช่น connection string ของ Postgres ที่ error ของ knex ตอน UPDATE ล้มมักพกมาด้วย
+  // ตรง ๆ ไม่ผ่านคีย์ไหนเลย — คอมเมนต์นี้เคยอ้างว่า scrub "จับ password ของ Postgres ได้" แบบเหมา ๆ
+  // ซึ่งไม่จริงก่อนแก้ scrub.ts (measured: scrub ของ error ที่มี DSN แบบนี้ฝังอยู่คืนข้อความเดิมทั้งดุ้น)
+  // แม้แก้แล้วก็ยังไม่ใช่การรับประกันว่า credential ทุกรูปแบบที่ error ชั้นล่างอาจพกมาจะถูกจับหมด —
+  // connection string แบบ key=value (เช่น `password=PW`) ยังไม่มีกฎจับ ไม่ผ่าน getServices เพราะตัวนั้น
+  // ล้มได้เองตอนบูต (เช่นยังไม่ได้ตั้ง APP_KEYS) และการซ่อมข้อมูลต้องยังทำงานในสภาพนั้น
   const logger = createScrubbedLogger(strapi.log)
   try {
     const { count } = await strapi.db.query(UID.menu).updateMany({

@@ -143,13 +143,12 @@ describe('ไม่มีไฟล์ .env* (นอกจาก .env.example) �
   })
 })
 
-describe('ไม่มีชื่อ infrastructure ส่วนตัวหลุดเข้ามาใน release workflow หรือ RELEASING.md', () => {
-  it('ทั้งสองไฟล์ไม่มีชื่อ service ภายในของใครเลย', () => {
-    const forbidden = /roddonjai|autoflow|siteops|portainer|grafana/i
-    expect(release).not.toMatch(forbidden)
-    expect(releasing).not.toMatch(forbidden)
-  })
-})
+// Task 20 item 1 (final-review-consolidated.md S1) — เดิมด่านนี้เช็คแค่สองไฟล์ (release.yml,
+// RELEASING.md) ด้วยรายชื่อที่เลือกมือเอง ซึ่งรวมกับหกไฟล์ที่ docs/tests/demo.test.ts เลือกมือ
+// เองอีกชุดหนึ่ง กลายเป็น "แปดไฟล์" ที่พิสูจน์แล้วว่าพลาด README.md กับ docs/USAGE.md ไปเงียบ ๆ
+// (ดูคอมเมนต์เต็มที่ demo.test.ts) ด่านตัวจริงที่กวาดทุกไฟล์ที่ git track ไว้ — รวมทั้งสองไฟล์นี้
+// ด้วย — ย้ายไปอยู่ที่เดียวใน docs/tests/demo.test.ts แล้ว ไม่ซ้ำที่นี่อีกเพราะการกวาดซ้ำสองด่าน
+// ด้วยรายชื่อไฟล์คนละชุดคือรูปแบบของบั๊กเดิมนั่นเอง
 
 describe('docs/RELEASING.md', () => {
   it('บอกว่าสองคำสั่งสุดท้ายเป็นของเจ้าของ', () => {

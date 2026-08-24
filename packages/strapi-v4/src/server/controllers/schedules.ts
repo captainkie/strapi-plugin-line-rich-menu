@@ -7,7 +7,7 @@ export const schedules = ({ strapi }: { strapi: StrapiV4 }) => ({
   // สเปก §10 — สำหรับคนที่รัน serverless หรือหลาย instance ให้ปิด scheduler.enabled
   // แล้วยิงเส้นนี้จากข้างนอกแทน ยังเป็น type: 'admin' เหมือนทุกเส้น (§11.4 ไม่มีข้อยกเว้น)
   // ผู้เรียกจากภายนอกจึงต้องใช้ admin API token
-  tick: guard(async (ctx) => {
+  tick: guard(strapi, async (ctx) => {
     ctx.body = await runTick(strapi, getServices(strapi))
   }),
 })

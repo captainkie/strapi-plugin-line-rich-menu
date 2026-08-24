@@ -83,7 +83,7 @@ async function enqueueUnlinkMembers(services: Services, menu: RichMenuRow): Prom
 }
 
 export const members = ({ strapi }: { strapi: StrapiV4 }) => {
-  const activateOrSync = guard(async (ctx) => {
+  const activateOrSync = guard(strapi, async (ctx) => {
     const services = getServices(strapi)
     const id = idParam.parse(ctx.params['id'])
     // เมนูที่ยังไม่เคย publish ไม่มี lineRichMenuId ให้ผูกสมาชิกด้วย — โยน MenuNotReadyError
@@ -109,7 +109,7 @@ export const members = ({ strapi }: { strapi: StrapiV4 }) => {
     activate: activateOrSync,
     sync: activateOrSync,
 
-    deactivate: guard(async (ctx) => {
+    deactivate: guard(strapi, async (ctx) => {
       const services = getServices(strapi)
       const id = idParam.parse(ctx.params['id'])
       const menu = await services.menus.findOne(id)
@@ -140,7 +140,7 @@ export const members = ({ strapi }: { strapi: StrapiV4 }) => {
       ctx.body = null
     }),
 
-    audience: guard(async (ctx) => {
+    audience: guard(strapi, async (ctx) => {
       const services = getServices(strapi)
       const id = idParam.parse(ctx.params['id'])
       const query = audienceQuerySchema.parse(ctx.query)
@@ -167,7 +167,7 @@ export const members = ({ strapi }: { strapi: StrapiV4 }) => {
      * ทำงานอยู่ในคำขอนี้เลย ไม่ผ่าน scheduler เหมือน deactivate — batch ของ LINE เป็นคำสั่งเดียว
      * ต่อเมนู ไม่ใช่งานที่ต้องแบ่ง chunk ตามจำนวนสมาชิกแบบ unlink-members
      */
-    unlinkAll: guard(async (ctx) => {
+    unlinkAll: guard(strapi, async (ctx) => {
       const services = getServices(strapi)
       const id = idParam.parse(ctx.params['id'])
       const menu = await services.menus.findOne(id)
@@ -182,7 +182,7 @@ export const members = ({ strapi }: { strapi: StrapiV4 }) => {
       ctx.body = null
     }),
 
-    verify: guard(async (ctx) => {
+    verify: guard(strapi, async (ctx) => {
       const services = getServices(strapi)
       const id = idParam.parse(ctx.params['id'])
       const member = await services.members.findOne(id)
