@@ -467,6 +467,8 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     pointerChecks: () => number
     /** ครั้งที่งานต่ออายุ claim ของตัวเอง — (scheduleId, owner) ที่ heartbeat ได้รับจริง */
     heartbeats: [string, string][]
+    /** แถว schedule ทั้งหมดหลัง tick จบ — รวมแถวใหม่ที่งานอาจตั้งเพิ่มเอง (review-19 M1) */
+    scheduleRows: ScheduleRow[]
   }> {
     const memberRows = membersFor(options.members)
     const memberRepo = memberRepoFor(memberRows)
@@ -575,6 +577,7 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
       heartbeats: lock.heartbeat.mock.calls as [string, string][],
       pointerChecks: () => pointerChecks,
       cursorPersisted: scheduleRows[0]!.cursor,
+      scheduleRows,
     }
   }
 
@@ -718,6 +721,24 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
       action: 'link-members', result: 'success', after: { linked: 500, complete: false },
     })
     expect(cursorPersisted).toBe('m00499')
+  })
+
+  /**
+   * (review-19 M1) ต่อจากเทสต์ข้างบนตรง ๆ — เดิมงาน link ที่หยุดกลางทางไม่ทิ้งอะไรไว้เก็บกวาดคน
+   * 500 คนที่ชุดแรกผูกไปแล้วก่อนจะรู้ตัวว่า pointer ขยับ (สมมติว่างานปลดของ deactivate เอง
+   * ระบายจนหมดไปแล้วก่อนชุดนี้จะเขียนสำเร็จ) ตอนนี้ต้องตั้งงาน 'unlink-members' แถวใหม่ไว้กวาด
+   * คนกลุ่มนั้นด้วยตัวเอง แทนที่จะพึ่งการกดปิดซ้ำของผู้ดูแลอย่างเดียว
+   */
+  it('(M1) หยุดกลางทางเพราะ pointer ขยับ → ตั้งงาน unlink-members แถวใหม่ไว้กวาดคนที่ผูกไปแล้ว', async () => {
+    const { scheduleRows } = await tickWith({
+      members: 1001, op: 'link-members', deactivateAfterChecks: 1,
+    })
+
+    const unlinkRows = scheduleRows.filter((row) => row.op === 'unlink-members')
+    expect(unlinkRows).toHaveLength(1)
+    expect(unlinkRows[0]).toMatchObject({
+      richMenuId: '1', state: 'pending', cursor: null, lockedBy: null,
+    })
   })
 
   it('กดปิดก่อนงานได้วิ่งชุดแรกเลย → ไม่ยิง LINE สักครั้ง และ audit บอกว่าไม่ครบ', async () => {

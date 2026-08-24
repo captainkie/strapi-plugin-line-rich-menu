@@ -238,15 +238,33 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
                 // ผูกคนที่เหลือต่อจาก cursor ของมันจนจบ ผลคือสมาชิกถือเมนูที่ channel ไม่ได้ชี้ไปแล้ว
                 // และไม่มีงานไหนตามเก็บ เพราะงานปลดจบไปก่อนที่คนกลุ่มนั้นจะถูกผูก
                 //
-                // หนึ่ง read ต่อชุด บนงานที่ยิง LINE อยู่แล้วหนึ่งครั้งต่อชุด — และเป็นการเช็คแบบเดียว
-                // ที่ **ปิด** ช่องนี้จริง ไม่ใช่ทำให้มันแคบลง (เช็คครั้งเดียวตอนเริ่มงานยังปล่อยให้
-                // ทุกชุดหลังจากนั้นวิ่งต่อหลังการกดปิด)
+                // หนึ่ง read ต่อชุด บนงานที่ยิง LINE อยู่แล้วหนึ่งครั้งต่อชุด
+                //
+                // (review-19 M1) เดิมคอมเมนต์ตรงนี้อ้างว่านี่คือเช็คแบบเดียวที่ **ปิด** ช่องนี้จริง
+                // ไม่ใช่ทำให้มันแคบลง — ไม่จริง: ระหว่างเช็คผ่านกับ `bulkLink` ของชุดเดียวกันยังมี
+                // await boundary อยู่ ถ้า deactivate แทรกเข้ามาพอดีช่วงนั้น (ล้าง pointer → retire →
+                // ตั้งงาน unlink-members → ระบายจนหมด) ชุดนี้จะผูกคนเพิ่มหลังการระบายเสร็จไปแล้วโดยไม่
+                // มีงานไหนตามเก็บ — เช็คนี้แค่ทำให้หน้าต่างนั้นแคบลงเหลือชุดเดียว ตัวที่ปิดหน้าต่างนั้น
+                // จริงคือการตั้งงาน unlink-members เพิ่มด้านล่าง (ทำตอนรู้ตัวว่า pointer ขยับแล้ว) —
+                // เหลือมุมเดียวที่ยังไม่ปิด: ถ้าชุดที่แข่งกับ deactivate ดันเป็น**ชุดสุดท้ายพอดี**
+                // (nextCursor เป็น null เอง จบงานตามปกติ ไม่ใช่เพราะ pointer ขยับ) ลูปจะไม่กลับมาเช็ค
+                // pointer อีกเลยเพราะมันจบไปแล้ว — ไม่มีงาน unlink-members สำรองให้ตรงนั้น ยังต้องพึ่ง
+                // การกดปิดซ้ำเหมือนก่อนแก้ (ดู task-19-report.md)
                 if (await deps.ops.memberRichMenuIdOf(menu.channelId) !== lineRichMenuId) {
                   complete = false
                   deps.logger.info(
                     'line-rich-menu: link-members stopped early because the channel no longer points at this menu',
                     { scheduleId: row.id, richMenuId: lineRichMenuId, channelId: menu.channelId, linked },
                   )
+                  // (review-19 M1) ตั้งงาน unlink-members อีกแถวไว้กวาดคนที่ชุดก่อนหน้านี้อาจผูกไป
+                  // แล้ว**หลัง**ที่งานปลดของ deactivate ระบายจนหมด (ดูคอมเมนต์ข้างบน) — sweep ของ
+                  // unlink-members เป็น idempotent และจบเองเมื่อไม่มีใครถือเมนูนี้แล้ว
+                  // (`unlinkMemberChunk` คืนชุดว่าง) ตั้งซ้ำแม้ deactivate เคยตั้งไปแล้วรอบหนึ่งจึงไม่มี
+                  // ต้นทุนเพิ่มนอกจากแถวหนึ่งที่จบด้วยชุดว่างทันทีถ้าไม่มีอะไรให้กวาดจริง
+                  await deps.schedules.create({
+                    richMenuId: menu.id, runAt: deps.now().toISOString(), op: 'unlink-members',
+                    state: 'pending', lockedBy: null, lockedAt: null, lastError: null, cursor: null,
+                  })
                   break
                 }
 
