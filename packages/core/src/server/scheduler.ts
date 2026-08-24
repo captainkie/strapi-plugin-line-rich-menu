@@ -134,15 +134,23 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
     /**
      * (Task 19 item 4) เรียกทุกจบ chunk ของงานที่วนหลายชุดในหนึ่ง `run()` — `false` แปลว่าแถวไม่ใช่
      * ของเราแล้ว (มีคนแย่งไปตอน TTL หมดก่อนที่ heartbeat ตัวแรกจะทัน) ซึ่งเป็นสภาพที่ไม่ควรเกิดขึ้น
-     * อีกเลยเมื่อมี heartbeat แล้ว จึง log ระดับ warn ไว้ให้มีคนมาดู — ไม่หยุดงานกลางคัน เพราะ
-     * `release` ของเรามีเงื่อนไข `lockedBy = owner` อยู่แล้ว จึงเขียนทับผลของเจ้าของใหม่ไม่ได้
+     * อีกเลยเมื่อมี heartbeat แล้ว จึง log ระดับ warn ไว้ให้มีคนมาดู
+     *
+     * (review-19 M2) เดิมคอมเมนต์ตรงนี้อ้างว่า "ไม่ต้องหยุดงานกลางคัน เพราะ release ของเรามีเงื่อนไข
+     * lockedBy = owner อยู่แล้ว จึงเขียนทับผลของเจ้าของใหม่ไม่ได้" — จริงกับ `release` เท่านั้น ไม่จริง
+     * กับ `deps.schedules.update(row.id, { cursor })` ที่ทั้งสอง op เรียกก่อนตัวนี้ทุกชุด ซึ่งเป็น
+     * plain update ไม่มีเงื่อนไข owner เลย ถ้าเดินหน้าต่อหลัง heartbeat คืน `false` งานจะเขียน cursor
+     * ทับผลของเจ้าของใหม่ไปเรื่อย ๆ ทุกชุดที่เหลือ — คือ "cursor ถอยหลัง" ที่ item 4 ทั้งหมดถูกสร้างมา
+     * เพื่อกำจัด ผู้เรียกจึงต้อง**หยุดลูปทันที**เมื่อค่าที่คืนมาเป็น `false` ไม่ใช่แค่ log แล้ววิ่งต่อ —
+     * ฟังก์ชันนี้จึงคืน `boolean` ให้ผู้เรียกตัดสินใจ แทนที่จะกลืนผลไว้เองแล้วคืน `void`
      */
-    const keepClaim = async (): Promise<void> => {
-      if (await deps.lock.heartbeat(row.id, deps.owner)) return
+    const keepClaim = async (): Promise<boolean> => {
+      if (await deps.lock.heartbeat(row.id, deps.owner)) return true
       deps.logger.warn(
         'line-rich-menu: lost the claim on a running schedule — another worker may be running it concurrently',
         { scheduleId: row.id, op: row.op, owner: deps.owner },
       )
+      return false
     }
 
     // schedule ผูกกับเมนู และเมนูผูกกับ channel ของตัวเอง — channel ของงานนี้จึงอ่านจากเมนู
@@ -256,7 +264,14 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
                 // ไว้ได้ ส่วนงานที่ process ตายไปแล้วต้องยังหมดอายุตามเดิม (heartbeat หยุดไปเอง
                 // พร้อมกับ process) ถ้าไม่ต่ออายุ tick นาทีถัดไปจะ claim แถวเดิมซ้ำแล้ววิ่งซ้อนกับ
                 // ตัวเอง — cursor ถอยหลังได้ และตัวหนึ่งจบแล้วปล่อย lock ขณะที่อีกตัวยังวิ่งอยู่
-                await keepClaim()
+                //
+                // (review-19 M2) `false` แปลว่าแถวนี้ไม่ใช่ของเราแล้ว (อีก worker แย่งไปตอน TTL หมด
+                // ก่อน heartbeat รอบนี้จะทัน) — ต้องหยุดที่นี่ ไม่ใช่วนต่อแล้วเขียน cursor ทับผลของ
+                // เจ้าของใหม่ไปเรื่อย ๆ ทุกชุดที่เหลือ (`schedules.update` สองบรรทัดข้างบนเป็น plain
+                // update ไม่มีเงื่อนไข owner ต่างจาก `release`) `complete` เป็น `false` ด้วยเหตุผล
+                // เดียวกับตอน pointer ขยับ: เรายังไม่รู้ว่าเจ้าของใหม่จะทำงานนี้ต่อจนจบไหม แถว audit
+                // ของ**ความพยายามครั้งนี้**จึงต้องไม่บอกว่าครบ
+                if (!await keepClaim()) { complete = false; break }
                 if (cursor === null) break
               }
             } catch (error) {
@@ -318,7 +333,12 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
               previousLastId = result.lastId
               processed += result.processed
               // งานปลดก็วนหลายชุดในหนึ่ง run() เหมือนกัน จึงหมดอายุ claim ระหว่างทางได้เหมือนกันเป๊ะ
-              await keepClaim()
+              //
+              // (review-19 M2) `false` แปลว่าแถวนี้ไม่ใช่ของเราแล้ว — หยุดที่นี่แล้วคืนจำนวนที่ปลด
+              // ไปได้จริง ไม่ใช่วนต่อ ที่นี่ไม่มี write ที่ไม่ owner-guard ให้ห่วงเหมือนฝั่ง link
+              // ('unlink-members' ไม่เขียน cursor เลย) แต่ยิง bulkUnlink/`members.update` ต่อไปเรื่อย ๆ
+              // ขณะที่อีก worker อาจกำลังทำแถวเดียวกันอยู่พร้อมกันก็ไม่ใช่พฤติกรรมที่ควรปล่อยให้เกิด
+              if (!await keepClaim()) return processed
             }
           },
           (processed) => ({ unlinked: processed }),

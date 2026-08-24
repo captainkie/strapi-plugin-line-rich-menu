@@ -441,6 +441,11 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
      * หลังผ่านการเช็คไปแล้ว N ครั้ง (เช็คเกิดก่อนทุกชุด: 0 = ปิดไปก่อนชุดแรกจะได้วิ่งเลย)
      */
     deactivateAfterChecks?: number
+    /**
+     * (review-19 M2) จำลอง heartbeat ที่คืน `true` สำเร็จ N ครั้งแรก แล้วคืน `false` ตั้งแต่ครั้งที่
+     * N+1 เป็นต้นไป — จำลอง "แถวถูกแย่งไปแล้ว" กลางทาง งานต้องหยุดที่นั่น ไม่ใช่วนต่อ
+     */
+    keepClaimFailsAfter?: number
   }): Promise<{
     report: TickReport
     sentChunks: string[][]
@@ -486,10 +491,17 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     ]
 
     let released: { state: string; error: string | null } | undefined
+    let heartbeatCalls = 0
     const lock = {
       claim: vi.fn(async () => true),
       // (Task 19 item 4) นับจริงว่างานต่ออายุ claim กี่ครั้ง — จำนวนต้องผูกกับจำนวนชุดที่วิ่งจบ
-      heartbeat: vi.fn(async (id: string, owner: string) => { void id; void owner; return true }),
+      // (review-19 M2) `keepClaimFailsAfter` จำลองแถวที่ถูกแย่งไปกลางทาง — คืน `true` สำเร็จ N
+      // ครั้งแรก แล้วคืน `false` ตั้งแต่ครั้งที่ N+1
+      heartbeat: vi.fn(async (id: string, owner: string) => {
+        void id; void owner
+        heartbeatCalls += 1
+        return options.keepClaimFailsAfter === undefined || heartbeatCalls <= options.keepClaimFailsAfter
+      }),
       release: vi.fn(async (_id: string, _owner: string, state: 'done' | 'failed', error: string | null) => {
         released = { state, error }
       }),
@@ -743,6 +755,44 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     expect(heartbeats).toEqual([['s1', 'worker-a'], ['s1', 'worker-a'], ['s1', 'worker-a']])
   })
 
+  /**
+   * (review-19 M2) `heartbeat` คืน `false` แปลว่าอีก worker แย่ง claim ไปแล้ว — เดิมโค้ด log แล้ว
+   * เดินหน้าต่อ เขียน cursor ทับผลของเจ้าของใหม่ไปเรื่อย ๆ ทุกชุดที่เหลือ ตอนนี้ต้องหยุดทันทีที่ชุด
+   * ที่พบว่าเสีย claim ไป — ชุดที่สี่ไม่ควรได้วิ่งเลย และงานต้องจบแบบ "ไม่ครบ" ไม่ใช่ "ครบ"
+   */
+  it('(M2) เสีย claim กลางทาง (heartbeat คืน false) → หยุดลูปทันที ไม่วิ่งชุดถัดไป', async () => {
+    // 1501 คน = สี่ชุด (500,500,500,1) — เลือกจำนวนนี้เพื่อให้ชุดที่ heartbeat ล้มไม่ใช่ชุดสุดท้าย
+    // ของงานพอดี (ถ้าใช้ 1001/สามชุด ชุดที่ 3 จะเป็นชุดสุดท้ายอยู่แล้วโดยธรรมชาติ แยกไม่ออกว่า
+    // งานหยุดเพราะเสีย claim หรือเพราะจบงานปกติ)
+    const { report, sentChunks, auditRows, cursorPersisted } = await tickWith({
+      members: 1501, op: 'link-members', keepClaimFailsAfter: 2,
+    })
+
+    // heartbeat ครั้งที่ 1-2 (ท้ายชุดที่ 1, 2) ผ่าน ครั้งที่ 3 (ท้ายชุดที่ 3) ไม่ผ่าน — แต่ตอนนั้น
+    // ชุดที่ 3 วิ่งไปแล้วก่อนจะรู้ตัว งานจึงหยุดหลังชุดที่ 3 ไม่ใช่ก่อนมัน และชุดที่ 4 (คนสุดท้าย)
+    // ต้องไม่เกิดขึ้นเลย — นี่คือด่านที่พิสูจน์ว่า "หยุดทันที" ไม่ใช่ "log แล้ววิ่งจนจบงานอยู่ดี"
+    expect(sentChunks.map((c) => c.length)).toEqual([500, 500, 500])
+    // จบแบบ "ไม่ครบ" — เจ้าของใหม่อาจทำต่อหรือไม่ก็ได้ ความพยายามครั้งนี้ตอบแทนไม่ได้
+    expect(report).toMatchObject({ done: 1, failed: 0 })
+    expect(auditRows[0]).toMatchObject({
+      action: 'link-members', result: 'success', after: { linked: 1500, complete: false },
+    })
+    // cursor ที่ค้างไว้ต้องเป็นตำแหน่งท้ายชุดที่ 3 ไม่ใช่ null — งานยังไม่จบจริง แค่หยุดเพราะเสีย claim
+    expect(cursorPersisted).toBe('m01499')
+  })
+
+  // คู่ที่พิสูจน์ว่า "หยุดทันที" หมายถึงไม่วิ่งชุดถัดไปจริง ๆ ไม่ใช่แค่ complete: false ที่อาจเกิดจาก
+  // เหตุอื่น — ตัดที่ชุดที่ 1 (heartbeat แรกไม่ผ่าน) ต้องเหลือแค่ชุดเดียว ไม่ใช่สามชุดเหมือนงานปกติ
+  it('(M2) เสีย claim หลังชุดแรก → ชุดที่สองและสามไม่เกิดขึ้นเลย', async () => {
+    const { sentChunks, pointerChecks } = await tickWith({
+      members: 1001, op: 'link-members', keepClaimFailsAfter: 0,
+    })
+
+    expect(sentChunks.map((c) => c.length)).toEqual([500])
+    // pointer ถูกถามก่อนชุดแรกเท่านั้น (เช็คก่อนชุดที่สองไม่มีวันเกิดเพราะลูปหยุดไปก่อนแล้ว)
+    expect(pointerChecks()).toBe(1)
+  })
+
   it('ไม่มี ops.members แล้วมีงาน link-members เข้ามา → พังทันที ไม่ใช่ข้ามงานไปเงียบ ๆ', async () => {
     const scheduleRows: ScheduleRow[] = [scheduleRow({ id: 's1', op: 'link-members', cursor: null })]
     const lock = { claim: vi.fn(async () => true), heartbeat: vi.fn(async () => true), release: vi.fn(async () => {}) }
@@ -823,6 +873,8 @@ describe('tick — unlink-members วนจนหมดโดยไม่มี 
     wireMembers?: boolean
     clears?: boolean
     bulkUnlink?: (userIds: readonly string[]) => Promise<void>
+    /** (review-19 M2) เหมือนของ tickWith — คืน true สำเร็จ N ครั้งแรก แล้วคืน false ตั้งแต่ครั้งที่ N+1 */
+    keepClaimFailsAfter?: number
   }) {
     const memberRows = options.members
     const sentChunks: string[][] = []
@@ -845,7 +897,11 @@ describe('tick — unlink-members วนจนหมดโดยไม่มี 
       async delete() { throw new Error('append-only') },
     }
     let released: { state: string; error: string | null } | undefined
-    const heartbeat = vi.fn(async () => true)
+    let heartbeatCalls = 0
+    const heartbeat = vi.fn(async () => {
+      heartbeatCalls += 1
+      return options.keepClaimFailsAfter === undefined || heartbeatCalls <= options.keepClaimFailsAfter
+    })
     const scheduler = createScheduler({
       schedules: {
         ...schedules,
@@ -943,6 +999,25 @@ describe('tick — unlink-members วนจนหมดโดยไม่มี 
 
     expect(h.sentChunks).toHaveLength(2)
     expect(h.heartbeat.mock.calls).toEqual([['s1', 'worker-a'], ['s1', 'worker-a']])
+  })
+
+  /**
+   * (review-19 M2) มิเรอร์เทสต์ของฝั่ง link — heartbeat คืน `false` แปลว่าอีก worker แย่ง claim
+   * ไปแล้ว ต้องหยุดลูปทันทีแล้วคืนจำนวนที่ปลดไปได้จริง ไม่ใช่วนต่อไปเรื่อย ๆ ('unlink-members'
+   * ไม่มี cursor ให้เขียนทับก็จริง แต่ยังยิง bulkUnlink/`members.update` ต่อได้ขณะที่อีก worker
+   * อาจกำลังทำแถวเดียวกันอยู่พร้อมกัน ซึ่งไม่ใช่พฤติกรรมที่ควรปล่อยให้เกิด)
+   */
+  it('(M2) เสีย claim กลางทาง (heartbeat คืน false) → หยุดลูปทันที ไม่วิ่งชุดถัดไป', async () => {
+    const h = unlinkHarness({ members: linkedMembers(1001), keepClaimFailsAfter: 1 })
+    const report = await h.tick()
+
+    // heartbeat ครั้งที่ 1 (ท้ายชุดที่ 1) ผ่าน ครั้งที่ 2 (ท้ายชุดที่ 2) ไม่ผ่าน → ชุดที่ 3 (คนสุดท้าย)
+    // ต้องไม่เกิดขึ้นเลย
+    expect(h.sentChunks).toHaveLength(2)
+    expect(report).toMatchObject({ done: 1, failed: 0 })
+    expect(h.auditRows[0]).toMatchObject({
+      action: 'unlink-members', result: 'success', after: { unlinked: 1000 },
+    })
   })
 
   it('เขียน audit unlink-members success พร้อมจำนวนที่ปลดได้จริง', async () => {
