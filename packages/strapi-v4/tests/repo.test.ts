@@ -205,6 +205,39 @@ describe('createMenuRepo', () => {
       .toEqual({ channelId: '10', imageFileId: 11, normalizedFileId: 900 })
   })
 
+  /**
+   * (Task 19 item 8, final-tests H1) `toData` เป็น allowlist ที่ไม่ auto-forward — ลบบรรทัด
+   * `if (patch.audience !== undefined) data['audience'] = patch.audience` ออกจาก **ทั้งสอง adapter**
+   * แล้วเทสต์ทั้ง 1379 ตัวยังเขียวหมด (พิสูจน์แล้วโดยผู้รีวิว) เพราะ `menu-write.test.ts` วิ่งกับ
+   * repo ปลอมที่ไม่เคยเรียก `toData` เลย ส่วน `repo.test.ts` ทดสอบแค่ขาอ่าน — ไม่มีอะไรคุมรอยต่อ
+   * ระหว่างสองอย่างนั้นเลยสักตัว นี่คือเทสต์ที่ปิดรอยต่อนั้น
+   */
+  describe('audience — ขาเขียน (รอยต่อที่ไม่มีอะไรคุมมาก่อน)', () => {
+    it("update ส่ง audience ลง data ที่ entityService ได้รับจริง", async () => {
+      const { strapi, calls } = fakeStrapi({ findOne: menuEntity })
+      await createMenuRepo(strapi).update('7', { audience: 'members' })
+      expect((calls[0]!.args[1] as { data: Record<string, unknown> }).data['audience']).toBe('members')
+    })
+
+    it("เปลี่ยนกลับเป็น 'all' ก็ต้องเดินทางถึงเหมือนกัน ไม่ใช่แค่ค่า members ที่ผ่าน", async () => {
+      const { strapi, calls } = fakeStrapi({ findOne: menuEntity })
+      await createMenuRepo(strapi).update('7', { audience: 'all' })
+      expect((calls[0]!.args[1] as { data: Record<string, unknown> }).data['audience']).toBe('all')
+    })
+
+    it('create ก็ส่งผ่าน toData ตัวเดียวกัน — เมนูสมาชิกที่สร้างใหม่ต้องเกิดมาพร้อมป้ายของมัน', async () => {
+      const { strapi, calls } = fakeStrapi({ findOne: menuEntity })
+      await createMenuRepo(strapi).create({ name: 'เมนูสมาชิก', channelId: '10', audience: 'members' })
+      expect((calls[0]!.args[0] as { data: Record<string, unknown> }).data['audience']).toBe('members')
+    })
+
+    it('ไม่ส่ง audience มาเลย → ไม่มีคีย์นี้ใน data ("ไม่ส่ง" = "ไม่เปลี่ยน" ไม่ใช่ "ตั้งเป็น all")', async () => {
+      const { strapi, calls } = fakeStrapi({ findOne: menuEntity })
+      await createMenuRepo(strapi).update('7', { name: 'ชื่อใหม่' })
+      expect((calls[0]!.args[1] as { data: Record<string, unknown> }).data).not.toHaveProperty('audience')
+    })
+  })
+
   it('filter ด้วย channelId ถูกแปลงเป็น filter บน relation', async () => {
     const { strapi, calls } = fakeStrapi({ findMany: [] })
     await createMenuRepo(strapi).findMany({ filters: { channelId: '10' } })

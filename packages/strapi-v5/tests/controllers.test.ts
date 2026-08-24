@@ -767,6 +767,63 @@ describe('members controller — activate / sync', () => {
     ])
   })
 
+  /**
+   * (Task 19 item 8, final-tests H2) ตัวกรอง `{ richMenuId: menu.id, op: 'link-members' }` ของ
+   * `enqueueLinkMembers` **ไม่มีอะไรบังคับเลยทั้งสองเทอม ทั้งสอง adapter** — ผู้รีวิวลดเหลือเทอม
+   * เดียวทีละข้าง สี่ mutation ทั้งหมดเขียว เพราะเทสต์ทุกตัวที่อ้างถึงการเลือกแถวนี้ seed เมนูตัวเดียว
+   * และ op ตัวเดียว ของปลอมกรองถูกต้อง แต่ fixture ไม่มีอะไรให้กรอง
+   *
+   * สองด่านนี้คือ fixture ที่ทำให้แต่ละเทอมมีผลจริง — ตรวจที่ **ผลลัพธ์ที่ต่างกัน** ไม่ใช่รูปคำสั่ง
+   * เพราะสิ่งที่พังจริงคือผลลัพธ์: ไม่มีงานถูกสร้าง หรือมีงานผิดชนิดถูกปลุก
+   */
+  it('เทอม richMenuId: มีงาน link ค้างของเมนูอื่นในตารางเดียวกัน — activate เมนูนี้ยังต้องสร้างงานของตัวเอง', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '18')
+    rows[UID.menu] = [
+      audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' }),
+      audienceMenuFixture('m2', channelId, { status: 'published', lineRichMenuId: 'line-rm-2' }),
+    ]
+    // งานของเมนู m1 ที่ยังไม่จบ — runAt อนาคตเพื่อไม่ให้ tick ของคำขอนี้หยิบไปวิ่ง
+    rows[UID.schedule] = [{
+      documentId: 'sched1', richMenu: { documentId: 'm1' }, op: 'link-members', state: 'pending',
+      cursor: 'mem0499', runAt: '2099-01-01T00:00:00.000Z', lockedBy: null, lockedAt: null, lastError: null,
+    }]
+    rows[UID.member] = []
+
+    await controllers.members({ strapi }).activate(makeCtx({ params: { id: 'm2' } }))
+
+    // ถ้าเทอม richMenuId หายไป: `rows.some(pending)` เป็นจริงจากงานของ m1 แล้ว return ทันที —
+    // pointer ชี้ m2 แล้ว สวิตช์อ่านว่าเปิด แต่ไม่มีงานของ m2 เลยสักแถว ไม่มีใครถูกผูก ไม่มี error
+    const forM2 = rows[UID.schedule]!.filter(
+      (row) => row['op'] === 'link-members' && (row['richMenu'] as { documentId?: string })?.documentId === 'm2')
+    expect(forM2).toHaveLength(1)
+    // และงานของ m1 ต้องไม่ถูกแตะเลย
+    expect(rows[UID.schedule]!.find((row) => row['documentId'] === 'sched1'))
+      .toMatchObject({ state: 'pending', cursor: 'mem0499' })
+  })
+
+  it("เทอม op: มีแถว unlink-members ที่ failed ค้างของเมนูเดียวกัน — ต้องไม่ถูกปลุกแทนงาน link", async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '19')
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.schedule] = [{
+      documentId: 'sched1', richMenu: { documentId: 'm1' }, op: 'unlink-members', state: 'failed',
+      cursor: null, runAt: '2020-01-01T00:00:00.000Z', lockedBy: null, lockedAt: null,
+      lastError: 'line_server_error',
+    }]
+    rows[UID.member] = []
+
+    await controllers.members({ strapi }).activate(makeCtx({ params: { id: 'm1' } }))
+
+    // ถ้าเทอม op หายไป: แถว unlink ที่ failed ถูกอ่านเป็น "งาน link ที่ค้างอยู่" แล้วสาขา failed
+    // ปลุก **งานปลด** ขึ้นมาแทนที่จะสร้างงานผูก — กดเปิดแล้วได้การปลดคนออกจากเมนู
+    expect(rows[UID.schedule]!.filter((row) => row['op'] === 'link-members')).toHaveLength(1)
+    expect(rows[UID.schedule]!.find((row) => row['documentId'] === 'sched1'))
+      .toMatchObject({ op: 'unlink-members', state: 'failed' })
+  })
+
   it('sync ทำงานเหมือน activate ทุกประการ — เมนูที่ active อยู่แล้วก็ยังตั้ง memberRichMenuId ได้', async () => {
     const rows: Record<string, Record<string, unknown>[]> = {}
     const strapi = fakeMembersStrapi(rows)

@@ -146,14 +146,18 @@ describe('linkNewMember', () => {
   it('สมาชิกใหม่ได้ link ทันทีเมื่อ channel มีเมนูของสมาชิกอยู่ และบันทึก linkedRichMenuId/linkedAt', async () => {
     const linkCalls: unknown[] = []
     const updateCalls: unknown[] = []
+    const clientChannels: unknown[] = []
     const services = fakeServices({
       channels: {
         findOne: async () => channelSummary('rm-1'),
         withSecrets: () => ({ findOne: async () => channelWithSecrets('rm-1'), findDefault: vi.fn() }),
       } as never,
-      clientFor: (() => ({
-        linkToUser: async (userId: string, richMenuId: string) => { linkCalls.push([userId, richMenuId]) },
-      })) as never,
+      clientFor: ((channel: unknown) => {
+        clientChannels.push(channel)
+        return {
+          linkToUser: async (userId: string, richMenuId: string) => { linkCalls.push([userId, richMenuId]) },
+        }
+      }) as never,
       members: {
         ...fakeMemberRepo(),
         update: vi.fn(async (id: string, patch: Partial<MemberRow>) => {
@@ -166,6 +170,11 @@ describe('linkNewMember', () => {
     await linkNewMember(services, memberRow('c1'))
 
     expect(linkCalls).toEqual([[UID_A, 'rm-1']])
+    // (Task 19 item 8, final-tests M1) ของปลอมของ `clientFor` ทุกตัวในไฟล์นี้เคยทิ้งพารามิเตอร์
+    // ของตัวเอง — `linkNewMember` ที่ประกอบ client จาก **summary** (ที่ `toChannelRecord` scrub
+    // token ทิ้งไปแล้ว) แทน `withSecrets()` จะ 401 ทุกครั้งบน LINE จริง แต่เขียวทั้งชุดที่นี่
+    // มีแต่ e2e ที่จับได้ เพราะ mock ของ LINE แยกคลังตาม access token
+    expect(clientChannels).toEqual([channelWithSecrets('rm-1')])
     expect(updateCalls).toHaveLength(1)
     expect(updateCalls[0]).toMatchObject({ id: 'm1', patch: { linkedRichMenuId: 'rm-1' } })
     expect((updateCalls[0] as { patch: { linkedAt: string } }).patch.linkedAt).toEqual(expect.any(String))
@@ -191,17 +200,21 @@ describe('linkNewMember', () => {
   it('LINE ล้มใน linkNewMember ไม่ throw กลับ และไม่เขียน linkedAt — แต่ต้องพิสูจน์ว่าเคยยิง linkToUser จริง', async () => {
     const linkCalls: unknown[] = []
     const updateCalls: unknown[] = []
+    const clientChannels: unknown[] = []
     const services = fakeServices({
       channels: {
         findOne: async () => channelSummary('rm-1'),
         withSecrets: () => ({ findOne: async () => channelWithSecrets('rm-1'), findDefault: vi.fn() }),
       } as never,
-      clientFor: (() => ({
-        linkToUser: async (userId: string, richMenuId: string) => {
-          linkCalls.push([userId, richMenuId])
-          throw new Error('LINE is down')
-        },
-      })) as never,
+      clientFor: ((channel: unknown) => {
+        clientChannels.push(channel)
+        return {
+          linkToUser: async (userId: string, richMenuId: string) => {
+            linkCalls.push([userId, richMenuId])
+            throw new Error('LINE is down')
+          },
+        }
+      }) as never,
       members: {
         ...fakeMemberRepo(),
         update: vi.fn(async (id: string, patch: Partial<MemberRow>) => {
@@ -215,6 +228,7 @@ describe('linkNewMember', () => {
 
     // ด่านสำคัญที่สุดของเทสต์นี้: ถ้าลบบรรทัดนี้ทิ้ง โค้ดที่ไม่เรียก LINE เลยก็ยังผ่านเทสต์ได้เหมือนกัน
     expect(linkCalls).toHaveLength(1)
+    expect(clientChannels).toEqual([channelWithSecrets('rm-1')])
     expect(updateCalls).toEqual([])
     expect(services.audit.write).toHaveBeenCalledWith(expect.objectContaining({ action: 'link-members', result: 'failure' }))
     expect(services.logger.error).toHaveBeenCalled()
@@ -254,14 +268,20 @@ describe('linkNewMember', () => {
 describe('unlinkDeletedMember', () => {
   it('ลบสมาชิกที่เคย link แล้ว unlink คนนั้นออกจาก LINE', async () => {
     const unlinkCalls: unknown[] = []
+    const clientChannels: unknown[] = []
     const services = fakeServices({
       channels: { withSecrets: () => ({ findOne: async () => channelWithSecrets('rm-1'), findDefault: vi.fn() }) } as never,
-      clientFor: (() => ({ unlinkFromUser: async (userId: string) => { unlinkCalls.push(userId) } })) as never,
+      clientFor: ((channel: unknown) => {
+        clientChannels.push(channel)
+        return { unlinkFromUser: async (userId: string) => { unlinkCalls.push(userId) } }
+      }) as never,
     })
 
     await unlinkDeletedMember(services, memberRow('c1', { linkedRichMenuId: 'rm-1', linkedAt: '2026-01-01T00:00:00.000Z' }))
 
     expect(unlinkCalls).toEqual([UID_A])
+    // client ต้องประกอบจากแถวที่มี token ไม่ใช่ summary ที่ scrub แล้ว (final-tests M1)
+    expect(clientChannels).toEqual([channelWithSecrets('rm-1')])
     expect(services.audit.write).toHaveBeenCalledWith(expect.objectContaining({ action: 'unlink-members', result: 'success' }))
   })
 
@@ -281,17 +301,22 @@ describe('unlinkDeletedMember', () => {
 
   it('LINE ล้มตอน unlink ไม่ throw กลับ แต่ต้องพิสูจน์ว่าเคยยิง unlinkFromUser จริง', async () => {
     const unlinkCalls: unknown[] = []
+    const clientChannels: unknown[] = []
     const services = fakeServices({
       channels: { withSecrets: () => ({ findOne: async () => channelWithSecrets('rm-1'), findDefault: vi.fn() }) } as never,
-      clientFor: (() => ({
-        unlinkFromUser: async (userId: string) => { unlinkCalls.push(userId); throw new Error('LINE is down') },
-      })) as never,
+      clientFor: ((channel: unknown) => {
+        clientChannels.push(channel)
+        return {
+          unlinkFromUser: async (userId: string) => { unlinkCalls.push(userId); throw new Error('LINE is down') },
+        }
+      }) as never,
     })
 
     await expect(unlinkDeletedMember(services, memberRow('c1', { linkedRichMenuId: 'rm-1' })))
       .resolves.toBeUndefined()
 
     expect(unlinkCalls).toHaveLength(1)
+    expect(clientChannels).toEqual([channelWithSecrets('rm-1')])
     expect(services.audit.write).toHaveBeenCalledWith(expect.objectContaining({ action: 'unlink-members', result: 'failure' }))
   })
 })
