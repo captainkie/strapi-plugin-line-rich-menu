@@ -1,5 +1,17 @@
 # strapi-plugin-line-rich-menu
 
+## 1.1.1
+
+### Patch Changes
+
+- Keep the Audience column from stretching a list row. The hint under a disabled
+  members toggle was a full sentence repeating what the Audience and Status columns
+  already show, so in a narrow column it wrapped to eight lines and pushed the row
+  to roughly 400px tall; "Unlink everyone" broke mid-phrase and read as two stacked
+  buttons. The hint is now one short line rendered at hint size, the cell has a
+  minimum width so a short sentence cannot become a paragraph, and the button keeps
+  its label on one line.
+
 ## 1.1.0
 
 ### Minor Changes
