@@ -222,6 +222,9 @@ describe('runTick', () => {
     }]
     const bulkLinkCalls: unknown[] = []
     const pointerReads: string[] = []
+    // (review-19 M1) งานที่หยุดเพราะ pointer ขยับตั้งงาน unlink-members แถวใหม่ไว้กวาดคนที่อาจ
+    // ผูกไปแล้วก่อนจะรู้ตัว — บันทึกไว้พิสูจน์ว่า adapter ต่อสาย schedules.create ของจริงเข้ามาด้วย
+    const createdRows: Record<string, unknown>[] = []
 
     const heartbeat = recordingHeartbeat()
     const services = {
@@ -235,11 +238,14 @@ describe('runTick', () => {
         findMany: async (params?: { filters?: { state?: string } }) =>
           params?.filters?.state === 'pending' ? dueRows : [],
         update: async () => undefined,
+        create: async (data: Record<string, unknown>) => { createdRows.push(data); return { id: 'new', ...data } },
       },
       // (Task 19 item 4) งานที่วนหลายชุดต่ออายุ claim ทุกจบชุด — บันทึกไว้เพื่อพิสูจน์ว่า
       // adapter เดินผ่าน lock ตัวจริงของ services ไม่ใช่ของที่ scheduler ประกอบเอง
       lock: { claim: async () => true, heartbeat: heartbeat.fn, release: async () => undefined },
-      menus: { findOne: async (id: string) => (id === 'm1' ? { channelId: 'ch1', lineRichMenuId: 'line-rm-1' } : null) },
+      // (review-19 M1) `id` ต้องมีด้วย — งานที่หยุดกลางทางตั้งงาน unlink-members ใหม่โดยอ้าง
+      // `menu.id` (ไม่ใช่ `lineRichMenuId`) เป็น `richMenuId` ของแถว schedule ตามธรรมเนียมเดิม
+      menus: { findOne: async (id: string) => (id === 'm1' ? { id: 'm1', channelId: 'ch1', lineRichMenuId: 'line-rm-1' } : null) },
       members: {
         findMany: async () => [
           { id: 'mem1', channelId: 'ch1', lineUserId: `U${'a'.repeat(32)}`, displayName: null, linkedRichMenuId: null, linkedAt: null },
@@ -257,5 +263,8 @@ describe('runTick', () => {
     expect(bulkLinkCalls).toEqual([])
     // อ่าน pointer ของ channel ที่เมนูสังกัดจริง ไม่ใช่ channel อื่นหรือค่าคงที่
     expect(pointerReads).toEqual(['ch1'])
+    // (review-19 M1) หยุดตั้งแต่เช็คแรก (ยังไม่ทันวิ่งชุดไหนเลย) ก็ยังต้องตั้งงาน unlink-members
+    // สำรองไว้ — เป็น idempotent sweep ที่จบด้วยชุดว่างทันทีถ้าไม่มีอะไรให้กวาดจริง ไม่ใช่ต้นทุนที่แพง
+    expect(createdRows).toEqual([expect.objectContaining({ richMenuId: 'm1', op: 'unlink-members', state: 'pending' })])
   })
 })
