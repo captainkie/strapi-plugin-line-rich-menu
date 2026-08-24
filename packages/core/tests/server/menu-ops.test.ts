@@ -2,14 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { LineServerError, LineValidationError } from '../../src/errors.js'
 import { createAuditWriter } from '../../src/server/audit.js'
 import {
-  MenuActiveForMembersError, MenuChannelLockedError, MenuDisplayPeriodNotAllowedError,
-  MenuNotAllAudienceError, MenuNotMembersAudienceError, MenuNotReadyError,
+  MenuActiveForMembersError, MenuChannelLockedError, MenuDefaultUnknownError,
+  MenuDisplayPeriodNotAllowedError, MenuIsAccountDefaultError, MenuNotAllAudienceError,
+  MenuNotMembersAudienceError, MenuNotReadyError,
 } from '../../src/server/errors.js'
 import {
   assertAllAudience, assertAudienceChangeAllowed, assertChannelChangeAllowed,
-  assertDisplayPeriodAllowed, assertMembersAudience, assertNotChannelMemberMenu,
-  clearChannelDefault, deleteOrphan, reconcileChannel, setMenuAsDefault, swapMenuAlias,
-  unlinkAllFromMenu,
+  assertDisplayPeriodAllowed, assertMembersAudience, assertNotAccountDefault,
+  assertNotChannelMemberMenu, clearChannelDefault, deleteOrphan, reconcileChannel,
+  setMenuAsDefault, swapMenuAlias, unlinkAllFromMenu,
 } from '../../src/server/menu-ops.js'
 import type { AuditRow, Repo, RichMenuRow } from '../../src/server/types.js'
 
@@ -339,6 +340,163 @@ describe('assertDisplayPeriodAllowed', () => {
   it('เมนูของทุกคนที่มีช่วงเวลาแสดงผล — ผ่าน (ฟีเจอร์เดิมของสเปก §5.7 ต้องไม่ถูกปิดไปด้วย)', () => {
     expect(() => assertDisplayPeriodAllowed({ audience: 'all', startAt: start, endAt: end }))
       .not.toThrow()
+  })
+})
+
+/**
+ * Task 22 / review H-1 — `assertNotAccountDefault` (ดูคอมเมนต์ที่ตัวฟังก์ชันเอง)
+ *
+ * ทุกเทสต์ที่ปฏิเสธในไฟล์นี้มี**คู่ที่พิสูจน์ว่ามันยังผ่าน**เสมอ ไม่ใช่เพราะสวยงาม แต่เพราะด่านที่
+ * ปฏิเสธทุกครั้งจะสอบผ่านเทสต์ฝั่งปฏิเสธได้ครบทุกข้อ แล้วพังการแก้เมนูธรรมดาทั้งหมดโดยไม่มีใครเห็น
+ * — เกิดมาแล้วสองครั้งบนแบรนช์นี้ (Task 14b item 3 round 2 และ `assertChannelChangeAllowed`)
+ *
+ * นับจำนวนครั้งที่ thunk ถูกเรียกด้วยทุกเทสต์ ไม่ใช่แค่ดูว่าโยนหรือไม่โยน — ครึ่งหนึ่งของสเปกของ
+ * ด่านนี้คือ "ห้ามยิงไปหา LINE ตอนที่คำตอบเปลี่ยนอะไรไม่ได้" ซึ่งการดูแค่ผลลัพธ์มองไม่เห็นเลย
+ */
+describe('assertNotAccountDefault', () => {
+  /** เมนูของทุกคนที่ publish แล้ว — สถานะเริ่มต้นของทุกเมนูที่กด "Save and publish" ไป */
+  const publishedAll = menuRow({ id: 'm-pub', audience: 'all', lineRichMenuId: 'richmenu-a' })
+
+  /** thunk ปลอมที่นับการเรียก — `reads.calls` คือหลักฐานว่าจ่ายค่า round trip ไปกี่ครั้ง */
+  function reader(result: string | null | (() => never)) {
+    const calls: number[] = []
+    return {
+      calls,
+      read: async () => {
+        calls.push(1)
+        if (typeof result === 'function') result()
+        return result as string | null
+      },
+    }
+  }
+
+  it("เมนูที่เป็น default ของบัญชีอยู่ + ขอเปลี่ยนเป็น 'members' — โยน MenuIsAccountDefaultError", async () => {
+    const reads = reader('richmenu-a')
+    try {
+      await assertNotAccountDefault({
+        menu: publishedAll, next: 'members', readAccountDefault: reads.read,
+      })
+      throw new Error('ต้องโยนก่อนถึงบรรทัดนี้')
+    } catch (error) {
+      expect(error).toBeInstanceOf(MenuIsAccountDefaultError)
+      expect((error as MenuIsAccountDefaultError).code).toBe('menu_is_account_default')
+      expect((error as MenuIsAccountDefaultError).menuId).toBe('m-pub')
+    }
+    expect(reads.calls).toHaveLength(1)
+  })
+
+  /**
+   * ครึ่งที่พิสูจน์ว่านี่คือยาม ไม่ใช่การห้ามติดป้าย members ถาวร — เมนูที่ publish แล้วแต่ไม่ใช่
+   * default ของบัญชี คือเมนูสมาชิกทุกตัวที่เกิดขึ้นถูกวิธี (publish โดยไม่ตั้ง default) ถ้าเคสนี้
+   * ถูกปฏิเสธไปด้วย ฟีเจอร์ทั้งฟีเจอร์จะสร้างเมนูสมาชิกจาก editor ไม่ได้เลย
+   */
+  it('เมนูที่ publish แล้วแต่ default ของบัญชีเป็นเมนูอื่น — ติดป้าย members ได้ตามปกติ', async () => {
+    const reads = reader('richmenu-somebody-else')
+    await expect(assertNotAccountDefault({
+      menu: publishedAll, next: 'members', readAccountDefault: reads.read,
+    })).resolves.toBeUndefined()
+    expect(reads.calls).toHaveLength(1)
+  })
+
+  it('บัญชีที่ยังไม่เคยตั้ง default เลย (LINE ตอบ null) — ติดป้าย members ได้', async () => {
+    const reads = reader(null)
+    await expect(assertNotAccountDefault({
+      menu: publishedAll, next: 'members', readAccountDefault: reads.read,
+    })).resolves.toBeUndefined()
+    expect(reads.calls).toHaveLength(1)
+  })
+
+  // ===== สามเงื่อนไขของ "จ่ายค่าอ่านเฉพาะตอนที่มันมีความหมายได้" — ทั้งสามข้อต้องไม่ยิงเลย =====
+
+  it('ไม่ส่ง audience มาเลย (undefined = ไม่เปลี่ยน) — ผ่าน และไม่ยิงไปหา LINE เลย', async () => {
+    const reads = reader('richmenu-a')
+    await expect(assertNotAccountDefault({
+      menu: publishedAll, next: undefined, readAccountDefault: reads.read,
+    })).resolves.toBeUndefined()
+    expect(reads.calls).toHaveLength(0)
+  })
+
+  it("ขอเปลี่ยนเป็น 'all' — ผ่าน และไม่ยิงไปหา LINE เลย", async () => {
+    const reads = reader('richmenu-a')
+    await expect(assertNotAccountDefault({
+      menu: publishedAll, next: 'all', readAccountDefault: reads.read,
+    })).resolves.toBeUndefined()
+    expect(reads.calls).toHaveLength(0)
+  })
+
+  /**
+   * เมนูสมาชิกที่กด Save ธรรมดา (ฟอร์มส่ง `audience: 'members'` เดิมกลับมาทุกครั้ง) — คำขอนี้ไม่ได้
+   * ติดป้ายใหม่ ไม่มีอะไรให้ด่านนี้ตัดสิน และต้องไม่จ่าย round trip ไปยืนยันสิ่งที่ไม่ได้เปลี่ยน
+   * ทุกครั้งที่แก้ชื่อปุ่ม
+   */
+  it("ป้ายเดิมเป็น 'members' อยู่แล้ว (กด Save ธรรมดา) — ผ่าน และไม่ยิงไปหา LINE เลย", async () => {
+    const reads = reader('richmenu-a')
+    await expect(assertNotAccountDefault({
+      menu: menuRow({ audience: 'members', lineRichMenuId: 'richmenu-a' }),
+      next: 'members',
+      readAccountDefault: reads.read,
+    })).resolves.toBeUndefined()
+    expect(reads.calls).toHaveLength(0)
+  })
+
+  it('ร่างที่ยังไม่เคยขึ้น LINE — ตั้ง audience เป็น members ได้ และไม่ยิงไปหา LINE เลย', async () => {
+    const reads = reader('richmenu-a')
+    await expect(assertNotAccountDefault({
+      menu: menuRow({ status: 'draft', audience: 'all', lineRichMenuId: null }),
+      next: 'members',
+      readAccountDefault: reads.read,
+    })).resolves.toBeUndefined()
+    expect(reads.calls).toHaveLength(0)
+  })
+
+  /**
+   * เงื่อนไข "มีตัวจริงอยู่บน LINE" คือ `lineRichMenuId !== null` ไม่ใช่ `status === 'published'`
+   * — กฎเดียวกับ `assertChannelChangeAllowed` ข้างบน แถวที่ publish ล้มกลางทางแล้วถือ id ค้างไว้
+   * ยังเป็นตัวที่ default ของบัญชีชี้ถึงได้จริง ถ้าด่านนี้ดู status อย่างเดียว สถานะนั้นจะไม่มียาม
+   */
+  it('แถวที่ status เป็น failed แต่ยังถือ lineRichMenuId ที่เป็น default อยู่ — ปฏิเสธเหมือนกัน', async () => {
+    const reads = reader('richmenu-a')
+    await expect(assertNotAccountDefault({
+      menu: menuRow({ status: 'failed', audience: 'all', lineRichMenuId: 'richmenu-a' }),
+      next: 'members',
+      readAccountDefault: reads.read,
+    })).rejects.toBeInstanceOf(MenuIsAccountDefaultError)
+    expect(reads.calls).toHaveLength(1)
+  })
+
+  // ===== fail closed =====
+
+  /**
+   * บั๊กต้นเรื่องคือ "ไม่เคยถาม" ซึ่งมีผลเท่ากับ "ปล่อยผ่านทุกครั้ง" ถ้าด่านนี้ปล่อยผ่านตอนที่ถาม
+   * ไม่ได้ มันจะกลายเป็นบั๊กเดิมเป๊ะ ๆ ในนาทีที่ LINE ล่ม ซึ่งเป็นนาทีที่ไม่มีใครมองอยู่
+   */
+  it('อ่าน default จาก LINE ไม่สำเร็จ — ปฏิเสธด้วย menu_default_unknown ไม่ใช่ปล่อยผ่าน', async () => {
+    const boom = new LineServerError(503)
+    const reads = reader(() => { throw boom })
+    try {
+      await assertNotAccountDefault({
+        menu: publishedAll, next: 'members', readAccountDefault: reads.read,
+      })
+      throw new Error('ต้องโยนก่อนถึงบรรทัดนี้')
+    } catch (error) {
+      expect(error).toBeInstanceOf(MenuDefaultUnknownError)
+      expect((error as MenuDefaultUnknownError).code).toBe('menu_default_unknown')
+      expect((error as MenuDefaultUnknownError).menuId).toBe('m-pub')
+      // ต้นเหตุจริงต้องไม่หายไปกับการห่อ — ไม่งั้นคนดีบั๊กเหลือแค่ "อ่านไม่ได้" ที่ไม่บอกว่าทำไม
+      expect((error as MenuDefaultUnknownError).reason).toBe(boom)
+    }
+    expect(reads.calls).toHaveLength(1)
+  })
+
+  /**
+   * try ห่อเฉพาะ thunk ไม่ใช่ทั้งฟังก์ชัน — ถ้าห่อทั้งก้อน การปฏิเสธที่ถูกต้อง
+   * (`MenuIsAccountDefaultError`) จะถูกจับกลับมาแปลงเป็น `menu_default_unknown` แล้ว operator จะ
+   * ถูกบอกให้ไปแก้การเชื่อมต่อ LINE ทั้งที่ LINE ตอบมาเรียบร้อยและคำตอบคือ "ใช่ มันเป็น default"
+   */
+  it('การปฏิเสธที่ถูกต้องต้องไม่ถูกกลืนกลายเป็น menu_default_unknown', async () => {
+    await expect(assertNotAccountDefault({
+      menu: publishedAll, next: 'members', readAccountDefault: async () => 'richmenu-a',
+    })).rejects.not.toBeInstanceOf(MenuDefaultUnknownError)
   })
 })
 

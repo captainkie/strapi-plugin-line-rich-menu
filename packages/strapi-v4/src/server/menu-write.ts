@@ -1,6 +1,6 @@
 import {
   ValidationError, assertAudienceChangeAllowed, assertChannelChangeAllowed,
-  assertDisplayPeriodAllowed, imageFingerprint, prepareImage,
+  assertDisplayPeriodAllowed, assertNotAccountDefault, imageFingerprint, prepareImage,
   type Repo, type RichMenuRow, type ScheduleRow,
 } from '@fosivo/line-rich-menu-core'
 import type { Services } from './container.js'
@@ -141,6 +141,36 @@ export async function saveMenu(
     startAt: input.startAt,
     endAt: input.endAt,
   })
+
+  // Task 22 / review H-1 — ครึ่งที่เหลือของ class ที่ Task 17 ปิดไปครึ่งเดียว: ที่นั่นปิดทุกประตูที่
+  // **ทำให้เมนูสมาชิกเป็น default ของบัญชี** ที่นี่ปิดประตูที่ **ทำให้ default ของบัญชีกลายเป็นเมนู
+  // สมาชิก** ซึ่งลงเอยที่สถานะเดียวกันเป๊ะ (เหตุผลเต็มและเส้นทางที่เดินได้จริงจาก UI อยู่ที่
+  // `MenuIsAccountDefaultError` ใน core) ด่านทั้งหมดอยู่ที่ `assertNotAccountDefault` ใน core
+  // ตัวเดียว ให้สอง adapter เรียกของจริงอันเดียวกัน ไม่ใช่ถือสำเนาที่วันหนึ่งจะไม่ตรงกัน
+  //
+  // อยู่**ท้ายสุด**ของชุดด่านโดยตั้งใจ — ตัวเดียวในชุดที่ต้องคุยกับ LINE คำขอที่ผิดด้วยเหตุผลที่
+  // ตรวจได้ฟรี (ย้าย channel, ช่วงเวลาแสดงผล, ถอดป้าย members) ต้องถูกปฏิเสธไปก่อนโดยไม่จ่าย
+  // round trip เลยสักครั้ง ส่วนการตัดสินว่า "คำขอนี้ต้องถามไหม" อยู่ใน core ไม่ใช่ที่นี่ — thunk
+  // ข้างล่างจึงถูกเรียกเฉพาะตอนที่คำตอบเปลี่ยนผลลัพธ์ได้จริง
+  //
+  // อ่าน channel ของ**แถวเดิม** (`existing.channelId`) ไม่ใช่ `input.channelId` ด้วยเหตุผลเดียวกับ
+  // ด่าน audience ข้างบน: default ที่ต้องถามอยู่บนบัญชี LINE ที่เมนูนี้สังกัดอยู่ตอนนี้
+  // (`assertChannelChangeAllowed` ข้างบนกันการย้ายเมนูที่ขึ้น LINE แล้วไปแล้ว สองค่านี้จึงตรงกัน
+  // เสมอเมื่อมาถึงตรงนี้ — เขียนให้ถูกไว้ ไม่ใช่พึ่งลำดับของด่านอื่น)
+  //
+  // `withSecrets()` ไม่ใช่ `findOne` ธรรมดา — ต้องได้ access token จริงถึงจะยิงถาม LINE ได้
+  // ช่องเดียวกับที่ `controllers/members.ts:audience` ใช้อ่านค่านี้อยู่แล้ว ไม่ใช่ทางที่สอง
+  if (existing !== null) {
+    const ownerChannelId = existing.channelId
+    await assertNotAccountDefault({
+      menu: existing,
+      next: input.audience,
+      readAccountDefault: async () => {
+        const owner = await services.channels.withSecrets().findOne(ownerChannelId)
+        return services.clientFor(owner).getDefault()
+      },
+    })
+  }
 
   await assertAliasFree(services, input, existing?.id ?? null)
 

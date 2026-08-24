@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto'
 import type { BatchOperation, LineClient } from '../line/client.js'
 import type { AuditWriter } from './audit.js'
 import {
-  MenuActiveForMembersError, MenuChannelLockedError, MenuDisplayPeriodNotAllowedError,
-  MenuNotAllAudienceError, MenuNotFoundError, MenuNotMembersAudienceError, MenuNotReadyError,
+  MenuActiveForMembersError, MenuChannelLockedError, MenuDefaultUnknownError,
+  MenuDisplayPeriodNotAllowedError, MenuIsAccountDefaultError, MenuNotAllAudienceError,
+  MenuNotFoundError, MenuNotMembersAudienceError, MenuNotReadyError,
   type MemberMenuOperation,
 } from './errors.js'
 import type { Repo, RichMenuRow } from './types.js'
@@ -99,6 +100,60 @@ export function assertAllAudience(menu: Pick<RichMenuRow, 'id' | 'audience'>): v
   if (menu.audience !== 'all') {
     throw new MenuNotAllAudienceError(menu.id)
   }
+}
+
+/**
+ * Task 22 / review H-1 — ครึ่งที่เหลือของ class เดียวกับ `assertAllAudience` ข้างบน
+ *
+ * ตัวนั้นถามว่า "เมนูที่กำลังจะถูกตั้งเป็น default ป้ายเป็น all ไหม" ตัวนี้ถามทางกลับ: "เมนูที่
+ * กำลังจะถูกติดป้าย members เป็น default ของบัญชีอยู่หรือเปล่า" สองคำถามนี้กันสถานะเดียวกัน
+ * (แถวป้าย `members` + `lineRichMenuId` ของมันคือสิ่งที่ LINE เสิร์ฟให้ทุกคน) คนละทางเข้า —
+ * เหตุผลเต็มและเส้นทางที่เดินได้จริงจาก UI อยู่ที่ `MenuIsAccountDefaultError` ใน errors.ts
+ *
+ * **ที่มาของความจริง** — "เป็น default อยู่ไหม" เป็นค่าที่ derive ไม่เคยถูกเก็บลงคอลัมน์ ต้องถาม
+ * LINE เสมอ (กฎเดียวกับที่ `controllers/members.ts:audience` และ `setMenuAsDefault` ใช้อยู่แล้ว)
+ * รับมาเป็น thunk ไม่ใช่ `LineClient` ทั้งก้อน ด้วยเหตุผลเดียวกับที่ `assertAudienceChangeAllowed`
+ * รับ `memberRichMenuId` เป็นค่าดิบ: core ตัดสินว่า**เมื่อไรควรถาม**และ**คำตอบแปลว่าอะไร** ส่วน
+ * adapter รู้เองว่า**ถามยังไง** (v4 กับ v5 อ่าน secret ของ channel คนละรูปกันอยู่แล้ว) — และ thunk
+ * ทำให้การอ่าน channel+secret ไม่ถูกจ่ายเลยในเคสที่ไม่ต้องถาม
+ *
+ * **จ่ายค่าอ่านเฉพาะตอนที่มันมีความหมายได้จริง** สามเงื่อนไข ครบทั้งสามเท่านั้นถึงยิงออกไป:
+ * คำขอนี้ขอ `'members'`, ป้ายเดิม**ยังไม่ใช่** `'members'` (การ save ธรรมดาของเมนูสมาชิกจึงไม่จ่าย
+ * อะไรเลย) และเมนูมีตัวจริงอยู่บน LINE แล้ว
+ *
+ * เงื่อนไขข้อสามเป็น `lineRichMenuId !== null` ไม่ใช่ `status === 'published'` โดยตั้งใจ —
+ * กฎเดียวกับที่ `assertNotChannelMemberMenu` และ `assertChannelChangeAllowed` เขียนไว้ที่ตัวเอง:
+ * ข้อเท็จจริงที่ทำให้คำถามนี้มีความหมายคือ "มีเมนูตัวจริงอยู่บนบัญชี LINE ที่ default ชี้มาได้"
+ * ซึ่งเป็นจริงกับแถว `publishing`/`failed` ที่ถือ id ค้างไว้ด้วย ไม่ใช่แค่แถวที่ status เป็น
+ * published พอดี ดูที่ status อย่างเดียวจะเว้นสองสถานะนั้นไว้โดยไม่มียาม เพื่อแลกกับ round trip
+ * ที่แบรนช์นี้ไม่ได้จ่ายอยู่แล้ว
+ *
+ * **อ่านไม่ได้ = ปฏิเสธ** ไม่ใช่ปล่อยผ่าน (ดู `MenuDefaultUnknownError`) — fail-open ตรงนี้คือรูป
+ * เดียวกับบั๊กต้นเรื่องเป๊ะ ๆ ห่อเฉพาะ thunk ไว้ใน try ไม่ใช่ทั้งฟังก์ชัน ไม่งั้น
+ * `MenuIsAccountDefaultError` ที่ถูกโยนถูกต้องแล้วจะถูกจับกลับมาแปลงเป็น `menu_default_unknown`
+ */
+export async function assertNotAccountDefault(input: {
+  menu: Pick<RichMenuRow, 'id' | 'audience' | 'lineRichMenuId'>
+  next: 'all' | 'members' | undefined
+  readAccountDefault: () => Promise<string | null>
+}): Promise<void> {
+  // ไม่ส่งมา ("ไม่เปลี่ยน") หรือขอเป็น 'all' — ไม่ใช่การติดป้าย members กฎเดียวกับด่านอื่นในไฟล์นี้
+  if (input.next !== 'members') return
+  // ป้ายเดิมเป็น members อยู่แล้ว — คำขอนี้ไม่ได้เปลี่ยนอะไรที่ด่านนี้สนใจ และเมนูสมาชิกที่ถูกกด
+  // Save ทุกครั้งต้องไม่ต้องจ่าย round trip ไปหา LINE เพื่อยืนยันสิ่งที่ไม่ได้เปลี่ยน
+  if (input.menu.audience === 'members') return
+  // ยังไม่เคยขึ้น LINE — ไม่มี id ให้ default ของบัญชีชี้ถึงได้ ไม่มีอะไรต้องถาม
+  if (input.menu.lineRichMenuId === null) return
+
+  let accountDefault: string | null
+  try {
+    accountDefault = await input.readAccountDefault()
+  } catch (error) {
+    throw new MenuDefaultUnknownError(input.menu.id, error)
+  }
+
+  if (accountDefault !== input.menu.lineRichMenuId) return
+  throw new MenuIsAccountDefaultError(input.menu.id)
 }
 
 /**

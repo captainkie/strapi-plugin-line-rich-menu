@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { CoreError } from '../../src/errors.js'
 import {
   AliasNotPublishedError, ChannelNotFoundError, EncryptionKeyMissingError,
-  MenuActiveForMembersError, MenuChannelLockedError, MenuDisplayPeriodNotAllowedError,
-  MenuNotAllAudienceError, MenuNotFoundError, MenuNotMembersAudienceError, MenuNotReadyError,
+  MenuActiveForMembersError, MenuChannelLockedError, MenuDefaultUnknownError,
+  MenuDisplayPeriodNotAllowedError, MenuIsAccountDefaultError, MenuNotAllAudienceError,
+  MenuNotFoundError, MenuNotMembersAudienceError, MenuNotReadyError,
   PublishRateLimitedError,
 } from '../../src/server/errors.js'
 
@@ -20,6 +21,25 @@ describe('error ของชั้น service (server/errors.ts)', () => {
     expect(new MenuNotAllAudienceError('m1').code).toBe('menu_not_all_audience')
     expect(new MenuChannelLockedError('m1').code).toBe('menu_channel_locked')
     expect(new MenuDisplayPeriodNotAllowedError().code).toBe('menu_display_period_not_allowed')
+    expect(new MenuIsAccountDefaultError('m1').code).toBe('menu_is_account_default')
+    expect(new MenuDefaultUnknownError('m1', new Error('x')).code).toBe('menu_default_unknown')
+  })
+
+  /**
+   * Task 22 / review H-1 — สอง error นี้ต้องแยก code กันจริง ไม่ใช่แค่ตั้งชื่อคลาสต่างกัน: ทางแก้ที่
+   * ข้อความบอกคนละอย่างกันคนละเรื่อง (ล้าง default ของบัญชี vs แก้การเชื่อมต่อ LINE แล้วลองใหม่)
+   * ถ้ารวมเป็น code เดียว UI จะบอกวิธีแก้ผิดครึ่งหนึ่งของเวลาทั้งหมด
+   */
+  it('error ใหม่ของ Task 22 บอกทางแก้คนละทาง และไม่ใช่ code เดียวกัน', () => {
+    const isDefault = new MenuIsAccountDefaultError('m-1')
+    const unknown = new MenuDefaultUnknownError('m-1', new Error('boom'))
+
+    expect(isDefault.code).not.toBe(unknown.code)
+    expect(isDefault.message).toContain('clear the account default first')
+    expect(isDefault.message).toContain('DELETE /menus/:id/default')
+    expect(unknown.message).toContain("fix the channel's LINE connection and try again")
+    // ต้นเหตุจริงถูกเก็บไว้ให้ log เห็น ไม่ได้ถูกทิ้งตอนห่อ
+    expect((unknown.reason as Error).message).toBe('boom')
   })
 
   /**

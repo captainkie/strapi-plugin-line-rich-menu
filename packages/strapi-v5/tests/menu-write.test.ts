@@ -71,6 +71,26 @@ function fakeStore(source: Buffer): ImageStore {
 }
 
 /**
+ * Task 22 / review H-1 — `saveMenu` ต้องอ่าน default ของบัญชีจาก LINE จริงก่อนยอมให้ติดป้าย
+ * `'members'` ทับเมนูที่ publish แล้ว ของปลอมชิ้นนี้จึงต้องทำได้สามอย่าง: ตอบค่า default,
+ * **ล้มเหลว** (เพื่อพิสูจน์ว่าด่าน fail closed จริง) และ **นับว่าถูกถามกี่ครั้ง**
+ *
+ * ตัวนับไม่ใช่ของแถม — ครึ่งหนึ่งของสเปกของด่านนี้คือ "ห้ามยิงไปหา LINE ตอนที่คำตอบเปลี่ยนอะไร
+ * ไม่ได้" ซึ่งการดูแค่ว่า saveMenu โยนหรือไม่โยนมองไม่เห็นเลย `channelIds` เก็บไว้พิสูจน์อีกข้อ
+ * ที่ดูจากผลลัพธ์ไม่ออก: adapter ต้องถาม channel ของ**แถวเดิม** ไม่ใช่ channel ที่ body ส่งมา
+ */
+interface LineDouble {
+  /** ค่าที่ `GET /v2/bot/user/all/richmenu` ตอบกลับ — `null` = บัญชียังไม่เคยตั้ง default */
+  accountDefault?: string | null
+  /** ตั้งไว้แล้วการอ่านจะโยนตัวนี้ออกมาแทนที่จะตอบ (เส้นทาง fail closed) */
+  failWith?: unknown
+  /** ทุกครั้งที่ถูกถามจะ push หนึ่งช่อง — ความยาวคือจำนวน round trip ที่จ่ายไปจริง */
+  reads?: number[]
+  /** channel id ที่ถูกอ่าน secret ออกมาใช้ยิงคำถาม — ต้องเป็นของแถวเดิมเสมอ */
+  channelIds?: string[]
+}
+
+/**
  * `memberRichMenuId` คือ pointer เมนูสมาชิกของ channel ที่เมนูนี้สังกัด — `saveMenu` อ่านมันเมื่อ
  * คำขอพก `audience` มาด้วย (Task 14b item 3) ค่าเริ่มต้น `null` คือ "channel นี้ยังไม่มีเมนูสมาชิก"
  * ซึ่งเป็นสถานะของทุกเทสต์ในไฟล์นี้ยกเว้น describe ของ item 3 เองที่ส่งค่าจริงเข้ามา
@@ -78,13 +98,20 @@ function fakeStore(source: Buffer): ImageStore {
 function fakeServices(
   menus: Repo<RichMenuRow>, source: Buffer, schedules?: Repo<ScheduleRow>,
   memberRichMenuId: string | null = null,
+  line: LineDouble = {},
 ): Services {
   return {
     config: {} as never,
     logger: { debug() {}, info() {}, warn() {}, error() {} },
     // `saveMenu` (item 4) เรียก `channels.findOne` ก่อนเขียนเสมอ — ต้อง resolve สำเร็จเพื่อให้
-    // เทสต์เดินต่อไปถึงส่วนที่ไฟล์นี้ตั้งใจพิสูจน์
-    channels: { findOne: async () => ({ memberRichMenuId }) } as never,
+    // เทสต์เดินต่อไปถึงส่วนที่ไฟล์นี้ตั้งใจพิสูจน์ `withSecrets()` เป็นช่องที่ Task 22 ใช้ —
+    // ต้องได้ access token จริงถึงจะถาม LINE ได้ (ช่องเดียวกับ `controllers/members.ts:audience`)
+    channels: {
+      findOne: async () => ({ memberRichMenuId }),
+      withSecrets: () => ({
+        findOne: async (id: string) => { line.channelIds?.push(id); return { memberRichMenuId } },
+      }),
+    } as never,
     menus,
     schedules: schedules ?? fakeRepo<ScheduleRow>(),
     // menu-write.ts ไม่แตะ members เลย (ไม่ใช่ path ของ link-members) — ใส่ไว้ให้ตรงกับ Services เฉย ๆ
@@ -97,7 +124,13 @@ function fakeServices(
     // และพิสูจน์ atomicity แยกไว้แล้วที่ controllers.test.ts (item 5) ไฟล์นี้ทดสอบ*ตรรกะ*ของ
     // saveMenu ไม่ใช่ความถูกต้องของ transaction primitive เอง — รัน fn ตรง ๆ ก็พอ
     transaction: async (fn) => fn(),
-    clientFor: () => ({}) as never,
+    clientFor: () => ({
+      getDefault: async () => {
+        line.reads?.push(1)
+        if (line.failWith !== undefined) throw line.failWith
+        return line.accountDefault ?? null
+      },
+    }) as never,
   }
 }
 
@@ -569,5 +602,122 @@ describe('saveMenu — เมนูสมาชิกมีช่วงเวล
     const updated = await saveMenu(
       services, { ...baseInput, audience: 'all', startAt: START, endAt: END }, member, null)
     expect(updated.audience).toBe('all')
+  })
+})
+
+/**
+ * ===================== Task 22 / review H-1 — ครึ่งที่เหลือของ class เดิม =====================
+ *
+ * Task 17 ปิดทุกประตูที่ **ทำให้เมนูสมาชิกเป็น default ของบัญชี** แต่ไม่ได้ปิดประตูที่ **ทำให้
+ * default ของบัญชีกลายเป็นเมนูสมาชิก** ซึ่งลงเอยที่สถานะเดียวกันเป๊ะ: แถวอ่านว่า `members` ขณะที่
+ * `lineRichMenuId` ของมันคือสิ่งที่ LINE เสิร์ฟให้ผู้ติดตามทุกคน เดินได้จาก UI ล้วน ๆ —
+ * Save and publish ด้วย Audience = Everyone (editor ส่ง `setAsDefault: true`) → เปิดกลับมา สลับเป็น
+ * Members → Save
+ *
+ * ตรรกะอยู่ที่ `assertNotAccountDefault` ใน core และมีเทสต์ของตัวเองที่นั่น
+ * (`packages/core/tests/server/menu-ops.test.ts`) — ไฟล์นี้พิสูจน์คนละเรื่อง เหมือน describe ของ
+ * Task 17 ข้างบน: `saveMenu` ของ **adapter ตัวนี้** เรียกด่านนั้นจริง ด้วยค่าจริงจากแถวเดิม
+ * ผ่านช่อง `withSecrets()` จริง และปฏิเสธ **ก่อน** เขียนอะไรลง repo
+ */
+describe('saveMenu — ติดป้าย members ทับเมนูที่เป็น default ของบัญชีไม่ได้ (Task 22 / review H-1)', () => {
+  const DEFAULT_ID = 'line-rm-default-for-everyone'
+
+  /** ผลลัพธ์ของการกด "Save and publish" ครั้งแรกใน editor: เมนู Everyone ที่ขึ้น LINE แล้ว */
+  async function publishedAllMenu(
+    menus: Repo<RichMenuRow> & { rows: RichMenuRow[] }, services: Services,
+  ): Promise<RichMenuRow> {
+    const created = await saveMenu(services, { ...baseInput, audience: 'all' }, null, null)
+    return menus.update(created.id, { status: 'published', lineRichMenuId: DEFAULT_ID })
+  }
+
+  it('เมนูที่ LINE เสิร์ฟให้ทุกคนอยู่ + สลับเป็น Members → menu_is_account_default และแถวไม่ถูกแตะ', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const reads: number[] = []
+    const channelIds: string[] = []
+    const services = fakeServices(menus, await realJpeg(), undefined, null, { accountDefault: DEFAULT_ID, reads, channelIds })
+    const published = await publishedAllMenu(menus, services)
+
+    await expect(saveMenu(services, { ...baseInput, audience: 'members' }, published, null))
+      .rejects.toMatchObject({ code: 'menu_is_account_default' })
+
+    // ปฏิเสธจริง ไม่ใช่ปฏิเสธหลังเขียนไปแล้ว
+    expect((await menus.findOne(published.id))!.audience).toBe('all')
+    // ถามผ่าน `withSecrets()` ของ channel ที่แถว**เดิม**สังกัด ไม่ใช่ค่าที่ body ส่งมา
+    expect(channelIds).toEqual([baseInput.channelId])
+    expect(reads).toHaveLength(1)
+  })
+
+  /**
+   * คู่ที่พิสูจน์ว่านี่คือยาม ไม่ใช่การห้ามติดป้าย Members บนเมนูที่ publish แล้วทั้งหมด — เมนูที่
+   * publish โดยไม่ตั้ง default คือเมนูสมาชิกทุกตัวที่เกิดขึ้นถูกวิธี ถ้าเคสนี้ถูกปฏิเสธไปด้วย
+   * ฟีเจอร์ทั้งฟีเจอร์จะสร้างเมนูสมาชิกจาก editor ไม่ได้เลย และเทสต์ฝั่งปฏิเสธจะยังเขียวทุกข้อ
+   */
+  it('เมนูที่ publish แล้วแต่ default ของบัญชีเป็นตัวอื่น — ติดป้าย members ได้ และค่าถูกเขียนลงแถวจริง', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const reads: number[] = []
+    const services = fakeServices(menus, await realJpeg(), undefined, null, { accountDefault: 'line-rm-somebody-else', reads })
+    const published = await publishedAllMenu(menus, services)
+
+    const updated = await saveMenu(services, { ...baseInput, audience: 'members' }, published, null)
+    expect(updated.audience).toBe('members')
+    expect((await menus.findOne(published.id))!.audience).toBe('members')
+    expect(reads).toHaveLength(1)
+  })
+
+  /**
+   * บั๊กต้นเรื่องคือ "ไม่เคยถาม" ซึ่งมีผลเท่ากับ "ปล่อยผ่านทุกครั้ง" — ปล่อยผ่านตอนที่ถามไม่ได้
+   * คือการเอาบั๊กเดิมกลับมาทั้งดุ้นในนาทีที่ LINE ล่ม ซึ่งเป็นนาทีที่ไม่มีใครมองอยู่
+   */
+  it('อ่าน default จาก LINE ไม่สำเร็จ → menu_default_unknown และแถวไม่ถูกแตะ (fail closed)', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const services = fakeServices(menus, await realJpeg(), undefined, null, { failWith: new Error('LINE ล่ม') })
+    const published = await publishedAllMenu(menus, services)
+
+    await expect(saveMenu(services, { ...baseInput, audience: 'members' }, published, null))
+      .rejects.toMatchObject({ code: 'menu_default_unknown' })
+
+    expect((await menus.findOne(published.id))!.audience).toBe('all')
+  })
+
+  /**
+   * ครึ่งของสเปกที่ดูจากผลลัพธ์ไม่ออก: การกด Save ธรรมดาต้องไม่จ่าย round trip ไปหา LINE เพิ่ม
+   * ทุกครั้ง ด่านนี้เพิ่งเติมการอ่านเข้าไปในเส้นทางที่เมื่อก่อนไม่มีเลย ถ้ามันยิงทุกครั้ง ทุกการ
+   * แก้ชื่อปุ่มจะช้าลงและพังได้เมื่อ LINE ล่ม ทั้งที่ไม่มีอะไรให้ตรวจ
+   */
+  it('กด Save ธรรมดาบนเมนู Everyone (audience เดิม) — ไม่ยิงไปหา LINE เลยสักครั้ง', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const reads: number[] = []
+    const services = fakeServices(menus, await realJpeg(), undefined, null, { accountDefault: DEFAULT_ID, reads })
+    const published = await publishedAllMenu(menus, services)
+
+    const updated = await saveMenu(
+      services, { ...baseInput, audience: 'all', name: 'ชื่อใหม่' }, published, null)
+    expect(updated.name).toBe('ชื่อใหม่')
+    expect(reads).toHaveLength(0)
+  })
+
+  it('กด Save ธรรมดาบนเมนู Members ที่เป็นอยู่แล้ว — ไม่ยิงไปหา LINE เลยสักครั้ง', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const reads: number[] = []
+    const services = fakeServices(menus, await realJpeg(), undefined, null, { accountDefault: DEFAULT_ID, reads })
+    const created = await saveMenu(services, { ...baseInput, audience: 'members' }, null, null)
+    const published = await menus.update(created.id, { status: 'published', lineRichMenuId: DEFAULT_ID })
+
+    const updated = await saveMenu(
+      services, { ...baseInput, audience: 'members', name: 'ชื่อใหม่' }, published, null)
+    expect(updated.name).toBe('ชื่อใหม่')
+    expect(reads).toHaveLength(0)
+  })
+
+  it('ร่างที่ยังไม่เคยขึ้น LINE — ตั้ง Members ได้ และไม่ยิงไปหา LINE เลย', async () => {
+    const menus = fakeRepo<RichMenuRow>()
+    const reads: number[] = []
+    const services = fakeServices(menus, await realJpeg(), undefined, null, { accountDefault: DEFAULT_ID, reads })
+    const created = await saveMenu(services, { ...baseInput, audience: 'all' }, null, null)
+    const draft = await menus.update(created.id, { lineRichMenuId: null })
+
+    const updated = await saveMenu(services, { ...baseInput, audience: 'members' }, draft, null)
+    expect(updated.audience).toBe('members')
+    expect(reads).toHaveLength(0)
   })
 })

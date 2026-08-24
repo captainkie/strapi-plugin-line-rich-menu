@@ -170,6 +170,67 @@ export class MenuNotAllAudienceError extends CoreError {
 }
 
 /**
+ * Task 22 / review H-1 — ครึ่งที่เหลือของ **class เดียวกัน** กับ `MenuNotAllAudienceError` ข้างบน
+ * ไม่ใช่ประตูใหม่คนละเรื่อง
+ *
+ * ตัวนั้นกัน "เมนูที่ป้าย `'members'` ถูกทำให้เป็น default ของบัญชี" ตัวนี้กัน**ทางกลับ**: เมนูที่
+ * **เป็น default ของบัญชีอยู่แล้ว** ถูกติดป้าย `'members'` ทีหลัง ปลายทางเป็นสถานะเดียวกันเป๊ะ —
+ * แถวอ่านว่า `members` ขณะที่ `lineRichMenuId` ของมันคือสิ่งที่ LINE เสิร์ฟให้ผู้ติดตาม**ทุกคน**
+ *
+ * เดินได้จาก UI ล้วน ๆ ไม่ต้องแตะ API เลย: สร้างเมนู Audience = Everyone → **Save and publish**
+ * (editor ส่ง `setAsDefault: true` ให้เองตาม Task 17 — default ของบัญชีกลายเป็นเมนูนี้) → เปิดกลับ
+ * มา สลับเป็น **Members** → **Save** ก่อนมีด่านนี้คำขอที่สองผ่านฉลุย ไม่มียามที่ไหนบนเส้นทาง และ
+ * operator ก็ถอยออกเองไม่ได้ด้วย เพราะ publish ซ้ำถูก `assertNotChannelMemberMenu` ปฏิเสธไปแล้ว
+ * — สวิตช์สมาชิกยังทำงานกับมันได้ต่อ ผลคือลิงก์รายคนถูกซ้อนทับลงบนเมนูที่คนนอกเห็นอยู่แล้ว
+ *
+ * ปฏิเสธ ไม่ซ่อมให้เอง ตามหลักเดียวกับพี่น้องทั้งห้าของมัน — ทางออกที่ใช้ได้จริงคือล้าง default
+ * ของบัญชีก่อน (`DELETE /menus/:id/default` ซึ่งมีอยู่แล้วและเป็น publish permission เดียวกัน)
+ * แล้วค่อยเปลี่ยน audience การล้าง default ให้เองเงียบ ๆ คือการตัดสินใจแทน operator ว่าผู้ติดตาม
+ * ทุกคนควรไม่เห็นเมนูอะไรเลย ซึ่งไม่ใช่สิ่งที่เขาขอมาสักคำ
+ *
+ * 409 ด้วยเหตุผลเดียวกับทั้งตระกูล — "เมนูนี้ยังทำสิ่งที่ขอไม่ได้" ไม่ใช่ "คำขอผิดรูป"
+ */
+export class MenuIsAccountDefaultError extends CoreError {
+  readonly code = 'menu_is_account_default'
+  constructor(readonly menuId: string) {
+    super(
+      `rich menu ${menuId} is currently the LINE account default, so every follower is being shown `
+      + "it; labelling it audience:'members' would leave a members menu live for non-members — "
+      + 'clear the account default first (DELETE /menus/:id/default), then change the audience',
+    )
+  }
+}
+
+/**
+ * Task 22 / review H-1 — ด่านข้างบนต้อง**อ่านค่า default จาก LINE จริง** ไม่ใช่จากคอลัมน์ในฐานข้อมูล
+ * ("active" เป็นค่าที่ derive ไม่เคยถูกเก็บ — กฎเดียวกับที่ `controllers/members.ts:audience` ใช้
+ * อยู่แล้ว) การอ่านนั้นล้มได้จริง: token หมดอายุ, LINE ล่ม, เน็ตขาด
+ *
+ * ล้มแล้ว **ปฏิเสธ** ไม่ใช่ปล่อยผ่าน — "ปล่อยผ่านเมื่ออ่านไม่ได้" คือรูปเดียวกับบั๊กต้นเรื่องเป๊ะ ๆ
+ * (บั๊กเดิมคือ "ไม่เคยถามเลย" ซึ่งก็คือปล่อยผ่านทุกครั้ง) การล้มแบบ fail-open ตรงนี้จะทำให้ยาม
+ * หายไปเงียบ ๆ พอดีในนาทีที่ LINE มีปัญหา ซึ่งเป็นนาทีที่ไม่มีใครมองอยู่
+ *
+ * แยก code ออกจาก `menu_is_account_default` เพราะข้อเท็จจริงคนละอย่างและทางแก้คนละอย่าง — ตัวนั้น
+ * คือ "เรารู้ว่ามันเป็น default" ตัวนี้คือ "เราไม่รู้" operator ที่เจอตัวนี้ต้องแก้การเชื่อมต่อ LINE
+ * แล้วลองใหม่ ไม่ใช่ไปล้าง default ที่อาจไม่ได้ชี้มาที่เมนูนี้ด้วยซ้ำ code เดียวกันสองความหมายจะ
+ * บอกวิธีแก้ผิดครึ่งหนึ่งของเวลาทั้งหมด
+ *
+ * เก็บต้นเหตุจริงไว้ที่ `reason` (ไม่ใช่ `cause` ของ `Error` เอง — ไม่อยากไปแตะลายเซ็นของ
+ * `CoreError` ทั้งตระกูลเพื่อฟิลด์เดียว) `toHttpError` ส่งออกแค่ `code` เหมือน error ทุกตัวในระบบ
+ * อยู่แล้ว ค่านี้จึงมีไว้ให้ log และคนดีบั๊กเห็น ไม่ใช่ให้ผู้เรียกเห็น
+ */
+export class MenuDefaultUnknownError extends CoreError {
+  readonly code = 'menu_default_unknown'
+  constructor(readonly menuId: string, readonly reason: unknown) {
+    super(
+      `could not read the LINE account default while checking rich menu ${menuId}; `
+      + "refusing to label it audience:'members' rather than risk leaving a members menu live for "
+      + "every follower — fix the channel's LINE connection and try again",
+    )
+  }
+}
+
+/**
  * Task 17 / deferred item 3 — ย้ายเมนูที่เคยขึ้น LINE แล้วไปอยู่ channel อื่นไม่ได้
  *
  * `saveMenu` เขียน `channelId` จาก input ตรง ๆ ทุกครั้ง การย้ายเมนูสมาชิกที่ยัง live อยู่ไป channel

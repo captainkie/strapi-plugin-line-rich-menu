@@ -54,6 +54,17 @@ const STATUS_BY_CODE: Record<string, number> = {
   // ไม่ได้ (`MenuDisplayPeriodNotAllowedError` ใน core) 409 ไม่ใช่ 400 ทั้งที่มาจากฟอร์ม เพราะสิ่งที่
   // ผิดไม่ใช่รูปทรงของคำขอ แต่เป็นการรวมกันของสองฟิลด์ที่ต่างก็ถูกต้องในตัวเอง
   menu_display_period_not_allowed: 409,
+  // Task 22 / review H-1 — ครึ่งที่เหลือของ class เดียวกับ `menu_not_all_audience` ข้างบน: ที่นั่น
+  // กัน "เมนูป้าย members ถูกทำให้เป็น default ของบัญชี" ตัวนี้กันทางกลับ — เมนูที่**เป็น default
+  // อยู่แล้ว**ถูกติดป้าย members ทีหลัง ปลายทางเดียวกันเป๊ะ (`MenuIsAccountDefaultError` ใน core)
+  // คนละ code เพราะวิธีแก้คนละอย่าง: ตัวนั้นแก้ audience ของเมนู ตัวนี้ล้าง default ของบัญชีก่อน
+  menu_is_account_default: 409,
+  // Task 22 / review H-1 — ด่านข้างบนต้องอ่าน default จาก LINE จริง และการอ่านนั้นล้มได้ ล้มแล้ว
+  // **ปฏิเสธ** ไม่ใช่ปล่อยผ่าน (`MenuDefaultUnknownError` ใน core) 409 ไม่ใช่ 502 ทั้งที่ต้นเหตุ
+  // อยู่ที่ LINE เพราะสิ่งที่ผู้เรียกต้องรู้คือ "คำขอนี้ถูกปฏิเสธ" ส่วน LINE ที่ล่มเป็นเหตุผล
+  // ไม่ใช่ตัวคำตอบ — แยก code จาก `menu_is_account_default` เพราะทางแก้คือแก้การเชื่อมต่อแล้วลองใหม่
+  // ไม่ใช่ไปล้าง default ที่อาจไม่ได้ชี้มาที่เมนูนี้ด้วยซ้ำ
+  menu_default_unknown: 409,
   alias_not_published: 409,
   publish_already_running: 409,
   publish_rate_limited: 429,
