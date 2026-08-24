@@ -145,6 +145,39 @@ describe('createScheduleLock.claim — สองคนแย่งแถวเ�
   })
 })
 
+describe('createScheduleLock.heartbeat — รูปคำสั่งที่ยิงจริง', () => {
+  /**
+   * คู่ขนานกับด่านรูปคำสั่งของ `claim`/`release` ข้างบน — ชื่อคอลัมน์ที่ยิงจริงคือสิ่งเดียวที่
+   * acceptance (sqlite ตัวจริง) พิสูจน์ให้ไม่ได้จากตัวเลข report เฉย ๆ ต้องปักไว้ที่นี่
+   */
+  it('UPDATE เดียว เขียนแค่ lockedAt และกรองด้วย id + lockedBy เท่านั้น', async () => {
+    const { knex, tables, calls } = recordingKnex(1)
+    await createScheduleLock(knex, { ttlMs: 300_000, now }).heartbeat('7', 'worker-a')
+
+    expect(tables).toEqual([DEFAULT_SCHEDULE_TABLE])
+    expect(calls.filter((c) => c.method === 'update')).toHaveLength(1)
+    expect(calls).toContainEqual({ method: 'where', args: ['id', '7'] })
+    expect(calls).toContainEqual({ method: 'where', args: ['locked_by', 'worker-a'] })
+    // ห้ามแตะ lockedBy หรือ state — เขียนทับ lockedBy คือการ "แย่ง" ไม่ใช่ "ต่ออายุ"
+    expect(calls.at(-1)).toEqual({ method: 'update', args: [{ locked_at: now() }] })
+  })
+
+  it('UPDATE ไม่โดนแถวไหนเลย → false (แถวนี้ไม่ใช่ของเราแล้ว)', async () => {
+    const { knex } = recordingKnex(0)
+    expect(await createScheduleLock(knex, { ttlMs: 300_000, now }).heartbeat('7', 'worker-a')).toBe(false)
+  })
+
+  it('เปลี่ยนชื่อคอลัมน์ได้เหมือน claim/release — ไม่ได้ฮาร์ดโค้ดชื่อไว้ในตัวเอง', async () => {
+    const { knex, calls } = recordingKnex(1)
+    await createScheduleLock(knex, {
+      ttlMs: 1000, now, columns: { lockedBy: 'lockedBy', lockedAt: 'lockedAt' },
+    }).heartbeat('7', 'worker-a')
+
+    expect(calls).toContainEqual({ method: 'where', args: ['lockedBy', 'worker-a'] })
+    expect(calls.at(-1)).toEqual({ method: 'update', args: [{ lockedAt: now() }] })
+  })
+})
+
 describe('createScheduleLock.release', () => {
   it('ปลดล็อกเฉพาะแถวที่ตัวเองถืออยู่ และเขียนผลลัพธ์ลงไปพร้อมกัน', async () => {
     const { knex, calls } = recordingKnex(1)
@@ -156,5 +189,114 @@ describe('createScheduleLock.release', () => {
       method: 'update',
       args: [{ state: 'failed', last_error: 'line_auth_failed', locked_by: null }],
     })
+  })
+})
+
+/**
+ * (Task 19 item 4) `lockedAt` เดิมถูกประทับครั้งเดียวตอน claim แล้วไม่ขยับอีกเลย TTL คือ 300000 ms
+ * และ cron วิ่งทุกนาที — งาน `link-members` วนทุกชุดอยู่ใน `run()` เดียว งานที่ใช้เวลาเกินห้านาที
+ * (ขนาด "สมาชิกเกินหมื่นคน" ที่ฟีเจอร์นี้ออกแบบมารองรับพอดี) จึงถูก tick ถัดไป claim ซ้ำแล้ววิ่ง
+ * ซ้อนกับตัวเอง
+ *
+ * ทั้ง describe นี้ใช้ **แถวเดียวกันและนาฬิกาเดียวกัน** ทั้งสามด่านโดยตั้งใจ — สองครึ่งที่ต้อง
+ * พิสูจน์พร้อมกันคือ "งานที่ยังมีชีวิตต้องไม่ถูกแย่ง" กับ "งานที่ process ตายแล้วต้องยังหมดอายุ"
+ * การแก้ที่ทำได้แค่ครึ่งแรกเปลี่ยนงานที่ค้างให้กลายเป็นงานที่ค้าง **ถาวร** ซึ่งแย่กว่าเดิม
+ */
+describe('createScheduleLock.heartbeat', () => {
+  interface FakeRow { id: string; state: string; locked_by: string | null; locked_at: Date | null }
+
+  const TTL = 300_000
+  const T0 = new Date('2026-08-21T12:00:00.000Z')
+  const at = (ms: number) => new Date(T0.getTime() + ms)
+
+  /**
+   * fake ที่ตัดสินผลของ UPDATE จากสถานะแถวจริง เหมือน `raceableKnex` ข้างบน แต่รองรับเงื่อนไข
+   * `locked_by = owner` ที่ `heartbeat`/`release` ใช้ด้วย — fake ที่ไม่บังคับเงื่อนไขนั้นจะทำให้
+   * ด่าน "คนที่ไม่ได้ถือ lock ต่ออายุไม่ได้" เขียวทั้งที่โค้ดไม่ได้กรองอะไรเลย
+   */
+  function lockOver(row: FakeRow, clock: { at: Date }) {
+    const knex: KnexLike = (table) => {
+      expect(table).toBe(DEFAULT_SCHEDULE_TABLE)
+      let idWanted: string | undefined
+      let ownerWanted: string | undefined
+      let statesWanted: string[] | undefined
+      let expiry: Date | undefined
+      let requireFree = false
+      const group: KnexWhereBuilder = {
+        whereNull() { requireFree = true; return group },
+        orWhere(_column, _operator, value) { expiry = value as Date; return group },
+      }
+      const builder: KnexQueryBuilder = {
+        where(column, value) {
+          if (column === 'id') idWanted = value as string
+          if (column === 'locked_by') ownerWanted = value as string
+          return builder
+        },
+        whereIn(column, values) { if (column === 'state') statesWanted = values as string[]; return builder },
+        andWhere(fn) { fn(group); return builder },
+        async update(data) {
+          if (row.id !== idWanted) return 0
+          if (ownerWanted !== undefined && row.locked_by !== ownerWanted) return 0
+          if (statesWanted !== undefined && !statesWanted.includes(row.state)) return 0
+          if (requireFree) {
+            const free = row.locked_by === null
+            const expired = expiry !== undefined && row.locked_at !== null && row.locked_at < expiry
+            if (!free && !expired) return 0
+          }
+          Object.assign(row, data)
+          return 1
+        },
+      }
+      return builder
+    }
+    return createScheduleLock(knex, { ttlMs: TTL, now: () => clock.at })
+  }
+
+  it('ครึ่งแรก: งานที่ยังวิ่งและต่ออายุทุกชุด — worker อื่นแย่งไม่ได้แม้เลย TTL นับจากตอน claim แล้ว', async () => {
+    const row: FakeRow = { id: '7', state: 'pending', locked_by: null, locked_at: null }
+    const clock = { at: T0 }
+    const lock = lockOver(row, clock)
+
+    expect(await lock.claim('7', 'worker-a')).toBe(true)
+
+    // นาทีที่ 4 — ยังไม่หมดอายุ งานทำชุดหนึ่งจบแล้วต่ออายุ claim ของตัวเอง
+    clock.at = at(4 * 60_000)
+    expect(await lock.heartbeat('7', 'worker-a')).toBe(true)
+    expect(row.locked_at).toEqual(at(4 * 60_000))
+
+    // นาทีที่ 8 — เลย TTL นับจาก claim ไปแล้ว แต่เพิ่งต่ออายุเมื่อนาทีที่ 4
+    clock.at = at(8 * 60_000)
+    expect(await lock.claim('7', 'worker-b')).toBe(false)
+    expect(row.locked_by).toBe('worker-a')
+  })
+
+  it('ครึ่งหลัง: process ตายไปแล้ว (ไม่มี heartbeat อีกเลย) — แถวต้องยังหมดอายุและถูกเก็บใหม่ได้', async () => {
+    const row: FakeRow = { id: '7', state: 'pending', locked_by: null, locked_at: null }
+    const clock = { at: T0 }
+    const lock = lockOver(row, clock)
+
+    expect(await lock.claim('7', 'worker-a')).toBe(true)
+
+    // ไม่มี heartbeat เลยหลังจากนี้ — process ตายไปพร้อมกับมัน
+    clock.at = at(8 * 60_000)
+    expect(await lock.claim('7', 'worker-b')).toBe(true)
+    expect(row.locked_by).toBe('worker-b')
+  })
+
+  it('worker ที่ไม่ได้ถือ lock ต่ออายุไม่ได้ และการพยายามนั้นต้องไม่ยืดอายุแถวให้ด้วย', async () => {
+    const row: FakeRow = { id: '7', state: 'pending', locked_by: null, locked_at: null }
+    const clock = { at: T0 }
+    const lock = lockOver(row, clock)
+
+    expect(await lock.claim('7', 'worker-a')).toBe(true)
+
+    clock.at = at(4 * 60_000)
+    expect(await lock.heartbeat('7', 'worker-b')).toBe(false)
+    // ค่าเดิมจากตอน claim ต้องไม่ขยับ — ไม่งั้น worker ที่เสีย lock ไปแล้วจะยืดอายุ lock ที่ควร
+    // หมดอายุให้ตลอดไป แล้วงานที่ค้างจะไม่มีวันถูกเก็บใหม่ได้เลย
+    expect(row.locked_at).toEqual(T0)
+
+    clock.at = at(8 * 60_000)
+    expect(await lock.claim('7', 'worker-b')).toBe(true)
   })
 })

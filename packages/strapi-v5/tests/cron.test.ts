@@ -19,6 +19,18 @@ function fakeStrapi(pluginConfig: Record<string, unknown>) {
   return { strapi, add }
 }
 
+/**
+ * (Task 19 item 4) ตัวบันทึกการต่ออายุ claim — งานที่วนหลายชุดใน `run()` เดียวต้องเรียกทุกจบชุด
+ * ไม่งั้น tick นาทีถัดไป claim แถวเดิมซ้ำแล้ววิ่งซ้อนกับตัวเอง
+ */
+function recordingHeartbeat() {
+  const calls: [string, string][] = []
+  return {
+    calls,
+    fn: async (scheduleId: string, owner: string) => { calls.push([scheduleId, owner]); return true },
+  }
+}
+
 describe('registerCron', () => {
   it('ลงทะเบียนงานตาม cron expression ที่ config กำหนด', () => {
     const { strapi, add } = fakeStrapi({ scheduler: { enabled: true, cron: '*/5 * * * *', lockTtlMs: 60000 } })
@@ -63,7 +75,7 @@ describe('runTick — log ต้องผ่าน services.logger ที่ scr
       audit: { write: vi.fn(), around: vi.fn() } as never,
       limiter: {} as never,
       store: {} as never,
-      lock: { claim: vi.fn(), release: vi.fn() },
+      lock: { claim: vi.fn(), heartbeat: vi.fn(), release: vi.fn() },
       clientFor: vi.fn(),
       // ไม่ถูกเรียกในเทสต์ชุดนี้ (runTick ไม่แตะ saveMenu) — ใส่ไว้ให้ตรงกับ Services เฉย ๆ
       transaction: async (fn) => fn(),
@@ -106,6 +118,7 @@ describe('runTick', () => {
       { id: 's1', richMenuId: 'm1', runAt: '2020-01-01T00:00:00.000Z', op: 'clear-default' as const, state: 'pending' as const, lockedBy: null, lockedAt: null, lastError: null },
       { id: 's2', richMenuId: 'm2', runAt: '2020-01-01T00:00:00.000Z', op: 'clear-default' as const, state: 'pending' as const, lockedBy: null, lockedAt: null, lastError: null },
     ]
+    const heartbeat = recordingHeartbeat()
     const services = {
       channels: {
         withSecrets: () => ({
@@ -120,7 +133,9 @@ describe('runTick', () => {
         findMany: async (params?: { filters?: { state?: string } }) =>
           params?.filters?.state === 'pending' ? dueRows : [],
       },
-      lock: { claim: async () => true, release: async () => undefined },
+      // (Task 19 item 4) งานที่วนหลายชุดต่ออายุ claim ทุกจบชุด — บันทึกไว้เพื่อพิสูจน์ว่า
+      // adapter เดินผ่าน lock ตัวจริงของ services ไม่ใช่ของที่ scheduler ประกอบเอง
+      lock: { claim: async () => true, heartbeat: heartbeat.fn, release: async () => undefined },
       menus: { findOne: async (id: string) => menuByRichMenuId[id] ?? null },
       audit: { write: async () => undefined, around: async (_ctx: unknown, fn: () => Promise<unknown>) => fn() },
       logger: { debug() {}, info() {}, warn() {}, error() {} },
@@ -156,6 +171,7 @@ describe('runTick', () => {
     const bulkLinkCalls: unknown[] = []
     const updateCalls: unknown[] = []
 
+    const heartbeat = recordingHeartbeat()
     const services = {
       channels: {
         withSecrets: () => ({ findOne: async (id: string) => ({ id, channelAccessToken: `token-${id}` }) }),
@@ -169,7 +185,9 @@ describe('runTick', () => {
           params?.filters?.state === 'pending' ? dueRows : [],
         update: async () => undefined,
       },
-      lock: { claim: async () => true, release: async () => undefined },
+      // (Task 19 item 4) งานที่วนหลายชุดต่ออายุ claim ทุกจบชุด — บันทึกไว้เพื่อพิสูจน์ว่า
+      // adapter เดินผ่าน lock ตัวจริงของ services ไม่ใช่ของที่ scheduler ประกอบเอง
+      lock: { claim: async () => true, heartbeat: heartbeat.fn, release: async () => undefined },
       // เมนูของจริงมี lineRichMenuId เสมอเมื่อ publish แล้ว — ของปลอมเดิมไม่มีฟิลด์นี้ ทำให้
       // เทสต์นี้ปักค่า 'm1' (id ของแถวในฐานข้อมูล) ไว้เป็นสิ่งที่ส่งให้ LINE ซึ่งเป็นบั๊กจริงใน
       // scheduler ไม่ใช่พฤติกรรมที่ต้องการ — สิ่งที่ต้องเดินทางไปถึง bulkLink คือ id ที่ LINE ออกให้
@@ -188,6 +206,8 @@ describe('runTick', () => {
     expect(report).toMatchObject({ due: 1, claimed: 1, done: 1, failed: 0 })
     expect(bulkLinkCalls).toEqual([{ richMenuId: 'line-rm-1', userIds: [`U${'a'.repeat(32)}`] }])
     expect(updateCalls).toHaveLength(1)
+    // (Task 19 item 4) หนึ่งชุด = ต่ออายุ claim หนึ่งครั้ง ด้วย scheduleId/owner ของงานนั้นจริง ๆ
+    expect(heartbeat.calls).toEqual([['sc1', expect.any(String)]])
   })
   /**
    * (Task 19 item 5) ครึ่งที่พิสูจน์ว่า adapter **ต่อสาย `memberRichMenuIdOf` เข้ากับ channel จริง**
@@ -203,6 +223,7 @@ describe('runTick', () => {
     const bulkLinkCalls: unknown[] = []
     const pointerReads: string[] = []
 
+    const heartbeat = recordingHeartbeat()
     const services = {
       channels: {
         withSecrets: () => ({ findOne: async (id: string) => ({ id, channelAccessToken: `token-${id}` }) }),
@@ -215,7 +236,9 @@ describe('runTick', () => {
           params?.filters?.state === 'pending' ? dueRows : [],
         update: async () => undefined,
       },
-      lock: { claim: async () => true, release: async () => undefined },
+      // (Task 19 item 4) งานที่วนหลายชุดต่ออายุ claim ทุกจบชุด — บันทึกไว้เพื่อพิสูจน์ว่า
+      // adapter เดินผ่าน lock ตัวจริงของ services ไม่ใช่ของที่ scheduler ประกอบเอง
+      lock: { claim: async () => true, heartbeat: heartbeat.fn, release: async () => undefined },
       menus: { findOne: async (id: string) => (id === 'm1' ? { channelId: 'ch1', lineRichMenuId: 'line-rm-1' } : null) },
       members: {
         findMany: async () => [

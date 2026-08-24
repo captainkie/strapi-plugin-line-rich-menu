@@ -38,6 +38,20 @@ const DEFAULT_COLUMNS: ScheduleLockColumns = {
 
 export interface ScheduleLock {
   claim(scheduleId: string, owner: string): Promise<boolean>
+  /**
+   * (Task 19 item 4) ต่ออายุ claim ที่ยังทำงานอยู่ — คืน `true` เมื่อแถวยังเป็นของ owner คนนี้จริง
+   *
+   * `lockedAt` เดิมถูกประทับครั้งเดียวตอน claim แล้วไม่เคยขยับอีกเลย ส่วน TTL คือ 300000 ms และ
+   * cron วิ่งทุกนาที — งาน `link-members` วนทุก chunk อยู่ใน `run()` เดียว ดังนั้นงานที่ใช้เวลาเกิน
+   * ห้านาที (ซึ่งคือขนาด "สมาชิกเกินหมื่นคน" ที่ฟีเจอร์นี้ออกแบบมารองรับพอดี) จะถูก tick ถัดไป
+   * claim ซ้ำแล้ววิ่งซ้อนกับตัวเอง ทั้งสองตัวอ่าน/เขียน `cursor` จากภาพของตัวเอง cursor จึงถอยหลังได้
+   * และตัวหนึ่งจบแล้วปล่อย lock ขณะที่อีกตัวยังวิ่งอยู่
+   *
+   * เงื่อนไข `lockedBy = owner` ไม่ใช่ของประดับ: worker ที่**เสีย** lock ไปแล้วต้องต่ออายุไม่ได้
+   * ไม่งั้นมันจะยืดอายุ lock ของคนอื่นให้ (หรือแย่กว่านั้น ยืดอายุ lock ที่ควรหมดอายุ) ตลอดไป —
+   * ค่า `false` ที่คืนกลับคือคำตอบว่า "แถวนี้ไม่ใช่ของคุณแล้ว"
+   */
+  heartbeat(scheduleId: string, owner: string): Promise<boolean>
   release(scheduleId: string, owner: string, state: 'done' | 'failed', lastError: string | null): Promise<void>
 }
 
@@ -65,6 +79,18 @@ export function createScheduleLock(
 
       // === 1 ไม่ใช่ > 0 — ถ้าโดนมากกว่าหนึ่งแถวแปลว่าเงื่อนไขกว้างเกินไป ซึ่งเป็นบั๊ก
       // ที่ต้องไม่ถูกตีความว่า "ได้ lock แล้ว" (สเปก §10: "ตรวจ affected rows = 1")
+      return affected === 1
+    },
+
+    async heartbeat(scheduleId, owner) {
+      // เขียนแค่ `lockedAt` — ไม่แตะ `state` เพราะแถวเป็น 'running' อยู่แล้วตั้งแต่ claim และการ
+      // เขียนซ้ำก็ไม่ได้อะไรเพิ่ม ส่วน `lockedBy` ห้ามแตะเด็ดขาด: มันคือเงื่อนไขที่ใช้ตัดสินว่าเรา
+      // ยังเป็นเจ้าของอยู่ไหม เขียนทับมันคือการ "แย่ง" ไม่ใช่การ "ต่ออายุ"
+      const affected = await knex(table)
+        .where(column.id, scheduleId)
+        .where(column.lockedBy, owner)
+        .update({ [column.lockedAt]: now() })
+
       return affected === 1
     },
 

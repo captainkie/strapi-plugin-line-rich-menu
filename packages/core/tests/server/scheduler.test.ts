@@ -68,7 +68,7 @@ function fakeLine() {
 
 function harness(schedules: ScheduleRow[], menus: RichMenuRow[], claim = async () => true) {
   const auditRows: AuditRow[] = []
-  const lock = { claim: vi.fn(claim), release: vi.fn(async () => {}) }
+  const lock = { claim: vi.fn(claim), heartbeat: vi.fn(async () => true), release: vi.fn(async () => {}) }
   const lines = new Map<string, ReturnType<typeof fakeLine>>()
   // จำไว้ต่อ channel เพื่อให้เทสต์หยิบ "client ของ channel นั้น" กลับมาตรวจได้หลัง tick จบ
   // channel ที่ไม่เคยถูกขอเลยจะได้ของใหม่เอี่ยมที่ไม่มีการเรียกใด ๆ ซึ่งก็เป็นคำตอบที่ถูกต้อง
@@ -460,6 +460,8 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     auditRows: AuditRow[]
     /** จำนวนครั้งที่งานถาม pointer ของ channel — ต้องเป็น "ก่อนทุกชุด" ไม่ใช่ครั้งเดียวตอนเริ่ม */
     pointerChecks: () => number
+    /** ครั้งที่งานต่ออายุ claim ของตัวเอง — (scheduleId, owner) ที่ heartbeat ได้รับจริง */
+    heartbeats: [string, string][]
   }> {
     const memberRows = membersFor(options.members)
     const memberRepo = memberRepoFor(memberRows)
@@ -486,6 +488,8 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     let released: { state: string; error: string | null } | undefined
     const lock = {
       claim: vi.fn(async () => true),
+      // (Task 19 item 4) นับจริงว่างานต่ออายุ claim กี่ครั้ง — จำนวนต้องผูกกับจำนวนชุดที่วิ่งจบ
+      heartbeat: vi.fn(async (id: string, owner: string) => { void id; void owner; return true }),
       release: vi.fn(async (_id: string, _owner: string, state: 'done' | 'failed', error: string | null) => {
         released = { state, error }
       }),
@@ -556,6 +560,7 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     const report = await scheduler.tick()
     return {
       report, sentChunks, released, queries, linkTargets, memberRows, auditRows,
+      heartbeats: lock.heartbeat.mock.calls as [string, string][],
       pointerChecks: () => pointerChecks,
       cursorPersisted: scheduleRows[0]!.cursor,
     }
@@ -725,9 +730,22 @@ describe('tick — link-members วนหลาย chunk พร้อม cursor 
     expect(pointerChecks()).toBe(3)
   })
 
+  /**
+   * (Task 19 item 4) งานที่วนหลายชุดในหนึ่ง `run()` ต้องต่ออายุ claim ของตัวเองทุกจบชุด ไม่งั้น
+   * tick นาทีถัดไปจะ claim แถวเดิมซ้ำแล้ววิ่งซ้อน — cursor ถอยหลังได้ และตัวหนึ่งจบแล้วปล่อย lock
+   * ขณะที่อีกตัวยังวิ่งอยู่ ต้องนับจำนวนครั้งจริง ไม่ใช่ถามว่าเรียกหรือเปล่า: การต่ออายุครั้งเดียว
+   * ตอนเริ่มงานไม่ได้แก้อะไรเลยกับงานที่กินเวลาสิบนาที
+   */
+  it('ต่ออายุ claim ทุกจบชุด ด้วย scheduleId/owner ของตัวเอง ไม่ใช่ครั้งเดียวตอนเริ่มงาน', async () => {
+    const { sentChunks, heartbeats } = await tickWith({ members: 1001, op: 'link-members' })
+
+    expect(sentChunks).toHaveLength(3)
+    expect(heartbeats).toEqual([['s1', 'worker-a'], ['s1', 'worker-a'], ['s1', 'worker-a']])
+  })
+
   it('ไม่มี ops.members แล้วมีงาน link-members เข้ามา → พังทันที ไม่ใช่ข้ามงานไปเงียบ ๆ', async () => {
     const scheduleRows: ScheduleRow[] = [scheduleRow({ id: 's1', op: 'link-members', cursor: null })]
-    const lock = { claim: vi.fn(async () => true), release: vi.fn(async () => {}) }
+    const lock = { claim: vi.fn(async () => true), heartbeat: vi.fn(async () => true), release: vi.fn(async () => {}) }
     const auditRows: AuditRow[] = []
     const auditRepo: Repo<AuditRow> = {
       async findMany() { return auditRows },
@@ -827,6 +845,7 @@ describe('tick — unlink-members วนจนหมดโดยไม่มี 
       async delete() { throw new Error('append-only') },
     }
     let released: { state: string; error: string | null } | undefined
+    const heartbeat = vi.fn(async () => true)
     const scheduler = createScheduler({
       schedules: {
         ...schedules,
@@ -834,6 +853,7 @@ describe('tick — unlink-members วนจนหมดโดยไม่มี 
       },
       lock: {
         claim: vi.fn(async () => true),
+        heartbeat,
         release: vi.fn(async (_id: string, _owner: string, state: 'done' | 'failed', error: string | null) => {
           released = { state, error }
         }),
@@ -853,7 +873,7 @@ describe('tick — unlink-members วนจนหมดโดยไม่มี 
     })
     return {
       tick: () => scheduler.tick(),
-      sentChunks, memberRows, auditRows, scheduleUpdates,
+      sentChunks, memberRows, auditRows, scheduleUpdates, heartbeat,
       released: () => released,
     }
   }
@@ -914,6 +934,15 @@ describe('tick — unlink-members วนจนหมดโดยไม่มี 
 
     expect(report).toMatchObject({ failed: 1 })
     expect(h.released()).toMatchObject({ state: 'failed' })
+  })
+
+  // งานปลดวนหลายชุดในหนึ่ง run() เหมือนงานผูก จึงหมดอายุ claim ระหว่างทางได้เหมือนกันเป๊ะ (item 4)
+  it('ต่ออายุ claim ทุกจบชุดเหมือน link-members', async () => {
+    const h = unlinkHarness({ members: linkedMembers(501) })
+    await h.tick()
+
+    expect(h.sentChunks).toHaveLength(2)
+    expect(h.heartbeat.mock.calls).toEqual([['s1', 'worker-a'], ['s1', 'worker-a']])
   })
 
   it('เขียน audit unlink-members success พร้อมจำนวนที่ปลดได้จริง', async () => {

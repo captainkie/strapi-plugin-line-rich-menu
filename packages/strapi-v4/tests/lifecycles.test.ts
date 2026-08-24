@@ -47,7 +47,7 @@ function fakeServices(overrides: Partial<Services> = {}): Services {
     audit: { write: vi.fn(async () => undefined), around: vi.fn() },
     limiter: {} as never,
     store: {} as never,
-    lock: { claim: vi.fn(), release: vi.fn() },
+    lock: { claim: vi.fn(), heartbeat: vi.fn(), release: vi.fn() },
     clientFor: vi.fn(),
     ...overrides,
   }

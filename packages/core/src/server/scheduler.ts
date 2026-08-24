@@ -131,6 +131,20 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
     // cron ไม่มีผู้ใช้ที่กดปุ่ม — actor เป็น null และ content type ต้องยอมให้ null ได้ (Task 14)
     const actorId = null
 
+    /**
+     * (Task 19 item 4) เรียกทุกจบ chunk ของงานที่วนหลายชุดในหนึ่ง `run()` — `false` แปลว่าแถวไม่ใช่
+     * ของเราแล้ว (มีคนแย่งไปตอน TTL หมดก่อนที่ heartbeat ตัวแรกจะทัน) ซึ่งเป็นสภาพที่ไม่ควรเกิดขึ้น
+     * อีกเลยเมื่อมี heartbeat แล้ว จึง log ระดับ warn ไว้ให้มีคนมาดู — ไม่หยุดงานกลางคัน เพราะ
+     * `release` ของเรามีเงื่อนไข `lockedBy = owner` อยู่แล้ว จึงเขียนทับผลของเจ้าของใหม่ไม่ได้
+     */
+    const keepClaim = async (): Promise<void> => {
+      if (await deps.lock.heartbeat(row.id, deps.owner)) return
+      deps.logger.warn(
+        'line-rich-menu: lost the claim on a running schedule — another worker may be running it concurrently',
+        { scheduleId: row.id, op: row.op, owner: deps.owner },
+      )
+    }
+
     // schedule ผูกกับเมนู และเมนูผูกกับ channel ของตัวเอง — channel ของงานนี้จึงอ่านจากเมนู
     // ไม่ใช่รับมาจากผู้เรียก ตารางเวลาไม่มีคอลัมน์ channel และไม่ควรมี: เมนูย้าย channel เมื่อไหร่
     // ค่าที่ denormalize ไว้จะค้างชี้ของเดิมทันที ส่วนการอ่านจากเมนูถูกเสมอตามนิยาม
@@ -238,6 +252,11 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
                 vanished += result.vanished
                 cursor = result.nextCursor
                 await deps.schedules.update(row.id, { cursor })
+                // (Task 19 item 4) ต่ออายุ claim ทุกจบชุด — งานที่ยังมีชีวิตต้องถือ lock ของตัวเอง
+                // ไว้ได้ ส่วนงานที่ process ตายไปแล้วต้องยังหมดอายุตามเดิม (heartbeat หยุดไปเอง
+                // พร้อมกับ process) ถ้าไม่ต่ออายุ tick นาทีถัดไปจะ claim แถวเดิมซ้ำแล้ววิ่งซ้อนกับ
+                // ตัวเอง — cursor ถอยหลังได้ และตัวหนึ่งจบแล้วปล่อย lock ขณะที่อีกตัวยังวิ่งอยู่
+                await keepClaim()
                 if (cursor === null) break
               }
             } catch (error) {
@@ -298,6 +317,8 @@ export function createScheduler(deps: SchedulerDeps): { tick(): Promise<TickRepo
               }
               previousLastId = result.lastId
               processed += result.processed
+              // งานปลดก็วนหลายชุดในหนึ่ง run() เหมือนกัน จึงหมดอายุ claim ระหว่างทางได้เหมือนกันเป๊ะ
+              await keepClaim()
             }
           },
           (processed) => ({ unlinked: processed }),
