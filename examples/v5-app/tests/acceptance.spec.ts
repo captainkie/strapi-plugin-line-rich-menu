@@ -1367,3 +1367,125 @@ test.describe('audience ของเมนูที่มีอยู่ก่�
       'หลังบันทึก คอลัมน์ต้องถือสตริง all จริง ไม่ใช่ NULL ที่ขาอ่านกลบไว้').toBe('all')
   })
 })
+
+/**
+ * ===================== Task 22 / review H-1 — relabel เมนูที่เป็น account default ของบัญชี =====================
+ *
+ * ครึ่งที่เหลือของ class เดียวกับ H1/H2 ของ Task 17 ข้างบน: ที่นั่นกันไม่ให้เมนูป้าย 'members' ถูกตั้ง
+ * เป็น default ของบัญชี ที่นี่กันทางกลับ — เมนูที่ **เป็น** default ของบัญชีอยู่แล้วถูกติดป้าย 'members'
+ * ทีหลัง ซึ่งลงเอยที่สถานะเดียวกันเป๊ะ (ดู `assertNotAccountDefault` ใน core/server/menu-ops.ts และ
+ * finding H-1 ใน review-17-20-21-findings.md) เส้นทางที่ brief ต้องการพิสูจน์คือของจริงที่ปุ่ม publish
+ * ปุ่มเดียวของ editor สำหรับเมนู audience: 'all' ส่งอยู่แล้ว (`setAsDefault: true` เสมอ):
+ *   1) สร้างเมนู audience: 'all' แล้ว publish พร้อม setAsDefault: true → เป็น default ของบัญชีจริง
+ *   2) PUT relabel เป็น 'members' → ต้องถูกปฏิเสธ
+ *
+ * channel ของตัวเองแยกต่างหาก ไม่ใช้ 'ร้านทดสอบ' ร่วมกับเทสต์อื่นทั้งไฟล์ ด้วยสองเหตุผล: (ก) LINE mock
+ * แยก store ตาม access token (หนึ่ง token = หนึ่ง OA) ดังนั้น "default ของบัญชี" ที่เทสต์นี้ตั้ง/อ่าน
+ * เป็นถังของตัวเองล้วน ๆ ไม่ปนกับ default ที่เทสต์อื่นตั้งไว้ (โดยเฉพาะ 'เมนูตั้งเวลา' ที่ describe
+ * 'scheduler บน Strapi 5' ข้างบนเปลี่ยน default ของ 'ร้านทดสอบ' ไปแล้ว) (ข) 'ร้านทดสอบ' มีเมนู
+ * 'เมนูหลัก' ที่ด่าน "activate เมนูที่ audience เป็น all" ยังอ้างว่า audience ต้องเป็น 'all' อยู่ —
+ * brief บอกว่า "ถ้าต้องการเมนู ให้สร้างของตัวเอง ไม่ใช้ซ้ำกับเมนูที่เทสต์อื่น assert อยู่" การแยก channel
+ * ทำให้ข้อนี้เป็นจริงโดยไม่ต้องระวังทีละบรรทัด และไม่ต้องแย่งโควตา publish rate limiter (คีย์ด้วย
+ * channelId — capacity 3 ต่อ channel) กับเทสต์อื่นด้วย — วางเป็นบล็อกสุดท้ายของไฟล์เพื่อไม่ให้กระทบ
+ * เทสต์อื่นที่พึ่งลำดับสถานะของไฟล์นี้อยู่ (ไม่มีอะไรรันต่อจากนี้ให้เสีย)
+ */
+test.describe('Task 22 / review H-1 — relabel เมนูที่เป็น account default ของบัญชี', () => {
+  test(
+    'publish เป็น default ของบัญชีแล้ว relabel เป็น members ถูกปฏิเสธ — จับคู่กับเมนูที่ไม่ใช่ default ' +
+    'ซึ่งต้อง relabel ได้ปกติ',
+    async ({ request }) => {
+      const token = await login(request, ADMIN)
+
+      const ACCESS_TOKEN = 'e2e-access-token-h1-QRST'
+      const h1Auth = { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
+
+      const channelResponse = await request.post('/line-rich-menu/channels', {
+        ...auth(token),
+        data: { name: 'ร้านทดสอบ H-1', channelId: '1650000002', channelAccessToken: ACCESS_TOKEN },
+      })
+      expect(channelResponse.status(), await channelResponse.text()).toBe(200)
+      const channelId = (await channelResponse.json()).id as string
+
+      // ===== ข้อ 1 (H-1): publish เป็น account default จริง ผ่านเส้นทางที่ editor เดินจริง =====
+      const fileId = await uploadImage(request, token, 'h1-default.jpg')
+      const created = await request.post('/line-rich-menu/menus', {
+        ...auth(token),
+        data: menuBody({ name: 'เมนู H-1 (default)', channelId, imageFileId: fileId, aliasId: 'h1-default' }),
+      })
+      expect(created.status(), await created.text()).toBe(201)
+      const menu = await created.json()
+      expect(menu.audience, 'เมนูใหม่ต้องเป็น all จาก default ของคอลัมน์').toBe('all')
+
+      // ปุ่ม publish ปุ่มเดียวของ editor สำหรับเมนู audience: all ส่ง setAsDefault: true เสมอ — นี่คือ
+      // เส้นทางจริงที่ H-1 ข้อ 1 อธิบายไว้ ไม่ใช่การจำลองสถานการณ์ที่เดินไม่ถึงจากหน้าจอ
+      const published = await request.post(`/line-rich-menu/menus/${menu.id}/publish`, {
+        ...auth(token), data: { setAsDefault: true },
+      })
+      expect(published.status(), await published.text()).toBe(200)
+      const outcome = await published.json()
+
+      // ยืนยันจากฝั่ง LINE จริง ไม่ใช่เดาจาก status code ของ publish — ต้องเป็น default จริง ๆ
+      const defaultAfterPublish = await request.get(`${LINE_MOCK}/v2/bot/user/all/richmenu`, h1Auth)
+      expect(defaultAfterPublish.status(), await defaultAfterPublish.text()).toBe(200)
+      expect((await defaultAfterPublish.json()).richMenuId).toBe(outcome.lineRichMenuId)
+
+      // ===== ข้อ 2 (H-1): relabel เป็น members ต้องถูกปฏิเสธ (assertNotAccountDefault ใน core) =====
+      const relabelDefault = await request.put(`/line-rich-menu/menus/${menu.id}`, {
+        ...auth(token),
+        data: {
+          ...menuBody({ name: 'เมนู H-1 (default)', channelId, imageFileId: fileId, aliasId: 'h1-default' }),
+          audience: 'members',
+        },
+      })
+      expect(relabelDefault.status(), await relabelDefault.text()).toBe(409)
+      expect(await relabelDefault.json()).toMatchObject({ error: { code: 'menu_is_account_default' } })
+
+      // ปฏิเสธจริง ไม่ใช่ปฏิเสธหลังเขียนไปแล้ว — แถวต้องยังเป็น all และ default ของบัญชีต้องไม่ขยับ
+      const afterRefusal = await request.get(`/line-rich-menu/menus/${menu.id}`, auth(token))
+      expect(afterRefusal.status(), await afterRefusal.text()).toBe(200)
+      expect((await afterRefusal.json()).audience, 'คำขอที่ถูกปฏิเสธต้องไม่เขียนอะไรลงไป').toBe('all')
+      const defaultAfterRefusal = await request.get(`${LINE_MOCK}/v2/bot/user/all/richmenu`, h1Auth)
+      expect((await defaultAfterRefusal.json()).richMenuId).toBe(outcome.lineRichMenuId)
+
+      /**
+       * ===== การจับคู่ (ไม่ optional): เมนู publish แล้วแต่ไม่ใช่ account default ต้อง relabel ได้ปกติ
+       *
+       * ยามที่ปฏิเสธไม่มีเงื่อนไขก็ผ่านด่านข้างบนได้เหมือนกัน — ด่านนี้เท่านั้นที่แยก "ยาม" ออกจาก
+       * "ห้าม relabel เมนู publish แล้วทุกตัวเป็น members" ซึ่งพังการแก้ไขปกติทั้งหมด การจับคู่แบบนี้
+       * เคยจับข้อบกพร่องจริงมาแล้วสองครั้งบนแบรนช์นี้ (ดู task-22-brief.md)
+       */
+      const fileId2 = await uploadImage(request, token, 'h1-notdefault.jpg')
+      const created2 = await request.post('/line-rich-menu/menus', {
+        ...auth(token),
+        data: menuBody({
+          name: 'เมนู H-1 (ไม่ใช่ default)', channelId, imageFileId: fileId2, aliasId: 'h1-not-default',
+        }),
+      })
+      expect(created2.status(), await created2.text()).toBe(201)
+      const menu2 = await created2.json()
+
+      const published2 = await request.post(`/line-rich-menu/menus/${menu2.id}/publish`, {
+        ...auth(token), data: { setAsDefault: false },
+      })
+      expect(published2.status(), await published2.text()).toBe(200)
+
+      // default ของบัญชียังต้องเป็นเมนูแรก — publish แบบ setAsDefault: false ต้องไม่แตะมัน ถ้าด่านนี้
+      // แดง แปลว่าเมนูตัวที่สองดันกลายเป็น default ไปแล้ว และด่านคู่ข้างล่างจะเขียวเพราะไม่มีอะไรให้ผ่าน
+      const defaultBeforeRelabel2 = await request.get(`${LINE_MOCK}/v2/bot/user/all/richmenu`, h1Auth)
+      expect((await defaultBeforeRelabel2.json()).richMenuId,
+        'เมนูตัวที่สองต้อง publish แบบไม่ใช่ default').toBe(outcome.lineRichMenuId)
+
+      const relabelNotDefault = await request.put(`/line-rich-menu/menus/${menu2.id}`, {
+        ...auth(token),
+        data: {
+          ...menuBody({
+            name: 'เมนู H-1 (ไม่ใช่ default)', channelId, imageFileId: fileId2, aliasId: 'h1-not-default',
+          }),
+          audience: 'members',
+        },
+      })
+      expect(relabelNotDefault.status(), await relabelNotDefault.text()).toBe(200)
+      expect((await relabelNotDefault.json()).audience).toBe('members')
+    },
+  )
+})
