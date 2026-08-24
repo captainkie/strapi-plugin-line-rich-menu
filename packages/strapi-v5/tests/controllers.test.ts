@@ -872,6 +872,95 @@ describe('members controller — deactivate', () => {
    * เกินหมื่นคน คำขอเดียวที่วนปลดทั้งหมดคือคำขอที่ proxy timeout หรือ restart ตัดกลางทางได้
    * แล้วไม่มีใครทำงานที่เหลือต่อ ส่วนแถวงานที่ค้างอยู่ในตาราง cron รอบถัดไปหยิบต่อได้เสมอ
    */
+  /**
+   * (Task 19 item 2) หัวใจของข้อนี้ — `enqueueLinkMembers` ตั้งใจ resume จากแถว 'failed' พร้อม
+   * cursor เดิม ซึ่งถูกต้อง**ภายในการเปิดครั้งเดียว** แต่ผิดทันทีเมื่อมี "ปิด" คั่นกลาง เพราะงาน
+   * unlink ระหว่างนั้นล้างคนที่ผูกไว้แล้วออกหมด การเปิดใหม่แล้วต่อจาก cursor เดิมจึงข้ามทุกคน
+   * เหนือ cursor ไปเงียบ ๆ สวิตช์อ่านว่าเปิด แต่ครึ่งหนึ่งไม่เคยได้เมนู
+   *
+   * ต้องเดินสองปุ่มจริง (deactivate แล้ว activate) ไม่ใช่เช็คแค่ผลของ deactivate — คำถามคือ
+   * "รอบถัดไปเริ่มจากศูนย์ไหม" ซึ่งตอบได้ที่ตอน activate เท่านั้น
+   */
+  it('deactivate ปลดระวางงาน link-members ที่ค้าง — activate รอบถัดไปเริ่มใหม่ ไม่ใช่ต่อจาก cursor เดิม', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '15')
+    ;(rows[UID.channel]![0] as Record<string, unknown>)['memberRichMenuId'] = 'line-rm-1'
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.schedule] = [{
+      documentId: 'sched1', richMenu: { documentId: 'm1' }, op: 'link-members', state: 'failed',
+      cursor: 'mem0499', runAt: '2020-01-01T00:00:00.000Z', lockedBy: null, lockedAt: null,
+      lastError: 'line_server_error',
+    }]
+    rows[UID.member] = []
+
+    await controllers.members({ strapi }).deactivate(makeCtx({ params: { id: 'm1' } }))
+    await controllers.members({ strapi }).activate(makeCtx({ params: { id: 'm1' } }))
+
+    const linkRows = rows[UID.schedule]!.filter((row) => row['op'] === 'link-members')
+    // แถวเดิมถูกปลดระวางแล้ว: scheduler ไม่หยิบ 'done' และ enqueueLinkMembers ปลุกแค่ 'failed'
+    expect(linkRows.find((row) => row['documentId'] === 'sched1'))
+      .toMatchObject({ state: 'done', cursor: null })
+    // และมีงานใหม่ที่เริ่มจากคนแรกจริง ๆ ไม่ใช่ "ไม่มีงานเลย" ซึ่งก็เงียบพอ ๆ กัน
+    const fresh = linkRows.filter((row) => row['documentId'] !== 'sched1')
+    expect(fresh).toHaveLength(1)
+    expect(fresh[0]).toMatchObject({ cursor: null })
+  })
+
+  it('ปลดระวางเฉพาะงาน link-members ของเมนูนี้ — เมนูอื่นในตารางเดียวกันต้องไม่ถูกแตะ', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '16')
+    ;(rows[UID.channel]![0] as Record<string, unknown>)['memberRichMenuId'] = 'line-rm-1'
+    rows[UID.menu] = [
+      audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' }),
+      audienceMenuFixture('m2', channelId, { status: 'published', lineRichMenuId: 'line-rm-2' }),
+    ]
+    rows[UID.schedule] = [
+      { documentId: 'sched1', richMenu: { documentId: 'm1' }, op: 'link-members', state: 'failed', cursor: 'mem0499', runAt: '2020-01-01T00:00:00.000Z', lockedBy: null, lockedAt: null, lastError: 'line_server_error' },
+      // runAt อนาคต — งานของเมนูอื่นต้องไม่ถูก tick ของคำขอนี้หยิบไปวิ่ง ซึ่งจะทำให้แยกไม่ออกว่า
+      // ค่าที่เปลี่ยนมาจากการปลดระวางหรือมาจากการวิ่งงานตามปกติ
+      { documentId: 'sched2', richMenu: { documentId: 'm2' }, op: 'link-members', state: 'pending', cursor: 'mem0999', runAt: '2099-01-01T00:00:00.000Z', lockedBy: null, lockedAt: null, lastError: null },
+      // งาน op อื่นของเมนู **เดียวกัน** — ตัวที่พิสูจน์ว่าเทอม `op` ในตัวกรองบังคับจริง ไม่ใช่ประดับ
+      { documentId: 'sched3', richMenu: { documentId: 'm1' }, op: 'unlink-members', state: 'pending', cursor: null, runAt: '2099-01-01T00:00:00.000Z', lockedBy: null, lockedAt: null, lastError: null },
+    ]
+    rows[UID.member] = []
+
+    await controllers.members({ strapi }).deactivate(makeCtx({ params: { id: 'm1' } }))
+
+    expect(rows[UID.schedule]!.find((row) => row['documentId'] === 'sched1'))
+      .toMatchObject({ state: 'done', cursor: null })
+    expect(rows[UID.schedule]!.find((row) => row['documentId'] === 'sched2'))
+      .toMatchObject({ state: 'pending', cursor: 'mem0999' })
+    expect(rows[UID.schedule]!.find((row) => row['documentId'] === 'sched3'))
+      .toMatchObject({ op: 'unlink-members', state: 'pending' })
+  })
+
+  /**
+   * แถวที่ worker อื่นถือ lock อยู่ — `state` เป็นของเจ้าของ lock (`lock.release` มีเงื่อนไข
+   * `lockedBy = owner`) เขียนทับตรงนี้ก็โดนเขียนกลับอยู่ดี แต่ `release` ไม่เคยแตะ `cursor` เลย
+   * การล้าง cursor จึงอยู่รอดข้ามการปล่อย lock: ถ้างานนั้นล้มแล้วถูกปลุกในอนาคต มันจะเริ่มใหม่
+   * ตั้งแต่คนแรก (ส่งซ้ำ ซึ่ง LINE รับได้) แทนที่จะข้ามคนไปเงียบ ๆ
+   */
+  it('แถว link-members ที่ running อยู่ — ล้าง cursor แต่ไม่แตะ state/lockedBy ของเจ้าของ lock', async () => {
+    const rows: Record<string, Record<string, unknown>[]> = {}
+    const strapi = fakeMembersStrapi(rows)
+    const channelId = await seedAudienceChannel(strapi, '17')
+    ;(rows[UID.channel]![0] as Record<string, unknown>)['memberRichMenuId'] = 'line-rm-1'
+    rows[UID.menu] = [audienceMenuFixture('m1', channelId, { status: 'published', lineRichMenuId: 'line-rm-1' })]
+    rows[UID.schedule] = [{
+      documentId: 'sched1', richMenu: { documentId: 'm1' }, op: 'link-members', state: 'running',
+      cursor: 'mem0499', runAt: '2099-01-01T00:00:00.000Z', lockedBy: 'host:1',
+      lockedAt: '2026-01-01T00:00:00.000Z', lastError: null,
+    }]
+    rows[UID.member] = []
+
+    await controllers.members({ strapi }).deactivate(makeCtx({ params: { id: 'm1' } }))
+
+    expect(rows[UID.schedule]!.find((row) => row['documentId'] === 'sched1'))
+      .toMatchObject({ state: 'running', lockedBy: 'host:1', cursor: null })
+  })
+
   it('ตั้งงาน unlink-members ไว้ในตาราง (cursor: null) ไม่ใช่ปลดเองในคำขอ', async () => {
     const rows: Record<string, Record<string, unknown>[]> = {}
     const strapi = fakeMembersStrapi(rows)

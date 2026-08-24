@@ -64,6 +64,56 @@ async function enqueueLinkMembers(services: Services, menu: RichMenuRow): Promis
 }
 
 /**
+ * (Task 19 item 2) ปลดระวางงาน `link-members` ของเมนูนี้ตอนที่ผู้ดูแลกดปิด
+ *
+ * `enqueueLinkMembers` ตั้งใจ resume จากแถวที่ `failed` พร้อม cursor เดิม ซึ่งถูกต้องเมื่อ resume
+ * **ภายในการเปิดครั้งเดียวกัน** (LINE ตอบ 503 ที่ชุดที่ 15 จาก 20 — กดซ้ำแล้วไปต่อจากชุดที่ 15)
+ * แต่ผิดทันทีเมื่อมีการ "ปิด" คั่นกลาง: งาน unlink ระหว่างนั้นล้างคนที่ถูกผูกไว้แล้วออกจนหมด การ
+ * เปิดใหม่แล้วเริ่มจาก cursor เดิมจึงข้ามทุกคนที่อยู่ **เหนือ** cursor ไปเงียบ ๆ สวิตช์อ่านว่าเปิด
+ * ทั้งที่สมาชิกครึ่งหนึ่งไม่เคยได้เมนู และไม่มีอะไรรายงานเลย
+ *
+ * บน v5 หนักกว่านั้นอีกชั้น: cursor คือ `documentId` ซึ่งสุ่ม ไม่ monotonic — เหตุผลของ keyset ที่
+ * `members.ts` เขียนไว้ ("แถวที่ id นี้ไม่ขยับ") จริงกับการลบแถว แต่ไม่จริงกับการ **แทรก** แถวใหม่
+ *
+ * ตัดสินที่ตอนปิด ไม่ใช่ตอนเปิด — "มีการปิดเกิดขึ้น" คือสัญญาณที่ตรงประเด็นที่สุด และมันมีอยู่ตรง
+ * นี้พอดีตอนที่มันเกิด ส่วนตอนเปิดไม่มีทางแยกออกเลยว่า cursor ที่ค้างอยู่มาจากงานที่สะดุดในรอบนี้
+ * หรือจากรอบก่อนที่ถูกปิดไปแล้ว
+ *
+ * แถวที่ `running` ไม่แตะ `state` — เจ้าของ lock เป็นคนเขียนสถานะสุดท้ายของมันเอง (`lock.release`
+ * มีเงื่อนไข `lockedBy = owner`) เขียนทับตรงนี้จะโดนมันเขียนกลับอยู่ดี แต่ **ล้าง cursor** ได้และ
+ * ต้องล้าง: `release` ไม่เคยแตะคอลัมน์ `cursor` เลย ค่าที่ล้างไว้จึงอยู่รอดข้ามการปล่อย lock
+ * ถ้างานนั้นล้มหลังจากนี้แล้วถูกปลุกในอนาคต มันจะเริ่มใหม่ตั้งแต่คนแรก (ส่งซ้ำ ซึ่ง LINE รับได้)
+ * แทนที่จะข้ามคนไปเงียบ ๆ — ผิดไปทางที่ซ่อมตัวเองได้ ไม่ใช่ทางที่ทำคนหาย
+ */
+async function retireLinkMembers(services: Services, menu: RichMenuRow): Promise<void> {
+  const rows = await services.schedules.findMany({
+    filters: { richMenuId: menu.id, op: 'link-members' },
+  })
+
+  let retired = 0
+  for (const row of rows) {
+    if (row.state === 'pending' || row.state === 'failed') {
+      // 'done' คือสถานะปลายทางเดียวที่ทั้ง scheduler (หยิบแค่ pending/running) และ
+      // `enqueueLinkMembers` (ปลุกแค่ failed) มองข้ามพร้อมกัน — ไม่มีค่า 'cancelled' ในสคีมา และ
+      // การเพิ่มค่าใหม่เข้า enum ของทั้งสอง adapter เพื่อความหมายที่ละเอียดขึ้นไม่คุ้มกับความเสี่ยง
+      // ของการอัปเกรดคอลัมน์ในผลิตภัณฑ์ที่ปล่อยไปแล้ว
+      await services.schedules.update(row.id, { state: 'done', cursor: null, lastError: null })
+      retired += 1
+    } else if (row.state === 'running') {
+      await services.schedules.update(row.id, { cursor: null })
+      retired += 1
+    }
+  }
+
+  if (retired > 0) {
+    services.logger.info(
+      'line-rich-menu: retired link-members jobs because the member menu was deactivated',
+      { menuId: menu.id, retired },
+    )
+  }
+}
+
+/**
  * ตั้งงานปลดสมาชิกทุกคนที่ยังถือเมนูนี้อยู่ ให้ scheduler ทำ ไม่ใช่ทำในคำขอนี้
  *
  * ระบบนี้ออกแบบมาสำหรับสมาชิกเกินหมื่นคน — วนปลดในคำขอ HTTP คือยิง LINE ยี่สิบกว่าครั้งบวก
@@ -127,6 +177,10 @@ export const members = ({ strapi }: { strapi: StrapiV4 }) => {
         if (channel.memberRichMenuId === lineRichMenuId) {
           await services.channels.update(menu.channelId, { memberRichMenuId: null })
         }
+
+        // ปลดระวางงานผูกสมาชิกที่ยังค้างอยู่ **ก่อน** runTick ข้างล่าง — ไม่งั้น tick ของคำขอนี้เอง
+        // จะหยิบงาน link ที่ยัง pending ขึ้นมาวิ่งสวนกับงาน unlink ที่เพิ่งตั้งไปในคำขอเดียวกัน
+        await retireLinkMembers(services, menu)
 
         // ตั้งงานเสมอ ไม่ผูกกับเงื่อนไขข้างบน — กดปิดซ้ำหลังรอบก่อนล้มต้องตั้งงานใหม่ได้ ทั้งที่
         // pointer ถูกล้างไปตั้งแต่รอบแรกแล้ว ถ้าผูกไว้ด้วยกันจะไม่มีทางปลดคนที่ค้างผ่านหน้าจอได้อีก
