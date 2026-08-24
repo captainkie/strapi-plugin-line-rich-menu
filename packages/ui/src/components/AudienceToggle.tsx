@@ -24,7 +24,7 @@ export interface AudienceToggleProps {
  * ต้องระวังคำนี้เป็นพิเศษ ห้ามใช้คำที่สื่อว่ายืนยันการรับได้แล้ว
  */
 export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
-  const { ui, http, t } = usePort()
+  const { ui, http, t, theme } = usePort()
   const [audience, setAudience] = useState<ChannelAudience | null>(null)
   const [confirming, setConfirming] = useState(false)
   // จำนวนสมาชิกที่ใช้ในกล่องยืนยัน — แยกจาก `audience.memberCount` ตั้งใจ (Task 11 fix round 1):
@@ -174,7 +174,9 @@ export function AudienceToggle({ menu, onChanged }: AudienceToggleProps) {
           ตอน `active` เป็น true (Task 14b item 1): สวิตช์กดได้อยู่แล้วเพื่อ "ปิด" ข้อความที่บอกว่าเปิดให้
           สมาชิกไม่ได้จึงเป็นคำแนะนำผิดทิศทาง — ผู้ใช้ต้องการปิด ไม่ใช่เปิด */}
       {disabledReasonKey === null ? null : (
-        <ui.Typography textColor="neutral600">{t(disabledReasonKey)}</ui.Typography>
+        <span style={{ color: theme.mutedText, fontSize: '.78rem', lineHeight: 1.35 }}>
+          {t(disabledReasonKey)}
+        </span>
       )}
 
       {error === null ? null : <ui.Alert variant="danger">{error}</ui.Alert>}

@@ -188,7 +188,11 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
               </button>
             </div>
 
-            <div role="cell" style={{ ...cell, flexDirection: 'column', alignItems: 'flex-start' }}>
+            {/* `minWidth` ที่นี่ ไม่ใช่ `whiteSpace: nowrap` — คำอธิบายใต้สวิตช์ต้องขึ้นบรรทัดใหม่ได้
+                (ภาษาไทยกับอังกฤษยาวไม่เท่ากัน และผู้ใช้ย่อหน้าต่างได้) สิ่งที่ต้องกันคือคอลัมน์ที่แคบ
+                จนประโยคสั้น ๆ ตัดเป็นสิบบรรทัดแล้วดันความสูงของทั้งแถวขึ้นไปหลายร้อยพิกเซล ซึ่งเป็น
+                อาการที่เห็นจริงบนเดโม — ปุ่ม "Unlink everyone" ก็ถูกตัดกลางคำด้วยเหตุผลเดียวกัน */}
+            <div role="cell" style={{ ...cell, flexDirection: 'column', alignItems: 'flex-start', minWidth: 190 }}>
               {menu.areas.length === 0
                 ? <span style={{ color: theme.mutedText }}>—</span>
                 : menu.areas.map((area, index) => (
@@ -230,6 +234,9 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
                   บรรทัดเดียวที่อยู่เหนือปุ่มนี้ขึ้นบรรทัดเดียวก็ครอบทั้งสองปุ่มได้อยู่แล้วเพราะเหตุผล
                   เดียวกันเป๊ะ ๆ ซ้ำคำจะดูเหมือนบั๊ก UI มากกว่าช่วยอะไร (ตัดสินใจตามที่ brief เปิดทางไว้:
                   "or the control needs a different treatment") */}
+              {/* ห่อด้วย nowrap เพราะคอลัมน์นี้แคบพอที่ "Unlink everyone" จะถูกตัดกลางเป็นสองบรรทัด
+                  ปุ่มที่ข้อความขึ้นบรรทัดใหม่อ่านเหมือนปุ่มสองปุ่มซ้อนกัน */}
+              <div style={{ whiteSpace: 'nowrap' }}>
               <ui.Button
                 variant="danger"
                 testId={`unlink-all-${menu.id}`}
@@ -238,6 +245,7 @@ export function RichMenuList({ channelId }: { channelId: string | null }) {
               >
                 {t('audience.unlinkAll')}
               </ui.Button>
+              </div>
               {unlinkAllSentAt?.menuId !== menu.id ? null : (
                 <span data-testid={`unlink-all-result-${menu.id}`}>
                   {t('audience.sent', { time: formatClockTime(unlinkAllSentAt.at) })}
