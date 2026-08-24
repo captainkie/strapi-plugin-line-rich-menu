@@ -47,6 +47,30 @@ export const BASE_PERMISSIONS = [
 export const CHANNEL_SETTINGS_PERMISSION = 'plugin::line-rich-menu.settings'
 
 /**
+ * สมาชิกอยู่ใน Content Manager ไม่ใช่ในหน้าจอของปลั๊กอิน (ปลั๊กอินไม่มีหน้าจอสมาชิกเลยโดยตั้งใจ
+ * — ดู docs/SPEC.md §Screens) สิทธิ์ชุดข้างบนจึงเปิดปลั๊กอินได้ทั้งหมดแต่ **มองไม่เห็น
+ * `LINE member`** ผลคือเดโมสาธิตฟีเจอร์หลักของ 1.1.0 ไม่ได้เลย ทั้งที่ปุ่มทุกปุ่มกดได้
+ *
+ * `subject` ผูกไว้กับ UID ของสมาชิกตัวเดียว ไม่ใช่ `null` — สิทธิ์ explorer ที่ไม่มี subject
+ * เปิดทุก collection ใน Content Manager ซึ่งรวม `line-channel` ที่ถือ token ที่เข้ารหัสไว้ด้วย
+ *
+ * `properties.fields` ของ create/update ตัด `linkedRichMenuId` กับ `linkedAt` ออก สองฟิลด์นั้น
+ * ปลั๊กอินเป็นคนเขียนจาก lifecycle ตอน link/unlink จริง ถ้าผู้เยี่ยมชมแก้เองได้ จะปลอมสถานะ
+ * "ถูก link แล้ว" ได้โดยที่ LINE ไม่เคยรู้เรื่อง — read ยังเห็นครบทั้งห้า เพราะสองฟิลด์นั้น
+ * คือสิ่งที่พิสูจน์ว่าฟีเจอร์ทำงานจริง
+ */
+export const MEMBER_UID = 'plugin::line-rich-menu.line-member'
+const MEMBER_FIELDS_READ = ['channel', 'lineUserId', 'displayName', 'linkedRichMenuId', 'linkedAt']
+const MEMBER_FIELDS_WRITE = ['channel', 'lineUserId', 'displayName']
+
+export const MEMBER_PERMISSIONS = [
+  { action: 'plugin::content-manager.explorer.read', subject: MEMBER_UID, fields: MEMBER_FIELDS_READ },
+  { action: 'plugin::content-manager.explorer.create', subject: MEMBER_UID, fields: MEMBER_FIELDS_WRITE },
+  { action: 'plugin::content-manager.explorer.update', subject: MEMBER_UID, fields: MEMBER_FIELDS_WRITE },
+  { action: 'plugin::content-manager.explorer.delete', subject: MEMBER_UID, fields: null },
+]
+
+/**
  * `DEMO_ALLOW_CHANNEL_SETTINGS=true` เติมสิทธิ์ channel เข้าไปอีกหนึ่ง — เป็น opt-in ที่ต้องพิมพ์เอง
  * ไม่ใช่ค่าตั้งต้น เพราะคำตอบขึ้นกับว่าเดโมของคุณคุยกับอะไร
  *
@@ -129,9 +153,13 @@ async function main() {
     )
   }
 
-  const permissions = wanted.map((action) => ({
-    action, subject: null, properties: {}, conditions: [],
-  }))
+  const permissions = [
+    ...wanted.map((action) => ({ action, subject: null, properties: {}, conditions: [] })),
+    ...MEMBER_PERMISSIONS.map(({ action, subject, fields }) => ({
+      action, subject, conditions: [],
+      properties: fields === null ? {} : { fields },
+    })),
+  ]
   const written = await call('PUT', `/admin/roles/${role.id}/permissions`, { body: { permissions }, token })
   if (written.status !== 200) throw new Error(`permission update failed: ${written.status} ${JSON.stringify(written.body)}`)
 
@@ -143,8 +171,14 @@ async function main() {
   // สคริปต์นี้จะรายงานว่า "ลดสิทธิ์สำเร็จ เหลือศูนย์สิทธิ์" ทั้งที่ role ยังถูกต้องดี — และในทางกลับกัน
   // มันจะรายงานสำเร็จได้เหมือนกันในวันที่ไม่มีอะไรถูกเขียนลงไปเลย
   const readBack = await call('GET', `/admin/roles/${role.id}/permissions`, { token })
-  const granted = readBack.body.data.map((row) => row.action).sort()
-  const expected = [...wanted].sort()
+  // เทียบเป็นคู่ action+subject ไม่ใช่ action อย่างเดียว — สิทธิ์ explorer สี่ตัวใช้ action คนละชื่อ
+  // แต่ทั้งหมดต้องผูกกับ subject ของสมาชิกเท่านั้น ถ้าเทียบแค่ action วันที่ subject กลายเป็น null
+  // (คือเปิดทุก collection รวม line-channel ที่ถือ token) ด่านนี้จะยังเขียวอยู่
+  const granted = readBack.body.data.map((row) => `${row.action}@${row.subject ?? '-'}`).sort()
+  const expected = [
+    ...wanted.map((a) => `${a}@-`),
+    ...MEMBER_PERMISSIONS.map((p) => `${p.action}@${p.subject}`),
+  ].sort()
   if (JSON.stringify(granted) !== JSON.stringify(expected)) {
     throw new Error(`role ${DEMO_ROLE_CODE} holds ${JSON.stringify(granted)}, expected ${JSON.stringify(expected)}`)
   }
