@@ -29,7 +29,10 @@ const menuDetail = {
   templateKey: 'RICH_MENU_TEMPLATE_207',
   // Task 14b item 1 — `GET /menus/:id` คืนคอลัมน์นี้มาตั้งแต่ Task 11 (`toDetail` คืนทั้งแถว)
   // แต่ไม่มีใครอ่านจนถึงตอนนี้ ตั้งเป็น 'members' เพราะนั่นคือค่าที่การหล่นหายจะเป็นอันตรายจริง
-  audience: 'members' as const,
+  //
+  // Task 17 — ชนิดเป็น union ไม่ใช่ literal `as const` เพราะ describe ของ publish ด้านล่างต้อง
+  // โหลดเมนูที่เป็น 'all' **มาจากเซิร์ฟเวอร์** ด้วย ไม่ใช่ไปถึง 'all' ด้วยการกดสลับเท่านั้น
+  audience: 'members' as 'all' | 'members',
   areas: [{ bounds: { x: 0, y: 0, width: 2500, height: 1686 }, action: { type: 'message' as const, text: 'hi' } }],
   imageFileId: 42,
   aliasId: null,
@@ -37,9 +40,9 @@ const menuDetail = {
   endAt: null,
 }
 
-function setup() {
+function setup(detail: typeof menuDetail = menuDetail) {
   const put = vi.fn(async () => ({ id: 'menu-1' }))
-  const get = vi.fn(async (url: string) => (url === ENDPOINTS.menu('menu-1') ? menuDetail : []))
+  const get = vi.fn(async (url: string) => (url === ENDPOINTS.menu('menu-1') ? detail : []))
   // Task 17 — ปุ่ม "บันทึกและเผยแพร่" ยิง `POST /menus/:id/publish` ต่อจาก PUT ทันที ก่อนหน้านี้
   // ไม่มีเทสต์ไหนในไฟล์นี้กด publish เลย `post` จึงไม่เคยถูกดัก — ซึ่งคือเหตุผลที่ `setAsDefault: true`
   // ตายตัวอยู่รอดมาได้ทุกรอบรีวิว
@@ -203,41 +206,79 @@ async function attachImage(): Promise<void> {
 }
 
 describe('EditorPage — publish ต้องตั้ง default ตามกลุ่มเป้าหมาย ไม่ใช่ true ตายตัว (Task 17)', () => {
-  it('เมนูสมาชิก: กดบันทึกและเผยแพร่ — body ของ publish ต้องเป็น setAsDefault: false', async () => {
-    const { post } = setup()
-    await waitFor(() => expect(screen.getByLabelText('audience.members')).toBeChecked())
-    await attachImage()
-    fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
-
-    const publishCall = async () => {
-      const call = post.mock.calls.find(([url]) => url === ENDPOINTS.menuPublish('menu-1'))
-      expect(call, 'ต้องมีคำขอ publish จริงออกไป ไม่ใช่แค่ upload').toBeDefined()
-      return call as unknown as [string, { setAsDefault: boolean }]
-    }
-    await waitFor(publishCall)
-    const [, body] = await publishCall()
-    expect(body.setAsDefault,
-      'เมนูสมาชิกต้องไม่ถูกตั้งเป็น default ของบัญชี ซึ่งผู้ติดตามทุกคนเห็น').toBe(false)
-  })
+  const checked = (label: string) => (screen.getByLabelText(label) as HTMLInputElement).checked
 
   /**
-   * คู่ที่พิสูจน์ว่านี่ไม่ใช่การปิดฟีเจอร์ "publish แล้วตั้งเป็น default" ทิ้ง — เมนูของทุกคนยังต้อง
-   * ตั้ง default ให้เหมือนเดิม ไม่งั้นการกด "บันทึกและเผยแพร่" จะไม่ทำให้เมนูขึ้นจริงกับใครเลย
+   * ชั้นที่ไม่มีใครทดสอบมาก่อน และเป็นเหตุผลเดียวที่ blocker ตัวนี้เขียนลงไปได้
+   *
+   * เทสต์ของ `packages/ui` หยุดที่ callback `onSave(draft, publish)` ซึ่งอยู่**เหนือ** body ของ
+   * HTTP ส่วนเทสต์ฝั่งเซิร์ฟเวอร์เริ่มที่ controller ซึ่งอยู่**ใต้**มัน ชั้นประกอบคำขอของหน้า
+   * adapter ที่คั่นกลางเคยถูกคุ้มครองไว้แค่ปุ่มเดียว (`save-draft` กับ `put.mock.calls[0]`)
+   * ไม่มีที่ไหนในทั้ง repo ที่บันทึกไว้ว่า **ผลิตภัณฑ์ส่งอะไรจริงตอนกด publish** — `setAsDefault`
+   * โผล่แค่ใน `packages/core/tests/server/publish.test.ts` ในฐานะพารามิเตอร์ที่เทสต์เลือกเองได้
+   * ตามใจ ผลคือ `setAsDefault: true` ตายตัวอยู่รอดมาได้ทุกรอบรีวิว และ fixture ของ acceptance
+   * ก็ส่งค่าที่ editor สร้างไม่ได้โดยไม่มีอะไรค้าน
+   *
+   * ตารางนี้ตรึง body ทั้งก้อนของคำขอ publish จริง ทั้งสองทิศทาง และตรึงว่า `audience` ที่ PUT
+   * ส่งไป กับ `setAsDefault` ที่ POST ส่งตาม มาจากค่าเดียวกัน — สองฟิลด์นี้ derive จาก draft
+   * ตัวเดียวกัน ถ้าวันหนึ่งมันแยกจากกัน (เช่นตัวหนึ่งอ่านค่าที่ค้างอยู่) เมนูจะถูกบันทึกเป็นของ
+   * สมาชิกแล้วถูกตั้งเป็น default ของทุกคนในคำขอถัดมาทันที ซึ่งคือ blocker ตัวเดิมเป๊ะ ๆ
    */
-  it('สลับเป็น "ทุกคน" แล้วกดบันทึกและเผยแพร่ — body ของ publish ต้องเป็น setAsDefault: true', async () => {
-    const { post } = setup()
-    await waitFor(() => expect(screen.getByLabelText('audience.members')).toBeChecked())
-    fireEvent.click(screen.getByLabelText('audience.all'))
-    await attachImage()
-    fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+  const cases = [
+    {
+      title: 'เมนูสมาชิกที่โหลดมาจากเซิร์ฟเวอร์ กดบันทึกและเผยแพร่โดยไม่แตะช่องกลุ่มเป้าหมาย',
+      detail: menuDetail,
+      switchTo: null,
+      audience: 'members',
+      setAsDefault: false,
+    },
+    {
+      // เคสที่พบบ่อยที่สุดจริง ๆ ของปุ่มนี้ — เมนูของทุกคนที่เผยแพร่โดยไม่แตะช่องกลุ่มเป้าหมายเลย
+      // ต่างจากเคสข้างล่างตรงที่ค่า 'all' มาจากแถวจริง ไม่ได้มาจากการกดสลับ: seed ที่พังกับการกด
+      // ที่ถูกต้อง จะยังเขียวถ้ามีแต่เคสข้างล่าง
+      title: 'เมนูของทุกคนที่โหลดมาจากเซิร์ฟเวอร์ กดบันทึกและเผยแพร่โดยไม่แตะช่องกลุ่มเป้าหมาย',
+      detail: { ...menuDetail, audience: 'all' as const },
+      switchTo: null,
+      audience: 'all',
+      setAsDefault: true,
+    },
+    {
+      title: 'สลับจากสมาชิกมาที่ "ทุกคน" แล้วกดบันทึกและเผยแพร่',
+      detail: menuDetail,
+      switchTo: 'audience.all',
+      audience: 'all',
+      setAsDefault: true,
+    },
+    {
+      title: 'สลับจากทุกคนมาที่ "สมาชิก" แล้วกดบันทึกและเผยแพร่',
+      detail: { ...menuDetail, audience: 'all' as const },
+      switchTo: 'audience.members',
+      audience: 'members',
+      setAsDefault: false,
+    },
+  ] as const
 
-    const publishCall = async () => {
-      const call = post.mock.calls.find(([url]) => url === ENDPOINTS.menuPublish('menu-1'))
-      expect(call, 'ต้องมีคำขอ publish จริงออกไป ไม่ใช่แค่ upload').toBeDefined()
-      return call as unknown as [string, { setAsDefault: boolean }]
-    }
-    await waitFor(publishCall)
-    const [, body] = await publishCall()
-    expect(body.setAsDefault).toBe(true)
-  })
+  for (const scenario of cases) {
+    it(`${scenario.title} → PUT audience: ${scenario.audience}, publish setAsDefault: ${scenario.setAsDefault}`, async () => {
+      const { put, post } = setup(scenario.detail)
+      await waitFor(() => expect(checked(`audience.${scenario.detail.audience}`)).toBe(true))
+      if (scenario.switchTo !== null) fireEvent.click(screen.getByLabelText(scenario.switchTo))
+      await attachImage()
+      fireEvent.click(screen.getAllByTestId('save-publish')[0]!)
+
+      const publishCalls = () => post.mock.calls.filter(([url]) => url === ENDPOINTS.menuPublish('menu-1'))
+      await waitFor(() => expect(publishCalls()).toHaveLength(1))
+
+      // body ทั้งก้อน ไม่ใช่คีย์เดียว — คีย์ที่งอกเพิ่มหรือถูกเปลี่ยนชื่อก็ต้องแดงเหมือนกัน
+      // cast แบบเดียวกับ `put` ข้างล่าง — mock ถูกประกาศด้วยพารามิเตอร์เดียว (url) ทั้งที่ตอนรันจริง
+      // ถูกเรียกด้วย (url, body) TS จึงมองไม่เห็น index 1 ทั้งที่มันมีอยู่จริง
+      const [, publishBody] = publishCalls()[0] as unknown as [string, { setAsDefault: boolean }]
+      expect(publishBody).toEqual({ setAsDefault: scenario.setAsDefault })
+
+      // และ PUT ที่นำหน้ามันต้องประกาศ audience ตัวเดียวกับที่ setAsDefault ถูกคิดมาจาก
+      const [, saved] = put.mock.calls[0] as unknown as [string, { audience: string }]
+      expect(saved.audience, 'audience ที่บันทึกกับ setAsDefault ที่ตามไปต้องมาจากค่าเดียวกัน')
+        .toBe(scenario.audience)
+    })
+  }
 })
