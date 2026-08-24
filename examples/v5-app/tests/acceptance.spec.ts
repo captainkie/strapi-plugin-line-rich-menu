@@ -1232,7 +1232,11 @@ interface SqliteDatabase {
  */
 async function runSql(statement: string, params: unknown[]): Promise<Record<string, unknown>[]> {
   if (DATABASE_CLIENT === 'postgres') {
-    const { Client } = await import('pg')
+    // `pg` เป็น CommonJS — `await import()` จึงห่อไว้ใน `.default` การ destructure `{ Client }`
+    // ตรง ๆ ได้ undefined แล้วพังเป็น "Client is not a constructor" ตอนสร้าง ไม่ใช่ตอน import
+    // (CI จับได้ ส่วนเครื่อง dev ไม่เห็น เพราะ example app รัน SQLite เป็นค่าเริ่มต้น)
+    const pg = await import('pg')
+    const Client = pg.Client ?? (pg as unknown as { default: typeof pg }).default.Client
     const client = new Client((() => {
       // ตรงกับ config/database.js ของแอปนี้ ซึ่งรับได้ทั้ง DATABASE_URL เดี่ยว ๆ (Neon/Render)
       // และชุด HOST/PORT/NAME/USERNAME/PASSWORD ที่ matrix ของ CI ใช้
