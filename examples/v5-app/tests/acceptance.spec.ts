@@ -769,6 +769,49 @@ test.describe('audience สมาชิก', () => {
       'แถวเก็บไว้ก่อน ถ้าด่านนี้แดง แปลว่าสมาชิกที่ถูกลบถือเมนูค้างอยู่ตลอดไปอย่างเงียบ ๆ')
       .toBe(404)
 
+    // === Task 19 item 1 — ลบสมาชิกหลายแถวพร้อมกันจาก Content Manager ต้องปลดจาก LINE ด้วย ===
+    //
+    // ต้องยิงผ่าน **endpoint จริงของ Content Manager** (`actions/bulkDelete`) เท่านั้น การเรียก
+    // lifecycle ตรง ๆ คือสิ่งที่ทำให้บั๊กนี้รอดมาได้: เส้นทางลบยกชุดของ v4 ยิง
+    // `beforeDeleteMany`/`afterDeleteMany` ส่วน subscriber ลงทะเบียนไว้แค่ `beforeDelete`/`afterDelete`
+    // ผลคือติ๊กสี่สิบแถวแล้วกดลบ = ไม่มีใครถูกปลดสักคน และเมื่อแถวหายไปแล้ว `unlink-members` ก็ตาม
+    // เก็บไม่ได้อีกเลย (v5 เดินคนละทางคือลบทีละ document จึงยิงคู่เดี่ยว — ด่านนี้ปักความจริงข้อนั้นไว้
+    // ให้ทั้งสอง adapter เท่ากัน ถ้า Strapi เปลี่ยนไปใช้ deleteMany เมื่อไหร่ ด่านนี้จะแดงทันที)
+    //
+    // `keepUid` คือครึ่งที่ทำให้ด่านนี้มีความหมาย — "ปลดทุกคนในตาราง" ก็ทำให้สองด่านแรกเขียวได้
+    const bulkUids = [uidOf('d'), uidOf('e')]
+    const keepUid = uidOf('f')
+    const bulkTargets: { data: { documentId: string } }[] = []
+    for (const lineUserId of bulkUids) {
+      bulkTargets.push(await createMember(request, token, { channelId, lineUserId }))
+    }
+    await createMember(request, token, { channelId, lineUserId: keepUid })
+
+    for (const lineUserId of [...bulkUids, keepUid]) {
+      const linked = await request.get(`${LINE_MOCK}/v2/bot/user/${lineUserId}/richmenu`, lineAuth)
+      expect(linked.status(), 'สมาชิกที่เพิ่งสร้างต้องถูกผูกอัตโนมัติก่อนจะลบยกชุด').toBe(200)
+    }
+
+    const bulkDeleted = await request.post(
+      `/content-manager/collection-types/${MEMBER_UID}/actions/bulkDelete`,
+      { ...auth(token), data: { documentIds: bulkTargets.map((row) => row.data.documentId) } })
+    expect(bulkDeleted.status(), await bulkDeleted.text()).toBe(200)
+    expect((await bulkDeleted.json()).count).toBe(bulkUids.length)
+
+    for (const lineUserId of bulkUids) {
+      const gone = await request.get(`${LINE_MOCK}/v2/bot/user/${lineUserId}/richmenu`, lineAuth)
+      expect.soft(gone.status(),
+        'Task 19 item 1: ลบยกชุดจาก Content Manager แล้วสมาชิกยังถือเมนูอยู่ — บน v5 เส้นทางนี้ลบ ' +
+        'ทีละ document จึงยิง beforeDelete/afterDelete ถ้าด่านนี้แดง แปลว่า Strapi เปลี่ยนไปใช้ ' +
+        'deleteMany แล้ว และ v5 ต้องลงทะเบียนคู่ *Many เหมือน v4')
+        .toBe(404)
+    }
+
+    const untouched = await request.get(`${LINE_MOCK}/v2/bot/user/${keepUid}/richmenu`, lineAuth)
+    expect.soft(untouched.status(),
+      'คนที่ไม่ได้ถูกติ๊กต้องไม่ถูกปลด — ถ้าด่านนี้แดง แปลว่าการลบยกชุดกวาดเกินสิ่งที่ถูกเลือก')
+      .toBe(200)
+
     // === finding ที่ 2: beforeUpdate ต้อง resolve แถวเดิมจากตัวระบุที่ event ส่งมาได้จริง ===
     //
     // สมาชิกแยกต่างหากอีกคู่ — ไม่มี afterUpdate lifecycle เลย (ดู registerMemberLifecycles) การแก้

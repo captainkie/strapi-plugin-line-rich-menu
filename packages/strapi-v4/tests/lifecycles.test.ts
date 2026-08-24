@@ -304,6 +304,7 @@ describe('unlinkDeletedMember', () => {
 function fakeFullStrapi(members: Record<string, unknown>[], channels: Record<string, unknown>[]) {
   const subscribe = vi.fn()
   const created: { uid: string; data: Record<string, unknown> }[] = []
+  const dbQueries: { uid: string; where: Record<string, unknown> | undefined }[] = []
   const tables: Record<string, Record<string, unknown>[]> = { [UID.member]: members, [UID.channel]: channels }
   const strapi = {
     log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -334,10 +335,39 @@ function fakeFullStrapi(members: Record<string, unknown>[], channels: Record<str
       delete: vi.fn(),
     },
     plugin: () => ({ service: () => ({}), contentType: () => ({}) }),
-    db: { connection: {}, lifecycles: { subscribe } },
+    db: {
+      connection: {},
+      lifecycles: { subscribe },
+      // (Task 19 item 1) `beforeDeleteMany` แปล `where` เป็นแถวจริงผ่านชั้นนี้ — ของปลอมจึงต้อง
+      // **กรองจริง** ไม่ใช่คืนทุกแถว ไม่งั้นเทสต์ "ปลดเฉพาะคนที่ถูกติ๊ก" จะเขียวแม้โค้ดปลดยกตาราง
+      query: (uid: string) => ({
+        updateMany: vi.fn(),
+        findMany: vi.fn(async (params: { where?: Record<string, unknown> }) => {
+          dbQueries.push({ uid, where: params.where })
+          return (tables[uid] ?? []).filter((row) => matchesWhere(row, params.where ?? {}))
+        }),
+      }),
+    },
     dirs: { static: { public: '/tmp' } },
   } as unknown as StrapiV4
-  return { strapi, subscribe, created }
+  return { strapi, subscribe, created, dbQueries }
+}
+
+/**
+ * ตัวจับคู่ `where` ของ Query Engine เท่าที่เส้นทางลบยกชุดใช้จริง — Content Manager ส่งลงมาเป็น
+ * `{ $and: [{ id: { $in: [...] } }] }` (ตรวจกับ controller `bulkDelete` ของ
+ * `@strapi/plugin-content-manager` ตัวจริงที่ติดตั้งอยู่) ของปลอมที่ทิ้ง `where` แล้วคืนทุกแถวคือ
+ * รูปเดียวกับ `clientFor` ที่ทิ้งพารามิเตอร์ ซึ่งเป็นเหตุที่บั๊ก Task 9 รอดสามรอบรีวิว
+ */
+function matchesWhere(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([key, want]) => {
+    if (key === '$and') return (want as Record<string, unknown>[]).every((sub) => matchesWhere(row, sub))
+    if (key === '$or') return (want as Record<string, unknown>[]).some((sub) => matchesWhere(row, sub))
+    if (want !== null && typeof want === 'object' && '$in' in (want as Record<string, unknown>)) {
+      return (want as { $in: unknown[] }).$in.some((value) => String(value) === String(row[key]))
+    }
+    return String(row[key]) === String(want)
+  })
 }
 
 const CHANNEL_ROW = { id: 10, name: 'ร้าน', channelId: '1650000000', accessTokenLast4: 'abcd', isDefault: false }
@@ -371,7 +401,7 @@ function fakeProviderStates() {
 }
 
 describe('registerMemberLifecycles', () => {
-  it('ลงทะเบียน subscriber ตัวเดียวกับ model line-member และมี handler ครบทั้งห้าตัว', () => {
+  it('ลงทะเบียน subscriber ตัวเดียวกับ model line-member และมี handler ครบทั้งเจ็ดตัว', () => {
     const { strapi, subscribe } = fakeFullStrapi([], [])
     registerMemberLifecycles(strapi)
 
@@ -383,6 +413,11 @@ describe('registerMemberLifecycles', () => {
     expect(typeof subscriber.afterCreate).toBe('function')
     expect(typeof subscriber.beforeDelete).toBe('function')
     expect(typeof subscriber.afterDelete).toBe('function')
+    // (Task 19 item 1) คู่ `*Many` ไม่ใช่ของเสริม — เป็น hook **เดียว** ที่เส้นทางลบยกชุดของ
+    // Content Manager ยิง (`entityService.deleteMany` → `db.query().deleteMany`) ขาดไปแปลว่า
+    // ติ๊กหลายแถวแล้วกดลบ = ไม่มีใครถูกปลดจาก LINE เลยสักคน โดยไม่มี log แม้แต่บรรทัดเดียว
+    expect(typeof subscriber.beforeDeleteMany).toBe('function')
+    expect(typeof subscriber.afterDeleteMany).toBe('function')
   })
 
   it('beforeCreate ที่ต่อสายจริง ปฏิเสธ uid ผิดรูปแบบเหมือนกับ validateMemberWrite ตรง ๆ', async () => {
@@ -478,6 +513,56 @@ describe('registerMemberLifecycles', () => {
 
     const afterEvent = states.after({ params: { where: { id: 1 } }, result: { id: 1 } })
     await expect(subscriber.afterDelete!(afterEvent)).resolves.toBeUndefined()
+    expect(created).toEqual([])
+  })
+
+  /**
+   * (Task 19 item 1) เส้นทางที่ Content Manager ใช้จริงเมื่อติ๊กหลายแถวแล้วกด Delete — คู่ `*Many`
+   * เท่านั้น ไม่เคยแตะ `beforeDelete`/`afterDelete` เลย เทสต์นี้จึงต้องเรียกคู่ `*Many` ตรง ๆ
+   * (เรียกคู่เดี่ยวคือสิ่งที่ทำให้บั๊กนี้รอดมาได้ตั้งแต่ต้น)
+   *
+   * `where` ที่ใส่คือรูปที่ controller `bulkDelete` ของจริงประกอบขึ้นมา ไม่ใช่รูปที่สะดวกกับโค้ดเรา
+   * และของปลอมชั้น `db.query` กรองด้วยมันจริง — แถวที่สาม (ไม่ได้ถูกติ๊ก) จึงต้องไม่ถูกแตะ
+   */
+  it('beforeDeleteMany/afterDeleteMany ปลดเฉพาะสมาชิกที่ถูกติ๊กลบ — เส้นทางลบยกชุดของ Content Manager', async () => {
+    const { strapi, subscribe, created, dbQueries } = fakeFullStrapi(
+      [
+        memberEntity({ id: 1, lineUserId: UID_A, linkedRichMenuId: 'rm-1' }),
+        memberEntity({ id: 2, lineUserId: `U${'b'.repeat(32)}`, linkedRichMenuId: 'rm-2' }),
+        memberEntity({ id: 3, lineUserId: `U${'c'.repeat(32)}`, linkedRichMenuId: 'rm-3' }),
+      ],
+      [CHANNEL_ROW],
+    )
+    registerMemberLifecycles(strapi)
+    const subscriber = subscribe.mock.calls[0]![0] as LifecycleSubscriber
+    const states = fakeProviderStates()
+
+    const where = { $and: [{ id: { $in: [1, 2] } }] }
+    const beforeEvent = states.before({ params: { where } })
+    await subscriber.beforeDeleteMany!(beforeEvent)
+    states.capture(beforeEvent)
+
+    // `afterDeleteMany` ของจริงได้แค่ `{ count }` กลับมา ไม่มีตัวตนของแถวที่หายไปเลย — จำลองให้ตรง
+    const afterEvent = states.after({ params: { where }, result: { count: 2 } })
+    await expect(subscriber.afterDeleteMany!(afterEvent)).resolves.toBeUndefined()
+
+    // แถวที่ถูกอ่านมาต้องมาจาก `where` ตัวเดียวกับที่ Query Engine จะใช้ลบ ไม่ใช่ค่าอื่นหรือทั้งตาราง
+    expect(dbQueries).toEqual([{ uid: UID.member, where }])
+    // ปลดสองคนที่ติ๊ก และ **เฉพาะ** สองคนนั้น — rm-3 ต้องไม่โผล่ที่ไหนเลย
+    expect(created.filter((row) => row.uid === UID.audit).map((row) => row.data['richMenuId']))
+      .toEqual(['rm-1', 'rm-2'])
+  })
+
+  it('afterDeleteMany ที่ไม่มี state ถูกส่งต่อมาเลย เป็น no-op เงียบ ๆ ไม่ throw ใส่การลบที่สำเร็จไปแล้ว', async () => {
+    const { strapi, subscribe, created } = fakeFullStrapi(
+      [memberEntity({ id: 1, linkedRichMenuId: 'rm-1' })],
+      [CHANNEL_ROW],
+    )
+    registerMemberLifecycles(strapi)
+    const subscriber = subscribe.mock.calls[0]![0] as LifecycleSubscriber
+
+    await expect(subscriber.afterDeleteMany!({ params: { where: { id: 1 } }, result: { count: 1 } }))
+      .resolves.toBeUndefined()
     expect(created).toEqual([])
   })
 

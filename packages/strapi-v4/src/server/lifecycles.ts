@@ -164,10 +164,22 @@ export async function unlinkDeletedMember(services: Services, row: MemberRow): P
  */
 const DELETED_MEMBER = 'deletedMember'
 
+/**
+ * คีย์คู่ขนานสำหรับเส้นทางลบหลายแถว — แยกจาก `DELETED_MEMBER` เพราะ hook คนละคู่กันและไม่เคยวิ่ง
+ * ในคำสั่งเดียวกัน (`deleteMany` ไม่ยิง `beforeDelete` เลย) ใช้คีย์เดียวกันก็ "ได้" แต่จะทำให้ชนิด
+ * ของค่าที่ฝากไว้ขึ้นกับว่าใครเป็นคนฝาก ซึ่งเป็นสิ่งที่ `stashedMember` ตั้งใจไม่ต้องเดามาตั้งแต่ต้น
+ */
+const DELETED_MEMBERS = 'deletedMembers'
+
 /** ค่าที่อ่านกลับมาคือค่าที่ `beforeDelete` ของเราเองใส่ไว้ (state ถูกคีย์ด้วย subscriber) การ cast
  * ตรงนี้จึงไม่ใช่การเดารูปของข้อมูลที่ Strapi ประกอบมาให้ ต่างจาก `event.result` ที่เคยพึ่งอยู่ */
 function stashedMember(event: LifecycleEvent): MemberRow | null {
   return (event.state?.[DELETED_MEMBER] ?? null) as MemberRow | null
+}
+
+/** คู่ `*Many` ของ `stashedMember` — "ไม่มีคีย์" กับ "ไม่มีแถวไหนถูกลบ" ให้ผลเดียวกันคือลิสต์ว่าง */
+function stashedMembers(event: LifecycleEvent): MemberRow[] {
+  return (event.state?.[DELETED_MEMBERS] ?? []) as MemberRow[]
 }
 
 /** beforeCreate/beforeUpdate ต่างกันแค่ว่ามีแถวเดิมให้ยกเว้นหรือยัง — `where` ที่ไม่มีของ create
@@ -247,6 +259,63 @@ export function registerMemberLifecycles(strapi: StrapiV4): void {
     async afterDelete(event: LifecycleEvent) {
       const row = stashedMember(event)
       if (row !== null) await unlinkDeletedMember(getServices(strapi), row)
+    },
+
+    /**
+     * (Task 19 item 1) เส้นทางที่ Content Manager ใช้จริงเมื่อผู้ดูแลติ๊กหลายแถวแล้วกด Delete —
+     * `entityService.deleteMany` → `db.query().deleteMany` ยิงเฉพาะคู่ `*Many` เท่านั้น
+     * `beforeDelete`/`afterDelete` ข้างบนไม่เคยถูกเรียกเลยแม้แต่ครั้งเดียวในเส้นทางนี้ ผลเดิมคือ
+     * ติ๊กสี่สิบแถวแล้วกดลบ = ไม่มีใครถูกปลดจาก LINE สักคน ไม่มีแม้แต่บรรทัด log "resolve id ไม่ได้"
+     * และเมื่อแถวหายไปแล้ว งาน `unlink-members` ก็ตามเก็บไม่ได้อีกเลยเพราะมันเลือกคนจากแถวของเรา
+     *
+     * รูปเดียวกับคู่เดี่ยวเป๊ะ ๆ: อ่านแถวไว้ตอนที่ยังอ่านได้ → ฝากใน `event.state` → ปลดหลังลบสำเร็จ
+     * ต่างแค่ว่า "แถวไหนบ้าง" ต้องแปลจาก `where` ของ Query Engine ก่อน เพราะ `afterDeleteMany`
+     * ได้กลับมาแค่ `{ count }` ไม่มีตัวตนของแถวที่หายไปเลย
+     */
+    async beforeDeleteMany(event: LifecycleEvent) {
+      const services = getServices(strapi)
+      try {
+        // `deleteMany` ฝั่ง db ใช้ **`where` อย่างเดียว** ในการเลือกแถวที่จะลบ (ไม่สนใจ limit/offset
+        // ที่อาจติดมากับ query เดียวกัน — ตรวจกับ entity-manager ตัวจริงที่ติดตั้งอยู่) การถามด้วย
+        // `where` ตัวเดียวกันจึงได้ชุดแถวที่ตรงกับที่กำลังจะหายไปพอดี ไม่ใช่ชุดที่กว้างหรือแคบกว่า
+        //
+        // `where` ที่หายไปทั้งก้อนแปลว่า "ลบทุกแถวของ content type นี้" ตามความหมายของ Query Engine
+        // ไม่ใช่ "ไม่มีอะไรถูกลบ" — ต้องอ่านทุกแถวมาปลด ไม่ใช่ข้ามไปเงียบ ๆ
+        const where = event.params.where ?? {}
+        const raw = await strapi.db.query(UID.member).findMany({ where })
+
+        // อ่านกลับผ่าน `services.members` ทีละแถวเหมือนคู่เดี่ยว แทนที่จะแปลงแถวดิบเอง — `toRow`
+        // ของ repo เป็นที่เดียวที่รู้ว่าคอลัมน์ไหนแม็ปเป็นฟิลด์ไหน (รวม `channel` ที่ต้อง populate)
+        // การเขียนตัวแปลงตัวที่สองไว้ตรงนี้คือสำเนาที่วันหนึ่งจะไม่ตรงกัน แลกกับ N คำสั่งอ่านต่อ
+        // การลบยกชุดหนึ่งครั้ง ซึ่งเป็นการกระทำด้วยมือที่หน้าจอจำกัดจำนวนต่อหน้าอยู่แล้ว
+        const rows: MemberRow[] = []
+        for (const entry of raw) {
+          const id = idOf(entry['id'])
+          if (id === null) {
+            services.logger.error(
+              'line-rich-menu: capture members before bulk delete failed — cannot resolve id from row',
+              { where: event.params.where },
+            )
+            continue
+          }
+          const row = await services.members.findOne(id)
+          if (row !== null) rows.push(row)
+        }
+
+        event.state = { ...event.state, [DELETED_MEMBERS]: rows }
+      } catch (error) {
+        services.logger.error('line-rich-menu: capture members before bulk delete failed', { error })
+      }
+    },
+
+    async afterDeleteMany(event: LifecycleEvent) {
+      const services = getServices(strapi)
+      // ทีละคนตามลำดับ ไม่ใช่ Promise.all — `unlinkFromUser` เป็นการเรียก LINE หนึ่งครั้งต่อคน และ
+      // rate limit ของ LINE นับรวมทั้งบัญชี การยิงสี่สิบเส้นพร้อมกันเพื่อประหยัดเวลาในงานที่ผู้ใช้
+      // ไม่ได้รออยู่แล้ว (การลบสำเร็จไปแล้ว) แลกความเสี่ยง 429 กับสิ่งที่ไม่มีใครได้อะไรกลับมา
+      for (const row of stashedMembers(event)) {
+        await unlinkDeletedMember(services, row)
+      }
     },
   })
 }

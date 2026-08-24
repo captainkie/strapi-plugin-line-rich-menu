@@ -51,6 +51,13 @@ export interface DbQuery {
     where: Record<string, unknown>
     data: Record<string, unknown>
   }): Promise<{ count: number }>
+  /**
+   * Task 19 item 1 — `beforeDeleteMany` ได้ `where` มาเป็น query ของ Query Engine ที่ยังไม่ถูกรัน
+   * (`{ $and: [{ id: { $in: [...] } }] }` เมื่อมาจาก Content Manager) ไม่ใช่แถวที่กำลังจะหาย และ
+   * `afterDeleteMany` ได้แค่ `{ count }` — ตัวเดียวที่แปล where เป็นแถวจริงได้คือชั้นนี้ เพราะ
+   * `entityService.findMany` พูดภาษา filters ของ REST ไม่ใช่ภาษา where ของ Query Engine
+   */
+  findMany(params: { where?: Record<string, unknown> }): Promise<Record<string, unknown>[]>
 }
 
 export type LifecycleSubscriber = {
@@ -60,6 +67,16 @@ export type LifecycleSubscriber = {
   afterCreate?(event: LifecycleEvent): Promise<void>
   beforeDelete?(event: LifecycleEvent): Promise<void>
   afterDelete?(event: LifecycleEvent): Promise<void>
+  /**
+   * Task 19 item 1 — คู่ `*Many` **ไม่ใช่** ทางเลือกที่จะลงทะเบียนหรือไม่ก็ได้บน v4: การลบหลายแถว
+   * ผ่าน Content Manager (ติ๊กหลายแถวแล้วกด Delete) เดินทาง `entityService.deleteMany` →
+   * `db.query().deleteMany` ซึ่งยิงเฉพาะสองตัวนี้ ไม่เคยยิง `beforeDelete`/`afterDelete` เลยสักครั้ง
+   * (ตรวจกับ `@strapi/database` 4.25.11 ตัวจริงที่ติดตั้งอยู่: `deleteMany` เรียก
+   * `lifecycles.run('beforeDeleteMany'|'afterDeleteMany')` เท่านั้น) — subscriber ที่ลงแค่คู่เดี่ยว
+   * จึงปล่อยให้สมาชิกที่ถูกลบยกชุดถือเมนูค้างบน LINE ตลอดไปโดยไม่มี log สักบรรทัด
+   */
+  beforeDeleteMany?(event: LifecycleEvent): Promise<void>
+  afterDeleteMany?(event: LifecycleEvent): Promise<void>
 }
 
 export interface StrapiV4 {
